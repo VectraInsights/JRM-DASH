@@ -6,9 +6,8 @@ from datetime import datetime, timedelta
 
 # 1. CONFIGURAÇÕES DOS SEGREDOS
 # Certifique-se que no seu Secrets do Streamlit as chaves estão exatamente com estes nomes
-CLIENT_ID = st.secrets["client_id"]
-CLIENT_SECRET = st.secrets["client_secret"]
-TOKENS_LIST = st.secrets["refresh_tokens"] # Deve ser uma lista: ["token1", "token2"...]
+CLIENT_ID = st.secrets["api"]["client_id"]
+CLIENT_SECRET = st.secrets["api"]["client_secret"]
 
 def obter_access_token(refresh_token):
     """Renova o access_token usando o refresh_token."""
