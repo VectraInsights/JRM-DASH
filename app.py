@@ -99,6 +99,7 @@ if st.button('🚀 Gerar Projeção Financeira'):
             acc_token = obter_access_token(emp, token_ref, aba)
             if acc_token:
                 itens = listar_lancamentos_futuros(acc_token)
+                st.write(f"Empresa {emp} retornou {len(itens)} lançamentos.")
                 for i in itens:
                     i['unidade'] = emp
                     # Identificar se é Entrada ou Saída
