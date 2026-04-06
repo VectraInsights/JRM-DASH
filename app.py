@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÕES ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
+# As chaves abaixo devem estar no secrets do Streamlit
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
 
@@ -46,16 +47,21 @@ def conectar_google_sheets():
         st.stop()
 
 
-def obter_access_token(empresa, refresh_token, aba_planilha):
+def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     url = "https://auth.contaazul.com/oauth2/token"
 
-    if not refresh_token:
-        st.error(f"❌ Erro: Refresh Token da {empresa} está vazio na planilha!")
+    # Limpeza crucial para tokens JWT (longos)
+    refresh_token = str(refresh_token_raw).strip()
+
+    if not refresh_token or refresh_token == "None":
+        st.error(f"❌ Erro: Refresh Token da {empresa} está vazio ou inválido na planilha!")
         return None
 
+    # Payload atualizado com o escopo obrigatório solicitado pela Conta Azul
     payload = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token
+        "refresh_token": refresh_token,
+        "scope": "openid profile aws.cognito.signin.user.admin"
     }
 
     try:
@@ -65,28 +71,23 @@ def obter_access_token(empresa, refresh_token, aba_planilha):
             data=payload
         )
 
-        # 🔍 DEBUG COMPLETO (AQUI ESTÁ O QUE VOCÊ PRECISA)
-        st.write(f"🔎 Empresa: {empresa}")
-        st.write(f"Status Code:", response.status_code)
-        st.write("Resposta da API:")
-        st.code(response.text)
-
         if response.status_code == 200:
             dados = response.json()
-
             novo_refresh = dados.get("refresh_token")
 
-            # ⚠️ Atualiza o refresh token na planilha
+            # Atualiza o refresh token na planilha imediatamente
             try:
                 cell = aba_planilha.find(empresa)
+                # Coluna B é col + 1 assumindo que empresa está na A
                 aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
-            except:
-                st.warning("⚠️ Não consegui atualizar o refresh token automaticamente")
+            except Exception as e:
+                st.warning(f"⚠️ Token renovado, mas falhou ao gravar na planilha: {e}")
 
             return dados.get("access_token")
 
         else:
             st.error(f"❌ Falha ao renovar token para {empresa}")
+            st.code(response.text) # Mostra o erro 401/400 detalhado
             return None
 
     except Exception as e:
@@ -101,6 +102,7 @@ def listar_lancamentos_futuros(access_token, empresa_nome):
         "Authorization": f"Bearer {access_token}"
     }
 
+    # Range de datas
     data_inicio = (datetime.now() - timedelta(days=7)).date().isoformat()
     data_fim = (datetime.now() + timedelta(days=45)).date().isoformat()
 
@@ -111,20 +113,12 @@ def listar_lancamentos_futuros(access_token, empresa_nome):
 
     try:
         st.info(f"📡 Chamando API para {empresa_nome}...")
-        st.write(f"Período: {data_inicio} até {data_fim}")
-
         r = requests.get(url, headers=headers, params=params)
 
         if r.status_code == 200:
             res_bruto = r.json()
             itens = res_bruto if isinstance(res_bruto, list) else res_bruto.get('items', [])
-
-            with st.expander(f"DEBUG: Dados Brutos - {empresa_nome}"):
-                st.write(f"Total de itens retornados: {len(itens)}")
-                st.json(res_bruto)
-
             return itens
-
         else:
             st.error(f"Erro {r.status_code} na API {empresa_nome}: {r.text}")
             return []
@@ -135,13 +129,13 @@ def listar_lancamentos_futuros(access_token, empresa_nome):
 
 
 # --- INTERFACE ---
-st.set_page_config(page_title="DEBUG - Dashboard JRM", layout="wide")
-st.title("📅 Depuração de Lançamentos JRM")
+st.set_page_config(page_title="Dashboard Financeiro JRM", layout="wide")
+st.title("📊 Fluxo de Caixa Consolidado (Próximos 45 dias)")
 
-if st.button('🚀 Rodar Sincronização com Debug'):
+if st.button('🚀 Sincronizar Dados Agora'):
     aba = conectar_google_sheets()
 
-    with st.status("Processando...", expanded=True) as status:
+    with st.status("Sincronizando com Conta Azul...", expanded=True) as status:
         lista_dados = aba.get_all_records()
         todos_lancamentos = []
 
@@ -149,7 +143,7 @@ if st.button('🚀 Rodar Sincronização com Debug'):
             emp = row['empresa']
             token_ref = row['refresh_token']
 
-            st.markdown(f"### 🏢 Empresa: {emp}")
+            st.write(f"🔄 Processando unidade: **{emp}**")
 
             acc_token = obter_access_token(emp, token_ref, aba)
 
@@ -158,40 +152,43 @@ if st.button('🚀 Rodar Sincronização com Debug'):
 
                 for i in itens:
                     i['unidade'] = emp
-
+                    # Cálculo de valor (alguns endpoints usam amount, outros value)
                     v = i.get('value') if i.get('value') is not None else i.get('amount', 0)
-                    i['valor_ajustado'] = v
-
+                    i['valor_final'] = v
+                    # Identificação de Tipo
                     i['tipo'] = 'Recebível' if i.get('category_group') == 'REVENUE' else 'Pagável'
 
                 todos_lancamentos.extend(itens)
-
+                st.success(f"✅ {emp}: {len(itens)} itens carregados.")
             else:
-                st.warning(f"Pulei {emp} por falta de token válido.")
+                st.warning(f"⚠️ {emp} ignorada devido a erro no token.")
 
-        status.update(label="Processo Concluído!", state="complete")
+        status.update(label="Sincronização Concluída!", state="complete")
 
     if todos_lancamentos:
         st.divider()
-
         df = pd.DataFrame(todos_lancamentos)
 
-        c1, c2 = st.columns(2)
+        # Métricas em colunas
+        c1, c2, c3 = st.columns(3)
+        receita = df[df['tipo'] == 'Recebível']['valor_final'].sum()
+        despesa = df[df['tipo'] == 'Pagável']['valor_final'].sum()
 
-        receita = df[df['tipo'] == 'Recebível']['valor_ajustado'].sum()
-        despesa = df[df['tipo'] == 'Pagável']['valor_ajustado'].sum()
+        c1.metric("Total a Receber", f"R$ {receita:,.2f}")
+        c2.metric("Total a Pagar", f"R$ {despesa:,.2f}")
+        c3.metric("Saldo do Período", f"R$ {(receita - despesa):,.2f}")
 
-        c1.metric("A Receber (No período)", f"R$ {receita:,.2f}")
-        c2.metric("A Pagar (No período)", f"R$ {despesa:,.2f}")
-
-        st.subheader("Tabela de Dados Identificados")
-
-        colunas_disponiveis = [
-            c for c in ['due_date', 'description', 'valor_ajustado', 'tipo', 'unidade', 'status']
-            if c in df.columns
-        ]
-
-        st.dataframe(df[colunas_disponiveis], use_container_width=True)
+        # Tabela formatada
+        st.subheader("📋 Detalhamento dos Lançamentos")
+        colunas_exibicao = ['due_date', 'description', 'valor_final', 'tipo', 'unidade']
+        # Filtra apenas colunas que realmente existem no DF
+        cols = [c for c in colunas_exibicao if c in df.columns]
+        
+        st.dataframe(
+            df[cols].sort_values(by='due_date'), 
+            use_container_width=True,
+            hide_index=True
+        )
 
     else:
-        st.error("❌ Fim da execução: A API não retornou nenhum lançamento.")
+        st.error("❌ Nenhum dado foi retornado pela API. Verifique os tokens na planilha.")
