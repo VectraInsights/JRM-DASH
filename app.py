@@ -11,25 +11,32 @@ CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
 
 def conectar_google_sheets():
-    """Conecta ao Sheets reconstruindo a chave PEM para evitar erros de byte."""
+    """Conecta ao Sheets reconstruindo a chave PEM do zero para evitar erros de byte."""
     try:
+        # 1. Busca os dados brutos do Secrets
         info = dict(st.secrets["connections"]["gsheets"])
-        
-        # RECONSTRUÇÃO DA CHAVE: Remove tudo e mantém só o código Base64
         raw_key = info["private_key"]
+        
+        # 2. LIMPEZA RADICAL (Resolve o erro InvalidByte 1629)
+        # Remove cabeçalhos, rodapés, \n de texto, espaços e aspas
         miolo = raw_key.replace("-----BEGIN PRIVATE KEY-----", "")
         miolo = miolo.replace("-----END PRIVATE KEY-----", "")
-        miolo = miolo.replace("\\n", "").replace("\n", "").strip().strip("'").strip('"')
+        miolo = miolo.replace("\\n", "").replace("\n", "").replace("\r", "").strip().strip("'").strip('"')
         
-        # Monta o PEM oficial com quebras de linha reais
+        # 3. RECONSTRUÇÃO OFICIAL (O Google exige quebras de linha reais)
         info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{miolo}\n-----END PRIVATE KEY-----\n"
         
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
         creds = Credentials.from_service_account_info(info, scopes=scopes)
         client = gspread.authorize(creds)
         return client.open_by_url(URL_PLANILHA).sheet1
+        
     except Exception as e:
-        st.error(f"❌ Erro na Conexão Google: {e}")
+        st.error(f"❌ Erro Crítico na Conexão Google: {e}")
         st.stop()
 
 def obter_access_token(empresa, refresh_token, aba_planilha):
@@ -67,17 +74,19 @@ def listar_lancamentos(access_token):
         return []
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Dashboard BPO JRM", layout="wide")
+st.set_page_config(page_title="Dashboard Multi-CNPJ JRM", layout="wide")
 st.title("🏢 Dashboard Multi-CNPJ Consolidado")
 
 if st.button('🚀 Sincronizar Todas as Empresas'):
     aba = conectar_google_sheets()
     
-    with st.status("Coletando dados...", expanded=True) as status:
+    with st.status("Coletando dados e renovando tokens...", expanded=True) as status:
         try:
-            df_tokens = pd.DataFrame(aba.get_all_records())
+            # Lê os registros da planilha Google
+            dados_planilha = aba.get_all_records()
+            df_tokens = pd.DataFrame(dados_planilha)
         except Exception as e:
-            st.error(f"Erro ao ler a planilha: {e}")
+            st.error(f"Erro ao acessar a planilha: {e}")
             st.stop()
 
         todos_dados = []
@@ -90,18 +99,19 @@ if st.button('🚀 Sincronizar Todas as Empresas'):
                 importados = listar_lancamentos(acc_token)
                 for item in importados:
                     item['origem_empresa'] = empresa
-                    item['valor'] = float(item.get('value', 0))
+                    item['valor_total'] = float(item.get('value', 0))
                 todos_dados.extend(importados)
             else:
-                st.warning(f"⚠️ {empresa}: Token inválido.")
+                st.warning(f"⚠️ {empresa}: Falha na renovação do token.")
         
         status.update(label="Sincronização concluída!", state="complete", expanded=False)
 
     if todos_dados:
         df_final = pd.DataFrame(todos_dados)
-        st.success(f"✅ {len(df_final)} lançamentos importados.")
+        st.success(f"✅ {len(df_final)} lançamentos importados com sucesso.")
+        st.subheader("Extrato Consolidado")
         st.dataframe(df_final, use_container_width=True)
     else:
-        st.error("Nenhum dado coletado.")
+        st.error("Nenhum dado pôde ser coletado. Verifique os tokens na planilha.")
 else:
-    st.info("Clique no botão para iniciar.")
+    st.info("Clique no botão para iniciar a sincronização via Google Sheets.")
