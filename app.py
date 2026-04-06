@@ -3,18 +3,22 @@ import requests
 import pandas as pd
 
 # 1. Configurações vindas dos Secrets
+# IMPORTANTE: No Streamlit Cloud, preencha os nomes exatamente como abaixo (minúsculo ou maiúsculo)
 CLIENT_ID = st.secrets["client_id"]
 CLIENT_SECRET = st.secrets["client_secret"]
-# O refresh_token inicial que você já possui
-REFRESH_TOKEN = st.secrets["REFRESH_TOKEN"]
+REFRESH_TOKEN = st.secrets["refresh_token"]
 
 def atualizar_token():
     """Troca o Refresh Token por um Access Token válido"""
-    url = "https://api.contaazul.com/oauth2/token"
+    # URL CORRETA: auth.contaazul.com
+    url = "https://auth.contaazul.com/oauth2/token"
+    
     data = {
         "grant_type": "refresh_token",
         "refresh_token": REFRESH_TOKEN
     }
+    
+    # O Conta Azul exige Basic Auth com Client ID e Client Secret
     response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data=data)
     
     if response.status_code == 200:
@@ -25,15 +29,18 @@ def atualizar_token():
 
 def listar_lancamentos(access_token):
     """Busca os lançamentos financeiros do Conta Azul"""
+    # Endpoint de Extrato (Cash Flow)
     url = "https://api.contaazul.com/v1/financials/cash-flow"
     headers = {"Authorization": f"Bearer {access_token}"}
     
-    # Exemplo: Pegando lançamentos dos últimos 30 dias
     response = requests.get(url, headers=headers)
     
     if response.status_code == 200:
+        # A API retorna uma lista de lançamentos
         return response.json()
-    return []
+    else:
+        st.error(f"Erro ao buscar dados: {response.status_code}")
+        return []
 
 # --- INTERFACE STREAMLIT ---
 st.set_page_config(page_title="Dashboard Conta Azul", layout="wide")
@@ -48,6 +55,7 @@ if st.button('Sincronizar Dados do ERP'):
             dados = listar_lancamentos(token_valido)
             
             if dados:
+                # Transforma a lista de JSON em uma tabela do Pandas
                 df = pd.DataFrame(dados)
                 st.success(f"Sincronizado! {len(df)} lançamentos encontrados.")
                 
@@ -55,8 +63,9 @@ if st.button('Sincronizar Dados do ERP'):
                 st.subheader("Lançamentos Financeiros")
                 st.dataframe(df, use_container_width=True)
                 
-                # Exemplo de métrica rápida
-                total = df['value'].sum() if 'value' in df.columns else 0
-                st.metric("Volume Total no Período", f"R$ {total:,.2f}")
+                # Cálculo de métrica simples (ajuste 'value' pelo nome da coluna real se necessário)
+                if 'value' in df.columns:
+                    total = df['value'].sum()
+                    st.metric("Volume Total no Período", f"R$ {total:,.2f}")
             else:
-                st.warning("Nenhum dado retornado para o período.")
+                st.warning("Nenhum dado retornado ou a lista está vazia.")
