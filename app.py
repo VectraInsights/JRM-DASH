@@ -35,7 +35,7 @@ def conectar_google_sheets():
         spreadsheet = client.open_by_key(ID_PLANILHA)
         return spreadsheet.worksheet("Página1")
     except Exception as e:
-        st.error(f"❌ Falha técnica na conexão: {e}")
+        st.error(f"❌ Falha técnica na conexão Google: {e}")
         st.stop()
 
 def obter_access_token(empresa, refresh_token, aba_planilha):
@@ -50,43 +50,60 @@ def obter_access_token(empresa, refresh_token, aba_planilha):
             aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
             return dados.get("access_token")
         else:
-            st.error(f"❌ Erro de Token ({empresa}): {response.json().get('error_description', response.text)}")
+            st.error(f"❌ Erro de Token ({empresa}): {response.text}")
             return None
-    except:
+    except Exception as e:
+        st.error(f"❌ Erro ao processar token ({empresa}): {e}")
         return None
 
-def listar_lancamentos_futuros(access_token):
-    """Busca contas a pagar e receber dos PRÓXIMOS 30 dias."""
+def listar_lancamentos_futuros(access_token, empresa_nome):
+    """Busca lançamentos e exibe depuração bruta na tela."""
     url = "https://api.contaazul.com/v1/financials/transactions"
     headers = {"Authorization": f"Bearer {access_token}"}
     
-    # AJUSTE DO PERÍODO: De hoje até +30 dias
-    data_inicio = datetime.now().date().isoformat()
-    data_fim = (datetime.now() + timedelta(days=30)).date().isoformat()
+    # Range ampliado para garantir que pegamos o que você está vendo
+    # De 7 dias atrás até 45 dias no futuro
+    data_inicio = (datetime.now() - timedelta(days=7)).date().isoformat()
+    data_fim = (datetime.now() + timedelta(days=45)).date().isoformat()
     
     params = {
         "expiration_start": data_inicio,
-        "expiration_end": data_fim,
-        "status": 'OPEN' # Traz apenas o que ainda NÃO foi pago/recebido
+        "expiration_end": data_fim
+        # "status": "OPEN" # Removido para depuração total
     }
     
     try:
+        st.info(f"📡 Chamando API para {empresa_nome}...")
+        st.write(f"Período: {data_inicio} até {data_fim}")
+        
         r = requests.get(url, headers=headers, params=params)
+        
         if r.status_code == 200:
-            res = r.json()
-            return res if isinstance(res, list) else res.get('items', [])
-        return []
-    except:
+            res_bruto = r.json()
+            # Se for uma lista direta ou um dicionário com 'items'
+            itens = res_bruto if isinstance(res_bruto, list) else res_bruto.get('items', [])
+            
+            # --- DEPURAÇÃO VISUAL ---
+            with st.expander(f"DEBUG: Dados Brutos - {empresa_nome}"):
+                st.write(f"Total de itens retornados: {len(itens)}")
+                st.json(res_bruto) # Mostra o JSON bonitinho para análise
+            
+            return itens
+        else:
+            st.error(f"Erro {r.status_code} na API {empresa_nome}: {r.text}")
+            return []
+    except Exception as e:
+        st.error(f"Falha na requisição {empresa_nome}: {e}")
         return []
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Dashboard JRM - Futuro", layout="wide")
-st.title("📅 Projeção de Recebíveis/Pagáveis (Próximos 30 dias)")
+st.set_page_config(page_title="DEBUG - Dashboard JRM", layout="wide")
+st.title("📅 Depuração de Lançamentos JRM")
 
-if st.button('🚀 Gerar Projeção Financeira'):
+if st.button('🚀 Rodar Sincronização com Debug'):
     aba = conectar_google_sheets()
     
-    with st.status("Sincronizando com as APIs...", expanded=True) as status:
+    with st.status("Processando...", expanded=True) as status:
         lista_dados = aba.get_all_records()
         todos_lancamentos = []
         
@@ -94,32 +111,40 @@ if st.button('🚀 Gerar Projeção Financeira'):
             emp = row['empresa']
             token_ref = row['refresh_token']
             
-            st.write(f"🔍 Analisando Futuro de: **{emp}**")
+            st.markdown(f"### 🏢 Empresa: {emp}")
             
             acc_token = obter_access_token(emp, token_ref, aba)
             if acc_token:
-                itens = listar_lancamentos_futuros(acc_token)
-                st.write(f"Empresa {emp} retornou {len(itens)} lançamentos.")
+                itens = listar_lancamentos_futuros(acc_token, emp)
+                
                 for i in itens:
                     i['unidade'] = emp
-                    # Identificar se é Entrada ou Saída
+                    # Verifica se o campo de valor é 'value' ou 'amount' (depende da versão da API)
+                    v = i.get('value') if i.get('value') is not None else i.get('amount', 0)
+                    i['valor_ajustado'] = v
                     i['tipo'] = 'Recebível' if i.get('category_group') == 'REVENUE' else 'Pagável'
+                
                 todos_lancamentos.extend(itens)
+            else:
+                st.warning(f"Pulei {emp} por falta de token válido.")
         
-        status.update(label="Análise Concluída!", state="complete")
+        status.update(label="Processo Concluído!", state="complete")
 
     if todos_lancamentos:
+        st.divider()
         df = pd.DataFrame(todos_lancamentos)
         
-        # Formatação básica para visualização
-        col1, col2 = st.columns(2)
-        receita = df[df['tipo'] == 'Recebível']['value'].sum()
-        despesa = df[df['tipo'] == 'Pagável']['value'].sum()
+        # Totais
+        c1, c2 = st.columns(2)
+        receita = df[df['tipo'] == 'Recebível']['valor_ajustado'].sum()
+        despesa = df[df['tipo'] == 'Pagável']['valor_ajustado'].sum()
         
-        col1.metric("Total a Receber", f"R$ {receita:,.2f}")
-        col2.metric("Total a Pagar", f"R$ {despesa:,.2f}")
+        c1.metric("A Receber (No período)", f"R$ {receita:,.2f}")
+        c2.metric("A Pagar (No período)", f"R$ {despesa:,.2f}")
 
-        st.subheader("Detalhamento dos Próximos 30 Dias")
-        st.dataframe(df[['due_date', 'description', 'value', 'tipo', 'unidade']], use_container_width=True)
+        st.subheader("Tabela de Dados Identificados")
+        # Mostra as colunas que conseguimos mapear
+        colunas_disponiveis = [c for c in ['due_date', 'description', 'valor_ajustado', 'tipo', 'unidade', 'status'] if c in df.columns]
+        st.dataframe(df[colunas_disponiveis], use_container_width=True)
     else:
-        st.info("Nenhum lançamento em aberto encontrado para os próximos 30 dias.")
+        st.error("❌ Fim da execução: A API não retornou nenhum lançamento para as empresas processadas.")
