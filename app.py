@@ -67,7 +67,7 @@ def listar_lancamentos_futuros(access_token):
     params = {
         "expiration_start": data_inicio,
         "expiration_end": data_fim,
-        # Traz apenas o que ainda NÃO foi pago/recebido
+        "status": 'OPEN' # Traz apenas o que ainda NÃO foi pago/recebido
     }
     
     try:
