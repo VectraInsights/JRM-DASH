@@ -7,7 +7,6 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÕES ---
-# Extraí o ID diretamente da sua imagem para não haver erro de digitação
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
@@ -15,7 +14,6 @@ CLIENT_SECRET = st.secrets["api"]["client_secret"]
 def conectar_google_sheets():
     try:
         gs = st.secrets["connections"]["gsheets"]
-        
         info = {
             "type": gs["type"],
             "project_id": gs["project_id"],
@@ -27,8 +25,6 @@ def conectar_google_sheets():
             "auth_provider_x509_cert_url": gs["auth_provider_x509_cert_url"],
             "client_x509_cert_url": gs["client_x509_cert_url"]
         }
-        
-        # Decodifica a chave Base64
         b64_key = gs["private_key_base64"]
         key_decoded = base64.b64decode(b64_key).decode("utf-8")
         info["private_key"] = key_decoded.replace("\\n", "\n")
@@ -36,13 +32,8 @@ def conectar_google_sheets():
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(info, scopes=scopes)
         client = gspread.authorize(creds)
-        
-        # Tenta abrir pelo ID (mais seguro que URL)
         spreadsheet = client.open_by_key(ID_PLANILHA)
-        
-        # Tenta abrir a "Página1" (conforme sua imagem)
         return spreadsheet.worksheet("Página1")
-        
     except Exception as e:
         st.error(f"❌ Falha técnica na conexão: {e}")
         st.stop()
@@ -55,21 +46,30 @@ def obter_access_token(empresa, refresh_token, aba_planilha):
         if response.status_code == 200:
             dados = response.json()
             novo_refresh = dados.get("refresh_token")
-            # Localiza a célula da empresa para atualizar o token ao lado
             cell = aba_planilha.find(empresa)
             aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
             return dados.get("access_token")
-        return None
+        else:
+            st.error(f"❌ Erro de Token ({empresa}): {response.json().get('error_description', response.text)}")
+            return None
     except:
         return None
 
-def listar_lancamentos(access_token):
+def listar_lancamentos_futuros(access_token):
+    """Busca contas a pagar e receber dos PRÓXIMOS 30 dias."""
     url = "https://api.contaazul.com/v1/financials/transactions"
     headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # AJUSTE DO PERÍODO: De hoje até +30 dias
+    data_inicio = datetime.now().date().isoformat()
+    data_fim = (datetime.now() + timedelta(days=30)).date().isoformat()
+    
     params = {
-        "expiration_start": (datetime.now() - timedelta(days=30)).date().isoformat(),
-        "expiration_end": datetime.now().date().isoformat()
+        "expiration_start": data_inicio,
+        "expiration_end": data_fim,
+        "status": "OPEN"  # Traz apenas o que ainda NÃO foi pago/recebido
     }
+    
     try:
         r = requests.get(url, headers=headers, params=params)
         if r.status_code == 200:
@@ -80,41 +80,45 @@ def listar_lancamentos(access_token):
         return []
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Dashboard JRM", layout="wide")
-st.title("🏢 Sincronizador Multi-CNPJ JRM")
+st.set_page_config(page_title="Dashboard JRM - Futuro", layout="wide")
+st.title("📅 Projeção de Recebíveis/Pagáveis (Próximos 30 dias)")
 
-if st.button('🚀 Sincronizar Agora'):
+if st.button('🚀 Gerar Projeção Financeira'):
     aba = conectar_google_sheets()
     
-    with st.status("Lendo dados da planilha...", expanded=True) as status:
-        # Pega todos os valores para evitar erro de cabeçalho
+    with st.status("Sincronizando com as APIs...", expanded=True) as status:
         lista_dados = aba.get_all_records()
-        
-        if not lista_dados:
-            st.error("Nenhum dado encontrado na aba 'Página1'. Verifique se os dados começam na linha 1.")
-            st.stop()
-            
         todos_lancamentos = []
+        
         for row in lista_dados:
             emp = row['empresa']
             token_ref = row['refresh_token']
             
-            st.write(f"🔄 Sincronizando: **{emp}**")
+            st.write(f"🔍 Analisando Futuro de: **{emp}**")
             
             acc_token = obter_access_token(emp, token_ref, aba)
             if acc_token:
-                itens = listar_lancamentos(acc_token)
+                itens = listar_lancamentos_futuros(acc_token)
                 for i in itens:
                     i['unidade'] = emp
+                    # Identificar se é Entrada ou Saída
+                    i['tipo'] = 'Recebível' if i.get('category_group') == 'REVENUE' else 'Pagável'
                 todos_lancamentos.extend(itens)
-            else:
-                st.warning(f"⚠️ Erro ao renovar token de {emp}")
         
-        status.update(label="Sincronização Finalizada!", state="complete")
+        status.update(label="Análise Concluída!", state="complete")
 
     if todos_lancamentos:
         df = pd.DataFrame(todos_lancamentos)
-        st.success(f"Foram importados {len(df)} registros.")
-        st.dataframe(df, use_container_width=True)
+        
+        # Formatação básica para visualização
+        col1, col2 = st.columns(2)
+        receita = df[df['tipo'] == 'Recebível']['value'].sum()
+        despesa = df[df['tipo'] == 'Pagável']['value'].sum()
+        
+        col1.metric("Total a Receber", f"R$ {receita:,.2f}")
+        col2.metric("Total a Pagar", f"R$ {despesa:,.2f}")
+
+        st.subheader("Detalhamento dos Próximos 30 Dias")
+        st.dataframe(df[['due_date', 'description', 'value', 'tipo', 'unidade']], use_container_width=True)
     else:
-        st.info("Nenhum lançamento encontrado para o período.")
+        st.info("Nenhum lançamento em aberto encontrado para os próximos 30 dias.")
