@@ -3,8 +3,8 @@ import requests
 import pandas as pd
 
 # 1. Configurações vindas dos Secrets
-CLIENT_ID = st.secrets["CLIENT_ID"]
-CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+CLIENT_ID = st.secrets["client_id"]
+CLIENT_SECRET = st.secrets["client_secret"]
 # O refresh_token inicial que você já possui
 REFRESH_TOKEN = st.secrets["REFRESH_TOKEN"]
 
