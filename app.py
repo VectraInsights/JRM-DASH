@@ -1,65 +1,60 @@
 import streamlit as st
 import requests
 import pandas as pd
-import base64
 from datetime import datetime, timedelta
+from streamlit_gsheets import GSheetsConnection # Adicione esta linha
 
-# 1. CONFIGURAÇÕES DOS SEGREDOS
-# Certifique-se que no seu Secrets do Streamlit as chaves estão exatamente com estes nomes
+# --- 1. CONFIGURAÇÕES DOS SEGREDOS ---
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
 
-def obter_access_token(refresh_token):
-    """Renova o access_token usando o refresh_token."""
+# --- 2. CONEXÃO COM A PLANILHA ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def atualizar_token_na_planilha(df_completo, nome_empresa, novo_token):
+    """Salva o novo refresh_token de volta na planilha do Google."""
+    df_completo.loc[df_completo['empresa'] == nome_empresa, 'refresh_token'] = novo_token
+    conn.update(data=df_completo)
+
+def obter_access_token(nome_empresa, refresh_token, df_completo):
+    """Renova o access_token e já atualiza o refresh_token na planilha."""
     url = "https://auth.contaazul.com/oauth2/token"
-    
-    # O Conta Azul exige Basic Auth (ID:Secret em base64) ou auth=(id, secret)
     payload = {
         "grant_type": "refresh_token",
         "refresh_token": refresh_token
     }
     
     try:
-        # Usando auth=(id, secret) que o requests converte automaticamente para Basic Auth
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data=payload)
-        
         if response.status_code == 200:
-            return response.json().get("access_token")
+            dados = response.json()
+            novo_refresh = dados.get("refresh_token")
+            # ATUALIZA A PLANILHA NA HORA
+            atualizar_token_na_planilha(df_completo, nome_empresa, novo_refresh)
+            return dados.get("access_token")
         else:
-            # Log de erro detalhado para debugar no Streamlit
-            st.error(f"Erro Autenticação (Status {response.status_code}): {response.text}")
+            st.error(f"Erro {nome_empresa} (Status {response.status_code}): {response.text}")
             return None
     except Exception as e:
-        st.error(f"Erro de conexão na autenticação: {e}")
+        st.error(f"Erro de conexão na {nome_empresa}: {e}")
         return None
 
 def listar_lancamentos(access_token):
     """Busca os lançamentos financeiros da API."""
-    # Endpoint de transações (mais adequado para o DataFrame que o cash-flow)
     url = "https://api.contaazul.com/v1/financials/transactions"
-    
     params = {
-        # Buscando os últimos 30 dias
         "expiration_start": (datetime.now() - timedelta(days=30)).date().isoformat(),
         "expiration_end": datetime.now().date().isoformat()
     }
-    
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {access_token}"}
     
     try:
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             dados = response.json()
-            # A API retorna uma lista ou um dicionário com a chave 'items'
             return dados if isinstance(dados, list) else dados.get('items', [])
-        else:
-            st.warning(f"Erro ao buscar dados (Status {response.status_code}): {response.text}")
-            return []
-    except Exception as e:
-        st.error(f"Erro na requisição de dados: {e}")
+        return []
+    except:
         return []
 
 # --- INTERFACE STREAMLIT ---
@@ -67,35 +62,36 @@ st.set_page_config(page_title="Dashboard BPO Financeiro", layout="wide")
 st.title("🏢 Dashboard Multi-CNPJ Consolidado")
 
 if st.button('🚀 Sincronizar Todas as Empresas'):
+    # AQUI ESTÁ A MUDANÇA: LER OS TOKENS DA PLANILHA
+    try:
+        df_tokens = conn.read()
+    except Exception as e:
+        st.error(f"Erro ao ler a planilha: {e}")
+        st.stop()
+
     todos_dados = []
     progresso = st.progress(0)
     
-    for i, token in enumerate(TOKENS_LIST):
-        nome_empresa = f"Empresa {i+1}"
+    # O loop agora percorre as linhas da planilha
+    for i, row in df_tokens.iterrows():
+        nome_empresa = row['empresa']
+        token_atual = row['refresh_token']
+        
         with st.spinner(f'Sincronizando {nome_empresa}...'):
-            
-            # Passo 1: Pegar Token de Acesso
-            acc_token = obter_access_token(token)
+            # Passo 1: Pegar Token de Acesso (e atualizar a planilha)
+            acc_token = obter_access_token(nome_empresa, token_atual, df_tokens)
             
             if acc_token:
                 # Passo 2: Pegar Lançamentos
                 dados_empresa = listar_lancamentos(acc_token)
-                
                 if dados_empresa:
-                    # Normaliza os dados e identifica a origem
                     for item in dados_empresa:
                         item['origem_empresa'] = nome_empresa
-                        # Garante que campos numéricos sejam floats para o pandas
                         item['value'] = float(item.get('value', 0))
-                    
                     todos_dados.extend(dados_empresa)
-                else:
-                    st.info(f"💡 {nome_empresa}: Conectada, mas sem lançamentos no período.")
-            else:
-                st.error(f"❌ {nome_empresa}: Falha na conexão. Verifique o Refresh Token.")
         
-        # Atualiza barra de progresso
-        progresso.progress((i + 1) / len(TOKENS_LIST))
+        # Atualiza barra de progresso baseada no tamanho do DataFrame da planilha
+        progresso.progress((i + 1) / len(df_tokens))
 
     # --- EXIBIÇÃO DOS RESULTADOS ---
     if todos_dados:
@@ -104,9 +100,7 @@ if st.button('🚀 Sincronizar Todas as Empresas'):
         
         # Layout de Colunas para Métricas
         col1, col2 = st.columns(2)
-        
         with col1:
-            # Filtro Multi-seleção
             empresas_selecionadas = st.multiselect(
                 "Filtrar por Empresa", 
                 df_final['origem_empresa'].unique(), 
@@ -115,17 +109,14 @@ if st.button('🚀 Sincronizar Todas as Empresas'):
             df_filtrado = df_final[df_final['origem_empresa'].isin(empresas_selecionadas)]
         
         with col2:
-            # Cálculo de Valor Total (considerando a coluna 'value' da API)
-            if 'value' in df_filtrado.columns:
+            if not df_filtrado.empty and 'value' in df_filtrado.columns:
                 total_geral = df_filtrado['value'].sum()
                 st.metric("Total Movimentado (Período)", f"R$ {total_geral:,.2f}")
 
-        # Tabela Principal
         st.subheader("Extrato Consolidado")
         st.dataframe(df_filtrado, use_container_width=True)
-        
     else:
-        st.error("Nenhum dado foi coletado. Verifique as mensagens de erro acima para cada empresa.")
+        st.error("Nenhum dado coletado. Verifique os tokens na planilha.")
 
 else:
-    st.info("Clique no botão acima para iniciar a coleta de dados via API.")
+    st.info("Clique no botão acima para iniciar a coleta de dados via planilha.")
