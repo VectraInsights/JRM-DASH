@@ -40,20 +40,28 @@ def conectar_google_sheets():
 
 def obter_access_token(empresa, refresh_token, aba_planilha):
     url = "https://auth.contaazul.com/oauth2/token"
+    # Adicionando um log para conferir se estamos enviando algo vazio
+    if not refresh_token:
+        st.error(f"❌ Erro: Refresh Token da {empresa} está vazio na planilha!")
+        return None
+        
     payload = {"grant_type": "refresh_token", "refresh_token": refresh_token}
     try:
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data=payload)
+        
         if response.status_code == 200:
             dados = response.json()
             novo_refresh = dados.get("refresh_token")
+            # Salva IMEDIATAMENTE na planilha para não perder a sincronia
             cell = aba_planilha.find(empresa)
             aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
             return dados.get("access_token")
         else:
-            st.error(f"❌ Erro de Token ({empresa}): {response.text}")
+            # Se der erro aqui, precisamos ver o que a Conta Azul diz
+            st.error(f"❌ Falha ao renovar para {empresa}: {response.text}")
             return None
     except Exception as e:
-        st.error(f"❌ Erro ao processar token ({empresa}): {e}")
+        st.error(f"❌ Erro de conexão com Conta Azul: {e}")
         return None
 
 def listar_lancamentos_futuros(access_token, empresa_nome):
