@@ -3,29 +3,31 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# --- CARREGAMENTO DOS SECRETS CONFORME SEU ARQUIVO ---
-# Note que estamos buscando dentro de ["api"] e não ["contaazul"]
+# --- CARREGAMENTO DOS SECRETS ---
 try:
-    CLIENT_ID = st.secrets["api"]["client_id"].strip()
-    CLIENT_SECRET = st.secrets["api"]["client_secret"].strip()
+    # Usamos .strip() para remover qualquer espaço acidental
+    C_ID = st.secrets["api"]["client_id"].strip()
+    C_SECRET = st.secrets["api"]["client_secret"].strip()
     
-    # IMPORTANTE: Você precisa adicionar o refresh_token na seção [api] do seu secrets!
-    # Vou tentar pegar da seção [api], se não existir, mostro um erro amigável.
+    # Se não achar o refresh_token, o app avisa antes de dar erro
     if "refresh_token" in st.secrets["api"]:
-        REFRESH_TOKEN_INI = st.secrets["api"]["refresh_token"].strip()
+        R_TOKEN_INI = st.secrets["api"]["refresh_token"].strip()
     else:
-        st.error("ERRO: 'refresh_token' não encontrado na seção [api] do seu Secrets.")
+        st.error("⚠️ O campo 'refresh_token' está faltando na seção [api] dos seus Secrets.")
         st.stop()
 except KeyError as e:
-    st.error(f"Erro ao ler segredos: A chave {e} não foi encontrada na seção [api].")
+    st.error(f"❌ Chave não encontrada nos Secrets: {e}. Verifique se a seção se chama [api].")
     st.stop()
 
-# --- CONFIGURAÇÃO DO APP ---
-st.set_page_config(page_title="Dashboard JRM - Financeiro", layout="wide")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Dashboard JRM", layout="wide")
 
-def renovar_token():
+def realizar_refresh():
+    """Tenta renovar o acesso usando as credenciais do Secrets"""
     url = "https://api.contaazul.com/oauth2/token"
-    token_atual = st.session_state.get('refresh_token', REFRESH_TOKEN_INI)
+    
+    # Prioriza o refresh token da sessão (que é o mais novo)
+    token_atual = st.session_state.get('refresh_token', R_TOKEN_INI)
     
     payload = {
         "grant_type": "refresh_token",
@@ -33,8 +35,8 @@ def renovar_token():
     }
 
     try:
-        # Autenticação via Header (Basic Auth)
-        response = requests.post(url, data=payload, auth=(CLIENT_ID, CLIENT_SECRET))
+        # Enviando ID e SECRET via Basic Auth (padrão Conta Azul)
+        response = requests.post(url, data=payload, auth=(C_ID, C_SECRET))
         
         if response.status_code == 200:
             dados = response.json()
@@ -42,16 +44,18 @@ def renovar_token():
             st.session_state.refresh_token = dados.get("refresh_token")
             return True
         else:
-            erro = response.json().get('error_description', response.text)
-            st.error(f"Falha na Autenticação API: {erro}")
+            # Caso falhe, mostra o erro técnico da API
+            erro_detalhado = response.text
+            st.error(f"Falha na Autenticação (Status {response.status_code}): {erro_detalhado}")
             return False
     except Exception as e:
         st.error(f"Erro de conexão: {e}")
         return False
 
-def buscar_dados(endpoint, d1, d2):
+def consultar_v1(endpoint, d1, d2):
+    """Busca dados de Contas a Pagar/Receber"""
     if 'access_token' not in st.session_state:
-        if not renovar_token(): return []
+        if not realizar_refresh(): return []
 
     url = f"https://api.contaazul.com/v1/financeiro/{endpoint}"
     headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
@@ -60,41 +64,42 @@ def buscar_dados(endpoint, d1, d2):
     res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 401:
-        if renovar_token():
+        if realizar_refresh():
             headers["Authorization"] = f"Bearer {st.session_state.access_token}"
             res = requests.get(url, headers=headers, params=params)
             
     return res.json() if res.status_code == 200 else []
 
 # --- INTERFACE ---
-st.title("📊 Painel Financeiro - Conta Azul")
+st.title("📊 Painel Financeiro - Contas JRM")
 
 with st.sidebar:
-    st.header("Período")
-    d_ini = st.date_input("Início", datetime(2026, 4, 1))
-    d_fim = st.date_input("Fim", datetime(2026, 4, 30))
-    consultar = st.button("Sincronizar Dados")
+    st.header("Filtros")
+    data_inicio = st.date_input("Início", datetime(2026, 4, 1))
+    data_fim = st.date_input("Fim", datetime(2026, 4, 30))
+    botao = st.button("Sincronizar com Conta Azul")
 
-if consultar:
-    with st.spinner("Consultando API..."):
-        dados_rec = buscar_dados("contas-a-receber", d_ini, d_fim)
-        dados_pag = buscar_dados("contas-a-pagar", d_ini, d_fim)
+if botao:
+    with st.spinner("Processando..."):
+        r = consultar_v1("contas-a-receber", data_inicio, data_fim)
+        p = consultar_v1("contas-a-pagar", data_inicio, data_fim)
 
-        if dados_rec or dados_pag:
-            df_rec = pd.DataFrame(dados_rec)
-            df_pag = pd.DataFrame(dados_pag)
+        if r or p:
+            df_r = pd.DataFrame(r)
+            df_p = pd.DataFrame(p)
             
+            # Cards de resumo
             c1, c2, c3 = st.columns(3)
-            v_rec = df_rec['value'].sum() if not df_rec.empty else 0
-            v_pag = df_pag['value'].sum() if not df_pag.empty else 0
+            val_r = df_r['value'].sum() if not df_r.empty else 0
+            val_p = df_p['value'].sum() if not df_p.empty else 0
             
-            c1.metric("Receber", f"R$ {v_rec:,.2f}")
-            c2.metric("Pagar", f"R$ {v_pag:,.2f}", delta_color="inverse")
-            c3.metric("Saldo", f"R$ {v_rec - v_pag:,.2f}")
+            c1.metric("A Receber", f"R$ {val_r:,.2f}")
+            c2.metric("A Pagar", f"R$ {val_p:,.2f}", delta_color="inverse")
+            c3.metric("Saldo", f"R$ {val_r - val_p:,.2f}")
             
             st.divider()
-            t1, t2 = st.tabs(["Receitas", "Despesas"])
-            with t1: st.dataframe(df_rec, use_container_width=True)
-            with t2: st.dataframe(df_pag, use_container_width=True)
+            t_rec, t_pag = st.tabs(["📥 Receitas", "📤 Despesas"])
+            with t_rec: st.dataframe(df_r, use_container_width=True)
+            with t_pag: st.dataframe(df_p, use_container_width=True)
         else:
-            st.warning("Nenhum dado encontrado.")
+            st.warning("Nenhum dado encontrado ou erro de acesso.")
