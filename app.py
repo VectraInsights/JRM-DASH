@@ -47,51 +47,47 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
 
 def buscar_financeiro_v2(token, tipo_evento):
     """
-    tipo_evento: 'contas-a-pagar' ou 'contas-a-receber'
-    Conforme documentação: página e tamanho_pagina são OBRIGATÓRIOS.
+    Filtra apenas os próximos 30 dias a partir de HOJE.
     """
     endpoint = f"{URL_BASE_V2}/v1/financeiro/eventos-financeiros/{tipo_evento}/buscar"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     
+    # REGRA: A vencer (Hoje até +30 dias)
     hoje = datetime.now()
+    data_inicio = hoje.strftime("%Y-%m-%d")
+    data_fim = (hoje + timedelta(days=30)).strftime("%Y-%m-%d")
+
     params = {
         "pagina": 1,
-        "tamanho_pagina": 1000, # Maximizando para pegar tudo de uma vez
-        "data_vencimento_de": "2023-01-01",
-        "data_vencimento_ate": (hoje + timedelta(days=90)).strftime("%Y-%m-%d"),
-        # Status deve ser passado como lista ou string única conforme o caso
-        "status": "EM_ABERTO" 
+        "tamanho_pagina": 1000,
+        "data_vencimento_de": data_inicio,
+        "data_vencimento_ate": data_fim,
+        "status": "EM_ABERTO"
     }
 
     try:
         r = requests.get(endpoint, headers=headers, params=params)
         if r.status_code == 200:
-            dados = r.json()
-            # Conforme doc: a lista correta está na chave 'itens'
-            return dados.get("itens", [])
-        else:
-            st.error(f"Erro {r.status_code} na JTL ({tipo_evento}): {r.text}")
-            return []
-    except Exception as e:
-        st.error(f"Erro de conexão: {e}")
+            return r.json().get("itens", [])
+        return []
+    except:
         return []
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Fluxo de Caixa JRM (API V2)")
+st.set_page_config(page_title="Fluxo 30 Dias", layout="wide")
+st.title("📅 Projeção de Fluxo (Próximos 30 Dias)")
 
-if st.button('🚀 Sincronizar com Conta Azul'):
+if st.button('🚀 Sincronizar Janela de 30 Dias'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
 
-    with st.status("Extraindo dados financeiros...", expanded=True) as status:
+    with st.status("Filtrando lançamentos futuros...", expanded=True) as status:
         for row in linhas:
             emp = row['empresa']
             token = obter_access_token(emp, row['refresh_token'], aba)
             
             if token:
-                # Busca Pagar e Receber
                 pagar = buscar_financeiro_v2(token, "contas-a-pagar")
                 receber = buscar_financeiro_v2(token, "contas-a-receber")
 
@@ -102,31 +98,26 @@ if st.button('🚀 Sincronizar com Conta Azul'):
                     i.update({'tipo_jrm': 'Receber', 'unidade_jrm': emp})
                     consolidado.append(i)
                 
-                st.success(f"✅ {emp}: {len(pagar) + len(receber)} registros.")
+                st.write(f"🏢 **{emp}**: {len(pagar) + len(receber)} títulos para o período.")
             else:
-                st.error(f"❌ {emp}: Falha na autenticação.")
+                st.error(f"❌ {emp}: Erro de Token")
 
     if consolidado:
         df = pd.DataFrame(consolidado)
-        
-        # Na V2, o valor geralmente vem em 'valor' ou dentro de 'valor_total'
-        def tratar_valor(row):
-            return float(row.get('valor', 0))
-
-        df['valor_num'] = df.apply(tratar_valor, axis=1)
+        df['valor_num'] = df.apply(lambda x: float(x.get('valor', 0)), axis=1)
         
         st.divider()
         c1, c2, c3 = st.columns(3)
         total_rec = df[df['tipo_jrm'] == 'Receber']['valor_num'].sum()
         total_pag = df[df['tipo_jrm'] == 'Pagar']['valor_num'].sum()
         
-        c1.metric("A Receber (Total)", f"R$ {total_rec:,.2f}")
-        c2.metric("A Pagar (Total)", f"R$ {total_pag:,.2f}")
-        c3.metric("Saldo Líquido", f"R$ {(total_rec - total_pag):,.2f}")
+        c1.metric("Recebimentos (30d)", f"R$ {total_rec:,.2f}")
+        c2.metric("Pagamentos (30d)", f"R$ {total_pag:,.2f}")
+        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
 
-        # Exibição da tabela conforme colunas da documentação
-        st.subheader("📋 Detalhamento dos Lançamentos")
-        colunas_doc = ['data_vencimento', 'descricao', 'valor_num', 'tipo_jrm', 'unidade_jrm']
-        st.dataframe(df[colunas_doc].sort_values('data_vencimento'), use_container_width=True)
+        # Tabela ordenada por data mais próxima
+        st.subheader(f"📋 Próximos Vencimentos (até {(datetime.now()+timedelta(days=30)).strftime('%d/%m/%Y')})")
+        cols = ['data_vencimento', 'descricao', 'valor_num', 'tipo_jrm', 'unidade_jrm']
+        st.dataframe(df[cols].sort_values('data_vencimento'), use_container_width=True)
     else:
-        st.warning("Nenhum dado encontrado para os filtros aplicados.")
+        st.info("Nenhum lançamento encontrado com vencimento nos próximos 30 dias.")
