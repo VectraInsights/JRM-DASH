@@ -1,15 +1,15 @@
+```python
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
-import base64
 
 # --- CONFIGURAÇÕES FIXAS ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 
-# --- CONEXÃO GOOGLE (BASE64 CORRETO) ---
+# --- CONEXÃO GOOGLE (OFICIAL E CORRETA) ---
 def conectar_google():
     try:
         if "google_sheets" not in st.secrets:
@@ -18,13 +18,8 @@ def conectar_google():
 
         google = st.secrets["google_sheets"]
 
-        # ✅ DECODIFICAÇÃO CORRETA (SEM REGEX, SEM GAMBIARRA)
-        private_key = base64.b64decode(
-            google["private_key_base64"]
-        ).decode("utf-8")
-
-        # garante quebra de linha correta
-        private_key = private_key.replace("\\n", "\n")
+        # ✅ Ajuste correto do PEM
+        private_key = google["private_key"].replace("\\n", "\n")
 
         info = {
             "type": google["type"],
@@ -45,7 +40,9 @@ def conectar_google():
         ]
 
         creds = Credentials.from_service_account_info(info, scopes=scopes)
-        return gspread.authorize(creds)
+        client = gspread.authorize(creds)
+
+        return client
 
     except Exception as e:
         st.error(f"Erro Crítico na Conexão Google: {e}")
@@ -94,7 +91,10 @@ def renovar_acesso_ca():
         if res.status_code == 200:
             dados = res.json()
 
+            # salva novo refresh token
             gerenciar_token(novo_token=dados.get("refresh_token"))
+
+            # salva access token na sessão
             st.session_state.access_token = dados.get("access_token")
 
             return True
@@ -103,12 +103,13 @@ def renovar_acesso_ca():
             return False
 
     except Exception as e:
-        st.error(f"Erro na requisição Conta Azul: {e}")
+        st.error(f"Erro na Conta Azul: {e}")
         return False
 
 
 # --- BUSCA DADOS CONTA AZUL ---
 def buscar_dados_ca(endpoint, d_inicio, d_fim):
+
     if 'access_token' not in st.session_state:
         if not renovar_acesso_ca():
             return []
@@ -124,17 +125,23 @@ def buscar_dados_ca(endpoint, d_inicio, d_fim):
         "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')
     }
 
-    res = requests.get(url, headers=headers, params=params)
+    try:
+        res = requests.get(url, headers=headers, params=params)
 
-    if res.status_code == 401:
-        if renovar_acesso_ca():
-            headers["Authorization"] = f"Bearer {st.session_state.access_token}"
-            res = requests.get(url, headers=headers, params=params)
+        # tenta renovar se token expirou
+        if res.status_code == 401:
+            if renovar_acesso_ca():
+                headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+                res = requests.get(url, headers=headers, params=params)
 
-    if res.status_code == 200:
-        return res.json()
-    else:
-        st.error(f"Erro API Conta Azul: {res.text}")
+        if res.status_code == 200:
+            return res.json()
+        else:
+            st.error(f"Erro API Conta Azul: {res.text}")
+            return []
+
+    except Exception as e:
+        st.error(f"Erro na requisição: {e}")
         return []
 
 
@@ -174,13 +181,14 @@ if sync:
 
             st.divider()
 
-            t1, t2 = st.tabs(["Contas a Receber", "Contas a Pagar"])
+            tab1, tab2 = st.tabs(["Contas a Receber", "Contas a Pagar"])
 
-            with t1:
+            with tab1:
                 st.dataframe(df_r, use_container_width=True)
 
-            with t2:
+            with tab2:
                 st.dataframe(df_p, use_container_width=True)
 
         else:
             st.info("Nenhum dado encontrado para o período.")
+```
