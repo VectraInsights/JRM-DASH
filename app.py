@@ -2,60 +2,74 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+from gspread_pandas import Spread, Conf
 
-# --- CARREGAMENTO DOS SECRETS ---
-try:
-    # Usamos .strip() para remover qualquer espaço acidental
-    C_ID = st.secrets["api"]["client_id"].strip()
-    C_SECRET = st.secrets["api"]["client_secret"].strip()
+# --- CONFIGURAÇÕES DE ACESSO ---
+C_ID = st.secrets["api"]["client_id"].strip()
+C_SECRET = st.secrets["api"]["client_secret"].strip()
+
+# Configuração Google (mantendo sua estrutura de secrets)
+credenciais_google = {
+    "type": st.secrets["connections.gsheets"]["type"],
+    "project_id": st.secrets["connections.gsheets"]["project_id"],
+    "private_key_id": st.secrets["connections.gsheets"]["private_key_id"],
+    "private_key": st.secrets["connections.gsheets"]["private_key_base64"], 
+    "client_email": st.secrets["connections.gsheets"]["client_email"],
+    "client_id": st.secrets["connections.gsheets"]["client_id"],
+    "auth_uri": st.secrets["connections.gsheets"]["auth_uri"],
+    "token_uri": st.secrets["connections.gsheets"]["token_uri"],
+    "auth_provider_x509_cert_url": st.secrets["connections.gsheets"]["auth_provider_x509_cert_url"],
+    "client_x509_cert_url": st.secrets["connections.gsheets"]["client_x509_cert_url"],
+}
+
+# --- FUNÇÕES GOOGLE SHEETS ---
+def gerenciar_token_planilha(novo_token=None):
+    config = Conf(credenciais_google)
+    # Usando o nome exato da sua planilha que aparece na imagem
+    spread = Spread("Tokens_ContaAzul", config=config) 
     
-    # Se não achar o refresh_token, o app avisa antes de dar erro
-    if "refresh_token" in st.secrets["api"]:
-        R_TOKEN_INI = st.secrets["api"]["refresh_token"].strip()
+    if novo_token:
+        # Atualiza apenas a célula B2 (onde está o token da JTL)
+        spread.update_cells(start="B2", end="B2", vals=[novo_token], sheet="Tokens")
+        return novo_token
     else:
-        st.error("⚠️ O campo 'refresh_token' está faltando na seção [api] dos seus Secrets.")
-        st.stop()
-except KeyError as e:
-    st.error(f"❌ Chave não encontrada nos Secrets: {e}. Verifique se a seção se chama [api].")
-    st.stop()
+        # Lê a aba "Tokens", pegando o valor da célula B2
+        df = spread.sheet_to_df(sheet="Tokens", index=None)
+        # Retorna o valor da coluna 'refresh_token' da primeira linha
+        return df['refresh_token'].iloc[0]
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Dashboard JRM", layout="wide")
-
-def realizar_refresh():
-    """Tenta renovar o acesso usando as credenciais do Secrets"""
+# --- LÓGICA DE REFRESH CONTA AZUL ---
+def renovar_acesso():
     url = "https://api.contaazul.com/oauth2/token"
     
-    # Prioriza o refresh token da sessão (que é o mais novo)
-    token_atual = st.session_state.get('refresh_token', R_TOKEN_INI)
-    
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": token_atual
-    }
-
     try:
-        # Enviando ID e SECRET via Basic Auth (padrão Conta Azul)
+        token_atual = gerenciar_token_planilha()
+        
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": token_atual
+        }
+
+        # Autenticação nativa
         response = requests.post(url, data=payload, auth=(C_ID, C_SECRET))
         
         if response.status_code == 200:
             dados = response.json()
+            # SALVA O NOVO TOKEN NA PLANILHA
+            gerenciar_token_planilha(novo_token=dados.get("refresh_token"))
             st.session_state.access_token = dados.get("access_token")
-            st.session_state.refresh_token = dados.get("refresh_token")
             return True
         else:
-            # Caso falhe, mostra o erro técnico da API
-            erro_detalhado = response.text
-            st.error(f"Falha na Autenticação (Status {response.status_code}): {erro_detalhado}")
+            st.error(f"Erro na renovação: {response.json().get('error_description', response.text)}")
             return False
     except Exception as e:
-        st.error(f"Erro de conexão: {e}")
+        st.error(f"Erro ao acessar planilha ou API: {e}")
         return False
 
-def consultar_v1(endpoint, d1, d2):
-    """Busca dados de Contas a Pagar/Receber"""
+# --- BUSCA DE DADOS ---
+def buscar_dados(endpoint, d1, d2):
     if 'access_token' not in st.session_state:
-        if not realizar_refresh(): return []
+        if not renovar_acesso(): return []
 
     url = f"https://api.contaazul.com/v1/financeiro/{endpoint}"
     headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
@@ -64,42 +78,40 @@ def consultar_v1(endpoint, d1, d2):
     res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 401:
-        if realizar_refresh():
+        if renovar_acesso():
             headers["Authorization"] = f"Bearer {st.session_state.access_token}"
             res = requests.get(url, headers=headers, params=params)
             
     return res.json() if res.status_code == 200 else []
 
 # --- INTERFACE ---
-st.title("📊 Painel Financeiro - Contas JRM")
+st.set_page_config(page_title="Dashboard JRM", layout="wide")
+st.title("📊 Gestão Financeira JTL")
 
 with st.sidebar:
     st.header("Filtros")
-    data_inicio = st.date_input("Início", datetime(2026, 4, 1))
+    data_ini = st.date_input("Início", datetime(2026, 4, 1))
     data_fim = st.date_input("Fim", datetime(2026, 4, 30))
-    botao = st.button("Sincronizar com Conta Azul")
+    bt = st.button("🚀 Sincronizar Agora")
 
-if botao:
-    with st.spinner("Processando..."):
-        r = consultar_v1("contas-a-receber", data_inicio, data_fim)
-        p = consultar_v1("contas-a-pagar", data_inicio, data_fim)
+if bt:
+    with st.spinner("Atualizando tokens e buscando dados..."):
+        r = buscar_dados("contas-a-receber", data_ini, data_fim)
+        p = buscar_dados("contas-a-pagar", data_ini, data_fim)
 
         if r or p:
-            df_r = pd.DataFrame(r)
-            df_p = pd.DataFrame(p)
-            
-            # Cards de resumo
+            df_r, df_p = pd.DataFrame(r), pd.DataFrame(p)
             c1, c2, c3 = st.columns(3)
-            val_r = df_r['value'].sum() if not df_r.empty else 0
-            val_p = df_p['value'].sum() if not df_p.empty else 0
+            v_r = df_r['value'].sum() if not df_r.empty else 0
+            v_p = df_p['value'].sum() if not df_p.empty else 0
             
-            c1.metric("A Receber", f"R$ {val_r:,.2f}")
-            c2.metric("A Pagar", f"R$ {val_p:,.2f}", delta_color="inverse")
-            c3.metric("Saldo", f"R$ {val_r - val_p:,.2f}")
+            c1.metric("Receitas", f"R$ {v_r:,.2f}")
+            c2.metric("Despesas", f"R$ {v_p:,.2f}", delta_color="inverse")
+            c3.metric("Saldo", f"R$ {v_r - v_p:,.2f}")
             
             st.divider()
-            t_rec, t_pag = st.tabs(["📥 Receitas", "📤 Despesas"])
-            with t_rec: st.dataframe(df_r, use_container_width=True)
-            with t_pag: st.dataframe(df_p, use_container_width=True)
+            t1, t2 = st.tabs(["Detalhamento Receitas", "Detalhamento Despesas"])
+            with t1: st.dataframe(df_r, use_container_width=True)
+            with t2: st.dataframe(df_p, use_container_width=True)
         else:
-            st.warning("Nenhum dado encontrado ou erro de acesso.")
+            st.warning("Nenhum dado retornado. Verifique as datas ou a conexão.")
