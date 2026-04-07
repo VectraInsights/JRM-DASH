@@ -44,8 +44,7 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
         return None
     except: return None
 
-def buscar_financeiro_v2(token, tipo_evento):
-    endpoint = f"{URL_BASE_V2}/v1/financeiro/eventos-financeiros/{tipo_evento}/buscar"
+def buscar_financeiro(token, endpoint_path):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     hoje = datetime.now()
     params = {
@@ -55,75 +54,66 @@ def buscar_financeiro_v2(token, tipo_evento):
         "status": "EM_ABERTO"
     }
     try:
-        r = requests.get(endpoint, headers=headers, params=params)
-        if r.status_code == 200:
-            return r.json().get("itens", [])
-        return []
+        r = requests.get(f"{URL_BASE_V2}/v1/financeiro/{endpoint_path}/buscar", headers=headers, params=params)
+        return r.json().get("itens", []) if r.status_code == 200 else []
     except: return []
 
-# --- UI ---
+# --- APP ---
 st.set_page_config(page_title="Resumo 30D", layout="wide")
-st.title("📈 Fluxo de Caixa (Próximos 30 Dias)")
+st.title("📈 Projeção de Caixa (Próximos 30 Dias)")
 
-if st.button('🚀 Atualizar Indicadores'):
+if st.button('🚀 Atualizar Totais'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
-    consolidado = []
+    dados_brutos = []
 
-    with st.spinner("Buscando dados na Conta Azul..."):
+    with st.spinner("Processando unidades..."):
         for row in linhas:
             emp = row['empresa']
             token = obter_access_token(emp, row['refresh_token'], aba)
             if token:
-                for t in ["contas-a-pagar", "contas-a-receber"]:
-                    itens = buscar_financeiro_v2(token, t)
-                    tipo_label = "Receber" if "receber" in t else "Pagar"
-                    
-                    for i in itens:
-                        # --- LÓGICA DE CAPTURA DE VALOR ROBUSTA ---
-                        # 1. Tenta campo direto 'valor'
-                        # 2. Tenta 'valor' dentro de um objeto (comum na V2)
-                        # 3. Tenta 'valor_total'
-                        raw_val = i.get('valor')
-                        if isinstance(raw_val, dict):
-                            v = raw_val.get('valor', 0)
-                        else:
-                            v = raw_val or i.get('valor_total') or i.get('valor_bruto') or 0
-                        
-                        consolidado.append({
-                            'data': i.get('data_vencimento'),
-                            'valor': float(v),
-                            'tipo': tipo_label
-                        })
+                # Receitas
+                rec = buscar_financeiro(token, "contas-a-receber")
+                for i in rec:
+                    # Na V2, valor pode vir como float ou dict {'valor': 0.0}
+                    v = i.get('valor')
+                    valor_final = v.get('valor', 0) if isinstance(v, dict) else (v or 0)
+                    dados_brutos.append({'data': i.get('data_vencimento'), 'valor': float(valor_final), 'tipo': 'Receber'})
+                
+                # Despesas
+                pag = buscar_financeiro(token, "contas-a-pagar")
+                for i in pag:
+                    v = i.get('valor')
+                    valor_final = v.get('valor', 0) if isinstance(v, dict) else (v or 0)
+                    dados_brutos.append({'data': i.get('data_vencimento'), 'valor': float(valor_final), 'tipo': 'Pagar'})
 
-    if consolidado:
-        df = pd.DataFrame(consolidado)
+    if dados_brutos:
+        df = pd.DataFrame(dados_brutos)
         df['data'] = pd.to_datetime(df['data'])
         
-        # Agrupamento para métricas
-        total_rec = df[df['tipo'] == 'Receber']['valor'].sum()
-        total_pag = df[df['tipo'] == 'Pagar']['valor'].sum()
+        # Totais
+        total_r = df[df['tipo'] == 'Receber']['valor'].sum()
+        total_p = df[df['tipo'] == 'Pagar']['valor'].sum()
 
         st.divider()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Recebimentos", f"R$ {total_rec:,.2f}")
-        c2.metric("Pagamentos", f"R$ {total_pag:,.2f}")
-        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total a Receber", f"R$ {total_r:,.2f}")
+        col2.metric("Total a Pagar", f"R$ {total_p:,.2f}")
+        col3.metric("Saldo Líquido", f"R$ {(total_r - total_p):,.2f}")
 
-        # --- GRÁFICO DE TENDÊNCIA ---
-        st.subheader("📊 Tendência Acumulada")
+        # Gráfico de Tendência
+        st.subheader("📊 Tendência Acumulada do Período")
+        df_agrupado = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0).reset_index()
         
-        df_plot = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0).reset_index()
+        # Garantir colunas para o gráfico
+        if 'Receber' not in df_agrupado: df_agrupado['Receber'] = 0
+        if 'Pagar' not in df_agrupado: df_agrupado['Pagar'] = 0
         
-        # Garantir colunas
-        if 'Receber' not in df_plot: df_plot['Receber'] = 0
-        if 'Pagar' not in df_plot: df_plot['Pagar'] = 0
+        df_agrupado = df_agrupado.sort_values('data')
+        df_agrupado['Saldo Diário'] = df_agrupado['Receber'] - df_agrupado['Pagar']
+        df_agrupado['Saldo Acumulado'] = df_agrupado['Saldo Diário'].cumsum()
         
-        df_plot = df_plot.sort_values('data')
-        df_plot['Saldo_Diario'] = df_plot['Receber'] - df_plot['Pagar']
-        df_plot['Saldo_Acumulado'] = df_plot['Saldo_Diario'].cumsum()
-        
-        # Gráfico focado no saldo acumulado
-        st.line_chart(df_plot.set_index('data')[['Saldo_Acumulado']])
+        # Plot
+        st.area_chart(df_agrupado.set_index('data')[['Saldo Acumulado']])
     else:
-        st.warning("Nenhum dado financeiro encontrado para os próximos 30 dias.")
+        st.info("Nenhum lançamento em aberto para os próximos 30 dias.")
