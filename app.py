@@ -3,103 +3,112 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(
-    page_title="Gestão Financeira - Conta Azul",
-    page_icon="💰",
-    layout="wide"
-)
+# --- CONFIGURAÇÕES DA API (PAINEL CONTA AZUL) ---
+CLIENT_ID = "SEU_CLIENT_ID"
+CLIENT_SECRET = "SEU_CLIENT_SECRET"
+# O Refresh Token é o que você já tem guardado
+REFRESH_TOKEN_INICIAL = "SEU_REFRESH_TOKEN_ATUAL"
 
-# --- CONSTANTES E AUTH ---
-# Substitua pelo seu token real
-ACCESS_TOKEN = "SEU_ACCESS_TOKEN_AQUI"
-HEADERS = {
-    "Authorization": f"Bearer {ACCESS_TOKEN}",
-    "Content-Type": "application/json"
-}
+# --- CONFIGURAÇÃO DA PÁGINA STREAMLIT ---
+st.set_page_config(page_title="Financeiro Conta Azul", page_icon="📊", layout="wide")
 
-# --- FUNÇÕES DE BUSCA ---
-def buscar_contas(tipo, dt_inicio, dt_fim):
-    """
-    Busca Contas a Pagar ou Receber.
-    tipo: 'contas-a-pagar' ou 'contas-a-receber'
-    """
-    url = f"https://api.contaazul.com/v1/financeiro/{tipo}"
+# --- LÓGICA DE AUTENTICAÇÃO (REFRESH) ---
+def atualizar_tokens():
+    """Troca o Refresh Token por um novo Access Token"""
+    url = "https://api.contaazul.com/oauth2/token"
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": REFRESH_TOKEN_INICIAL
+    }
+    try:
+        # A API exige Basic Auth com Client ID e Secret
+        response = requests.post(url, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
+        if response.status_code == 200:
+            res_data = response.json()
+            return res_data.get("access_token")
+        else:
+            st.error(f"Erro ao renovar token: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Falha na conexão de auth: {e}")
+        return None
+
+# Inicializa o token na sessão do navegador se não existir
+if 'access_token' not in st.session_state:
+    st.session_state.access_token = atualizar_tokens()
+
+# --- FUNÇÃO DE BUSCA DE DADOS (V1 - CONTAS) ---
+def buscar_dados_contaazul(endpoint, dt_inicio, dt_fim):
+    url = f"https://api.contaazul.com/v1/financeiro/{endpoint}"
     params = {
         "data_vencimento_de": dt_inicio,
         "data_vencimento_ate": dt_fim,
         "size": 100
     }
     
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Erro na API ({response.status_code}): {response.text}")
-            return []
-    except Exception as e:
-        st.error(f"Erro de conexão: {e}")
-        return []
+    headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
+    
+    res = requests.get(url, headers=headers, params=params)
+    
+    # Se o token expirou (401), renova e tenta de novo UMA vez
+    if res.status_code == 401:
+        novo_token = atualizar_tokens()
+        if novo_token:
+            st.session_state.access_token = novo_token
+            headers["Authorization"] = f"Bearer {novo_token}"
+            res = requests.get(url, headers=headers, params=params)
+    
+    if res.status_code == 200:
+        return res.json()
+    return []
 
-# --- INTERFACE SIDEBAR (FILTROS) ---
-st.sidebar.image("https://contaazul.com/wp-content/themes/contaazul-v2/img/logo-contaazul.svg", width=150)
-st.sidebar.title("Filtros de Análise")
+# --- INTERFACE DO USUÁRIO ---
+st.sidebar.title("Configurações")
+st.sidebar.info("O sistema gerencia o Refresh Token automaticamente.")
 
-data_de = st.sidebar.date_input("Vencimento Inicial", value=datetime(2026, 4, 1))
-data_ate = st.sidebar.date_input("Vencimento Final", value=datetime(2026, 4, 30))
+data_de = st.sidebar.date_input("Data Inicial", datetime(2026, 4, 1))
+data_ate = st.sidebar.date_input("Data Final", datetime(2026, 4, 30))
 
-btn_consultar = st.sidebar.button("📊 CONSULTAR AGORA", use_container_width=True)
+if st.sidebar.button("🔄 Sincronizar Dados"):
+    st.title("📈 Análise de Contas (Cabeçalhos)")
+    
+    with st.spinner("Lendo dados do Conta Azul..."):
+        # Chamadas para os endpoints de CONTAS (não parcelas)
+        res_receber = buscar_dados_contaazul("contas-a-receber", data_de, data_ate)
+        res_pagar = buscar_dados_contaazul("contas-a-pagar", data_de, data_ate)
 
-# --- CORPO DO APP ---
-st.title("🚀 Painel de Fluxo de Caixa")
-st.markdown(f"Analisando período de **{data_de.strftime('%d/%m/%Y')}** até **{data_ate.strftime('%d/%m/%Y')}**")
+        df_rec = pd.DataFrame(res_receber)
+        df_pag = pd.DataFrame(res_pagar)
 
-if btn_consultar:
-    with st.spinner('Buscando dados no Conta Azul...'):
-        # Busca os dados
-        dados_receber = buscar_contas("contas-a-receber", data_de, data_ate)
-        dados_pagar = buscar_contas("contas-a-pagar", data_de, data_ate)
-
-        # Processamento de Dados (Pandas)
-        df_receber = pd.DataFrame(dados_receber)
-        df_pagar = pd.DataFrame(dados_pagar)
-
-        # Cálculo de Métricas
-        val_receber = df_receber['value'].sum() if not df_receber.empty else 0.0
-        val_pagar = df_pagar['value'].sum() if not df_pagar.empty else 0.0
-        saldo = val_receber - val_pagar
-
-        # Exibição de Cards
+        # Métricas de Resumo
+        val_rec = df_rec['value'].sum() if not df_rec.empty else 0
+        val_pag = df_pag['value'].sum() if not df_pag.empty else 0
+        
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total a Receber", f"R$ {val_receber:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {val_pagar:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Previsto", f"R$ {saldo:,.2f}")
+        c1.metric("Total a Receber", f"R$ {val_rec:,.2f}")
+        c2.metric("Total a Pagar", f"R$ {val_pag:,.2f}", delta_color="inverse")
+        c3.metric("Saldo do Período", f"R$ {val_rec - val_pag:,.2f}")
 
         st.divider()
 
-        # Abas de Detalhamento
-        tab_rec, tab_pag = st.tabs(["📈 Entradas (Receber)", "📉 Saídas (Pagar)"])
-
-        with tab_rec:
-            if not df_receber.empty:
-                # Ajuste de colunas conforme retorno da API V1
-                cols_rec = ['customer_name', 'value', 'due_date', 'status']
-                display_rec = df_receber[df_receber.columns.intersection(cols_rec)]
-                st.dataframe(display_rec, use_container_width=True)
+        # Tabelas de Detalhamento
+        col_rec, col_pag = st.columns(2)
+        
+        with col_rec:
+            st.subheader("Entradas")
+            if not df_rec.empty:
+                # Seleciona colunas que existem no objeto de Conta V1
+                view_rec = df_rec[['customer_name', 'value', 'due_date', 'status']].copy()
+                st.dataframe(view_rec, use_container_width=True)
             else:
-                st.info("Nenhuma conta a receber para este período.")
+                st.write("Sem registros.")
 
-        with tab_pag:
-            if not df_pagar.empty:
-                cols_pag = ['supplier_name', 'value', 'due_date', 'status']
-                display_pag = df_pagar[df_pagar.columns.intersection(cols_pag)]
-                st.dataframe(display_pag, use_container_width=True)
+        with col_pag:
+            st.subheader("Saídas")
+            if not df_pag.empty:
+                view_pag = df_pag[['supplier_name', 'value', 'due_date', 'status']].copy()
+                st.dataframe(view_pag, use_container_width=True)
             else:
-                st.info("Nenhuma conta a pagar para este período.")
-
+                st.write("Sem registros.")
 else:
-    st.info("Configure as datas na lateral e clique em Consultar para carregar os dados.")
-
-# --- RODAPÉ ---
-st.caption("Desenvolvido para integração direta via API V1 Conta Azul.")
+    st.warning("Clique no botão 'Sincronizar Dados' para carregar a interface.")
