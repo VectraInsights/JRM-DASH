@@ -5,7 +5,7 @@ import gspread
 import base64
 from google.oauth2.service_account import Credentials
 
-# --- CONFIGURAÇÕES ---
+# --- CONFIG ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
@@ -26,8 +26,7 @@ def conectar_google_sheets():
         "client_x509_cert_url": gs["client_x509_cert_url"]
     }
 
-    b64_key = gs["private_key_base64"]
-    info["private_key"] = base64.b64decode(b64_key).decode("utf-8").replace("\\n", "\n")
+    info["private_key"] = base64.b64decode(gs["private_key_base64"]).decode("utf-8").replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(
         info,
@@ -40,11 +39,11 @@ def conectar_google_sheets():
     return gspread.authorize(creds).open_by_key(ID_PLANILHA).worksheet("Página1")
 
 # --- TOKEN ---
-def obter_access_token(empresa, refresh_token_raw, aba_planilha):
+def obter_access_token(empresa, refresh_token_raw, aba):
     url = "https://auth.contaazul.com/oauth2/token"
 
     try:
-        response = requests.post(
+        r = requests.post(
             url,
             auth=(CLIENT_ID, CLIENT_SECRET),
             data={
@@ -53,41 +52,39 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
             }
         )
 
-        if response.status_code == 200:
-            dados = response.json()
+        if r.status_code == 200:
+            data = r.json()
 
-            novo_refresh = dados.get("refresh_token")
+            novo_refresh = data.get("refresh_token")
             if novo_refresh:
-                cell = aba_planilha.find(empresa)
-                aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
+                cell = aba.find(empresa)
+                aba.update_cell(cell.row, cell.col + 1, novo_refresh)
 
-            return dados.get("access_token")
+            return data.get("access_token")
 
         else:
-            st.error(f"Erro token {empresa}: {response.text}")
+            st.error(f"Erro token {empresa}: {r.text}")
             return None
 
     except Exception as e:
         st.error(f"Erro token {empresa}: {e}")
         return None
 
-# --- API CONTA AZUL (ENDPOINT CORRETO) ---
-def buscar_parcelas_v2(token, tipo):
-    url = "https://api-v2.contaazul.com/financeiro/parcelas"
+# --- API CORRETA (SEM /parcelas) ---
+def buscar_contas(token, tipo):
+    url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}"
 
     headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {token}"
     }
 
     pagina = 1
-    todos_itens = []
+    todos = []
 
     while True:
         params = {
             "pagina": pagina,
-            "tamanhoPagina": 100,
-            "tipo": tipo  # RECEBER ou PAGAR
+            "tamanho_pagina": 100
         }
 
         try:
@@ -103,7 +100,7 @@ def buscar_parcelas_v2(token, tipo):
             if not itens:
                 break
 
-            todos_itens.extend(itens)
+            todos.extend(itens)
 
             st.write(f"Página {pagina} ({tipo}): {len(itens)} registros")
 
@@ -116,99 +113,89 @@ def buscar_parcelas_v2(token, tipo):
             st.error(f"Erro API ({tipo}): {e}")
             break
 
-    return todos_itens
+    return todos
 
 # --- UI ---
 st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Totais Financeiros (Conta Azul)")
+st.title("📊 Dashboard Financeiro Conta Azul")
 
-if st.button('🚀 Rodar Varredura'):
+if st.button("🚀 Rodar Varredura"):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
 
     consolidado = []
 
     for row in linhas:
-        emp = row['empresa']
-        refresh_token = row['refresh_token']
+        emp = row["empresa"]
+        refresh = row["refresh_token"]
 
         st.divider()
         st.subheader(f"🏢 {emp}")
 
-        token = obter_access_token(emp, refresh_token, aba)
+        token = obter_access_token(emp, refresh, aba)
 
         if not token:
             continue
 
-        for tipo_api, rotulo in [("RECEBER", "Receita"), ("PAGAR", "Despesa")]:
-            itens = buscar_parcelas_v2(token, tipo_api)
+        for tipo, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
+            itens = buscar_contas(token, tipo)
 
             st.write(f"{rotulo}: {len(itens)} registros")
 
             if not itens:
-                st.warning(f"Nenhum dado de {rotulo} para {emp}")
+                st.warning(f"Sem dados de {rotulo}")
                 continue
 
             for i in itens:
                 try:
-                    status = str(i.get('status', '')).upper()
+                    status = str(i.get("status", "")).upper()
 
-                    # Ignora pagos
+                    # ignora pagos
                     if status in ["PAGO", "QUITADO", "RECEBIDO", "BAIXADO"]:
                         continue
 
-                    # Valor
+                    # valor
                     v = i.get("valor")
                     if isinstance(v, dict):
                         val = float(v.get("valor", 0))
                     else:
-                        val = float(v or 0)
+                        val = float(i.get("valor_nominal", 0))
 
-                    # Data
-                    dt_raw = i.get('dataVencimento') or i.get('data_vencimento')
+                    # data
+                    dt_raw = i.get("data_vencimento")
                     if not dt_raw:
                         continue
 
-                    dt_venc = pd.to_datetime(dt_raw).date()
+                    dt = pd.to_datetime(dt_raw).date()
 
                     consolidado.append({
-                        'data': dt_venc,
-                        'valor': val,
-                        'tipo': rotulo,
-                        'unidade': emp
+                        "data": dt,
+                        "valor": val,
+                        "tipo": rotulo,
+                        "empresa": emp
                     })
 
                 except Exception as e:
                     st.warning(f"Erro item: {e}")
 
-    # --- RESULTADOS ---
+    # --- RESULTADO ---
     if consolidado:
         df = pd.DataFrame(consolidado)
 
-        total_receber = df[df['tipo'] == 'Receita']['valor'].sum()
-        total_pagar = df[df['tipo'] == 'Despesa']['valor'].sum()
-        saldo = total_receber - total_pagar
+        tr = df[df["tipo"] == "Receita"]["valor"].sum()
+        tp = df[df["tipo"] == "Despesa"]["valor"].sum()
 
         c1, c2, c3 = st.columns(3)
+        c1.metric("A RECEBER", f"R$ {tr:,.2f}")
+        c2.metric("A PAGAR", f"R$ {tp:,.2f}")
+        c3.metric("SALDO", f"R$ {(tr - tp):,.2f}")
 
-        c1.metric("TOTAL A RECEBER", f"R$ {total_receber:,.2f}")
-        c2.metric("TOTAL A PAGAR", f"R$ {total_pagar:,.2f}")
-        c3.metric("SALDO EM ABERTO", f"R$ {saldo:,.2f}")
-
-        # --- GRÁFICO ---
         st.subheader("📅 Vencimentos")
+        df_g = df.groupby(["data", "tipo"])["valor"].sum().unstack(fill_value=0)
+        st.bar_chart(df_g)
 
-        df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
-
-        for col in ['Receita', 'Despesa']:
-            if col not in df_g.columns:
-                df_g[col] = 0
-
-        st.bar_chart(df_g[['Receita', 'Despesa']])
-
-        # --- TABELA ---
-        with st.expander("📋 Ver detalhes"):
+        with st.expander("Detalhes"):
             st.dataframe(df)
 
     else:
-        st.error("❌ Nenhum dado encontrado no Conta Azul.")
+        st.error("❌ Nenhum dado encontrado")
