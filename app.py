@@ -26,91 +26,101 @@ def conectar_google_sheets():
 
 def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     url = "https://auth.contaazul.com/oauth2/token"
-    response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data={
-        "grant_type": "refresh_token", "refresh_token": str(refresh_token_raw).strip()
-    })
-    if response.status_code == 200:
-        dados = response.json()
-        novo_refresh = dados.get("refresh_token")
-        if novo_refresh:
-            cell = aba_planilha.find(empresa)
-            aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
-        return dados.get("access_token")
+    try:
+        response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data={
+            "grant_type": "refresh_token", "refresh_token": str(refresh_token_raw).strip()
+        })
+        if response.status_code == 200:
+            dados = response.json()
+            novo_refresh = dados.get("refresh_token")
+            if novo_refresh:
+                cell = aba_planilha.find(empresa)
+                aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
+            return dados.get("access_token")
+    except: pass
     return None
 
-def buscar_dados_v2(token, path):
-    # Conforme sua doc: v1/conta-financeira/... ou financeiro/contas-a-receber
-    url = f"https://api-v2.contaazul.com/v1/financeiro/{path}"
+def buscar_tudo_v2(token, path):
+    """Busca sem filtros de data na URL para garantir que a API retorne algo"""
+    url = f"https://api-v2.contaazul.com/v1/financeiro/{path}/buscar"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     
-    # Datas conforme documentação: ISO date format (YYYY-MM-DD)
-    amanha = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    daqui_30 = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
-    
-    params = {
-        "pagina": 1,
-        "tamanho_pagina": 500, # Aumentado para garantir volume
-        "data_vencimento_de": amanha,
-        "data_vencimento_ate": daqui_30
-    }
+    # Parâmetros mínimos obrigatórios pela V2
+    params = {"pagina": 1, "tamanho_pagina": 1000}
     
     try:
         r = requests.get(url, headers=headers, params=params)
-        # Se a URL direta não funcionar, a V2 as vezes exige o sufixo /buscar
+        # Se /buscar falhar, tenta a rota direta
         if r.status_code != 200:
-            r = requests.get(f"{url}/buscar", headers=headers, params=params)
+            r = requests.get(url.replace('/buscar', ''), headers=headers, params=params)
         
         return r.json().get("itens", []) if r.status_code == 200 else []
     except:
         return []
 
-# --- APP ---
+# --- INTERFACE ---
 st.set_page_config(page_title="Fluxo de Caixa", layout="wide")
 st.title("📊 Fluxo de Caixa (Próximos 30 Dias)")
 
 if st.button('🔄 Atualizar Indicadores'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
-    dados_finais = []
+    dados_brutos = []
+
+    # Datas de corte para o filtro manual
+    amanha = datetime.now() + timedelta(days=1)
+    daqui_30 = datetime.now() + timedelta(days=31)
 
     for row in linhas:
-        token = obter_access_token(row['empresa'], row['refresh_token'], aba)
-        if token:
-            # Receitas
-            recs = buscar_dados_v2(token, "contas-a-receber")
-            for i in recs:
-                if i.get('status') in ['EM_ABERTO', 'RECEBIDO_PARCIAL']: # Filtro manual
-                    # Valor na V2 pode ser um campo 'valor' ou 'saldo'
-                    val = i.get('valor', 0)
-                    if isinstance(val, dict): val = val.get('valor', 0)
-                    dados_finais.append({'data': i.get('data_vencimento'), 'valor': float(val), 'tipo': 'Receita'})
-            
-            # Despesas
-            desp = buscar_dados_v2(token, "contas-a-pagar")
-            for i in desp:
-                if i.get('status') in ['EM_ABERTO', 'RECEBIDO_PARCIAL']:
-                    val = i.get('valor', 0)
-                    if isinstance(val, dict): val = val.get('valor', 0)
-                    dados_finais.append({'data': i.get('data_vencimento'), 'valor': float(val), 'tipo': 'Despesa'})
-
-    if dados_finais:
-        df = pd.DataFrame(dados_finais)
-        df['data'] = pd.to_datetime(df['data'])
+        emp = row['empresa']
+        token = obter_access_token(emp, row['refresh_token'], aba)
         
-        receitas_total = df[df['tipo'] == 'Receita']['valor'].sum()
-        despesas_total = df[df['tipo'] == 'Despesa']['valor'].sum()
+        if token:
+            with st.status(f"Lendo {emp}...", expanded=False):
+                # Tenta buscar Receitas e Despesas
+                for rota in [("contas-a-receber", "Receita"), ("contas-a-pagar", "Despesa")]:
+                    itens = buscar_tudo_v2(token, rota[0])
+                    for i in itens:
+                        # 1. Filtro de Status (Aberto ou Atrasado para fins de teste)
+                        status = i.get('status', '').upper()
+                        if status in ['EM_ABERTO', 'ATRASADO', 'RECEBIDO_PARCIAL', 'PAGO_PARCIAL']:
+                            
+                            # 2. Tratamento da Data
+                            dt_venc = pd.to_datetime(i.get('data_vencimento'))
+                            
+                            # 3. FILTRO: Apenas vencimentos de AMANHÃ em diante
+                            if amanha <= dt_venc <= daqui_30:
+                                # 4. Tratamento do Valor (V2 costuma usar objeto ou float direto)
+                                v = i.get('valor')
+                                val_final = v.get('valor', 0) if isinstance(v, dict) else (v or 0)
+                                
+                                dados_brutos.append({
+                                    'data': dt_venc,
+                                    'valor': float(val_final),
+                                    'tipo': rota[1]
+                                })
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Recebimentos", f"R$ {receitas_total:,.2f}")
-        col2.metric("Pagamentos", f"R$ {despesas_total:,.2f}")
-        col3.metric("Saldo do Período", f"R$ {(receitas_total - despesas_total):,.2f}")
+    if dados_brutos:
+        df = pd.DataFrame(dados_brutos)
+        
+        rec = df[df['tipo'] == 'Receita']['valor'].sum()
+        desp = df[df['tipo'] == 'Despesa']['valor'].sum()
+
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Recebimentos (30d)", f"R$ {rec:,.2f}")
+        c2.metric("Pagamentos (30d)", f"R$ {desp:,.2f}")
+        c3.metric("Saldo Projetado", f"R$ {(rec - desp):,.2f}")
 
         # Gráfico
-        st.subheader("Tendência Acumulada")
-        df_agrupado = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0).reset_index()
-        if 'Receita' not in df_agrupado: df_agrupado['Receita'] = 0
-        if 'Despesa' not in df_agrupado: df_agrupado['Despesa'] = 0
-        df_agrupado['Saldo'] = (df_agrupado['Receita'] - df_agrupado['Despesa']).cumsum()
-        st.line_chart(df_agrupado.set_index('data')['Saldo'])
+        st.subheader("Tendência de Caixa")
+        df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0).reset_index()
+        if 'Receita' not in df_g: df_g['Receita'] = 0
+        if 'Despesa' not in df_g: df_g['Despesa'] = 0
+        
+        df_g = df_g.sort_values('data')
+        df_g['Acumulado'] = (df_g['Receita'] - df_g['Despesa']).cumsum()
+        st.area_chart(df_g.set_index('data')['Acumulado'])
     else:
-        st.warning("Nenhum dado encontrado. Verifique se há contas 'Em Aberto' com vencimento a partir de amanhã.")
+        st.error("⚠️ Nenhum lançamento futuro encontrado nas APIs.")
+        st.info("Dica: Verifique se os lançamentos no Conta Azul possuem 'Data de Vencimento' preenchida e status 'Em Aberto'.")
