@@ -10,107 +10,99 @@ from datetime import datetime, timedelta
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
+URL_BASE_V2 = "https://api-v2.contaazul.com"
 
+# --- CONEXÃO GOOGLE (MANTIDA) ---
 def conectar_google_sheets():
     try:
         gs = st.secrets["connections"]["gsheets"]
         info = {
-            "type": gs["type"],
-            "project_id": gs["project_id"],
-            "private_key_id": gs["private_key_id"],
-            "client_email": gs["client_email"],
-            "client_id": gs["client_id"],
-            "auth_uri": gs["auth_uri"],
-            "token_uri": gs["token_uri"],
-            "auth_provider_x509_cert_url": gs["auth_provider_x509_cert_url"],
+            "type": gs["type"], "project_id": gs["project_id"], "private_key_id": gs["private_key_id"],
+            "client_email": gs["client_email"], "client_id": gs["client_id"], "auth_uri": gs["auth_uri"],
+            "token_uri": gs["token_uri"], "auth_provider_x509_cert_url": gs["auth_provider_x509_cert_url"],
             "client_x509_cert_url": gs["client_x509_cert_url"]
         }
         b64_key = gs["private_key_base64"]
-        key_decoded = base64.b64decode(b64_key).decode("utf-8")
-        info["private_key"] = key_decoded.replace("\\n", "\n")
+        info["private_key"] = base64.b64decode(b64_key).decode("utf-8").replace("\\n", "\n")
         creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-        client = gspread.authorize(creds)
-        return client.open_by_key(ID_PLANILHA).worksheet("Página1")
+        return gspread.authorize(creds).open_by_key(ID_PLANILHA).worksheet("Página1")
     except Exception as e:
-        st.error(f"❌ Erro Google Sheets: {e}")
-        st.stop()
+        st.error(f"Erro Google: {e}"); st.stop()
 
+# --- AUTENTICAÇÃO (ADAPTADA) ---
 def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     url = "https://auth.contaazul.com/oauth2/token"
-    refresh_token = str(refresh_token_raw).strip()
-
-    if not refresh_token or len(refresh_token) < 20:
-        st.error(f"❌ Refresh Token da {empresa} parece inválido na planilha.")
-        return None
-
-    # Tenta renovar com o scope novo caso o anterior tenha sido gerado sem ele
     payload = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "scope": "openid profile aws.cognito.signin.user.admin"
+        "refresh_token": str(refresh_token_raw).strip()
     }
-
     try:
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data=payload)
-        
         if response.status_code == 200:
             dados = response.json()
-            # Salva o novo refresh imediatamente
             novo_refresh = dados.get("refresh_token")
             if novo_refresh:
                 cell = aba_planilha.find(empresa)
                 aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
-            
             return dados.get("access_token")
-        else:
-            st.error(f"❌ Erro na Troca de Token ({empresa})")
-            st.code(response.text)
-            return None
-    except Exception as e:
-        st.error(f"❌ Falha de rede: {e}")
         return None
+    except: return None
 
-def listar_lancamentos(token, empresa):
-    url = "https://api.contaazul.com/v1/financials/transactions"
+# --- BUSCA DE DADOS (NOVO PADRÃO V2) ---
+def buscar_financeiro_v2(token, tipo_evento):
+    """tipo_evento deve ser 'contas-a-pagar' ou 'contas-a-receber'"""
+    endpoint = f"{URL_BASE_V2}/v1/financeiro/eventos-financeiros/{tipo_evento}/buscar"
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Datas
-    inicio = (datetime.now() - timedelta(days=7)).date().isoformat()
-    fim = (datetime.now() + timedelta(days=45)).date().isoformat()
-    params = {"expiration_start": inicio, "expiration_end": fim}
+    # Filtro: Próximos 45 dias
+    data_fim = (datetime.now() + timedelta(days=45)).strftime("%Y-%m-%d")
+    params = {"data_vencimento_fim": data_fim}
 
-    r = requests.get(url, headers=headers, params=params)
-    
-    if r.status_code == 200:
-        res = r.json()
-        return res if isinstance(res, list) else res.get('items', [])
-    else:
-        st.error(f"❌ Erro 401/API na {empresa}: {r.text}")
-        return None
+    try:
+        r = requests.get(endpoint, headers=headers, params=params)
+        if r.status_code == 200:
+            # A V2 costuma retornar um objeto com uma lista dentro, ex: {"items": [...]}
+            dados = r.json()
+            return dados.get("items", []) if isinstance(dados, dict) else dados
+        return []
+    except: return []
 
-# --- UI ---
-st.title("📊 Fluxo de Caixa - Depuração")
+# --- INTERFACE ---
+st.title("📊 Fluxo Consolidado - API V2")
 
-if st.button('🚀 Sincronizar'):
+if st.button('🚀 Sincronizar V2'):
     aba = conectar_google_sheets()
-    dados_planilha = aba.get_all_records()
-    
-    for row in dados_planilha:
+    linhas = aba.get_all_records()
+    consolidado = []
+
+    for row in linhas:
         emp = row['empresa']
-        st.subheader(f"Unidade: {emp}")
-        
-        # 1. PEGA O ACCESS TOKEN
-        access = obter_access_token(emp, row['refresh_token'], aba)
-        
-        if access:
-            # 2. USA O ACCESS TOKEN PARA PEGAR DADOS
-            itens = listar_lancamentos(access, emp)
+        with st.expander(f"Processando {emp}", expanded=False):
+            token = obter_access_token(emp, row['refresh_token'], aba)
             
-            if itens is not None:
-                st.success(f"✅ {len(itens)} lançamentos obtidos!")
-                if len(itens) > 0:
-                    st.dataframe(pd.DataFrame(itens)[['due_date', 'description', 'amount']])
+            if token:
+                # Busca Pagar e Receber separadamente na V2
+                pagar = buscar_financeiro_v2(token, "contas-a-pagar")
+                receber = buscar_financeiro_v2(token, "contas-a-receber")
+
+                for item in pagar:
+                    item.update({'tipo': 'Pagar', 'unidade': emp})
+                    consolidado.append(item)
+                for item in receber:
+                    item.update({'tipo': 'Receber', 'unidade': emp})
+                    consolidado.append(item)
+                
+                st.success(f"{len(pagar) + len(receber)} registros encontrados.")
             else:
-                st.error(f"🚨 O Access Token foi gerado, mas a API de Finanças o rejeitou.")
-        else:
-            st.error(f"🚨 Falha ao gerar Access Token. Verifique o log acima.")
+                st.error("Falha na renovação do token.")
+
+    if consolidado:
+        df = pd.DataFrame(consolidado)
+        
+        # Ajuste de colunas conforme o novo JSON da V2
+        # Na V2 as colunas costumam ser 'data_vencimento' e 'valor' ou 'valor_total'
+        st.divider()
+        st.subheader("Resultados Consolidados")
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.warning("Nenhum dado encontrado nos novos endpoints.")
