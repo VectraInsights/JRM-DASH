@@ -6,7 +6,7 @@ import base64
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# --- CONFIGURAÇÕES (Mantidas do seu original) ---
+# --- CONFIGURAÇÕES (Mantidas) ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
@@ -37,13 +37,16 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
                 cell = aba_planilha.find(empresa)
                 aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
             return dados.get("access_token")
-    except: pass
-    return None
+    except: return None
 
 def buscar_parcelas_v2(token, tipo):
+    # Endpoint de parcelas da V2
     url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    params = {"pagina": 1, "tamanho_pagina": 500} # Aumentado para pegar mais dados para o gráfico
+    
+    # REMOVIDO FILTRO DE DATA: Vamos trazer tudo o que a API permitir (limite de 500)
+    params = {"pagina": 1, "tamanho_pagina": 500} 
+    
     try:
         r = requests.get(url, headers=headers, params=params)
         if r.status_code == 200:
@@ -65,52 +68,55 @@ if st.button('🚀 Atualizar Dashboard'):
         token = obter_access_token(emp, row['refresh_token'], aba)
         
         if token:
-            with st.status(f"Processando {emp}...", expanded=False):
-                # Processa Receitas e Despesas
+            with st.status(f"Lendo {emp}...", expanded=False):
                 for tipo_api, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
                     itens = buscar_parcelas_v2(token, tipo_api)
+                    
+                    if not itens:
+                        st.write(f"⚠️ {emp}: Nenhum item retornado para {rotulo}.")
+                    
                     for i in itens:
+                        # TRATAMENTO DE STATUS: Aceita qualquer coisa que não seja 'QUITADO' ou 'BAIXADO'
                         status = str(i.get('status', '')).upper()
-                        # Filtra apenas o que não foi pago ainda
-                        if "ABERTO" in status or "PARCIAL" in status or "ATRASADO" in status:
-                            dt_venc = pd.to_datetime(i.get('data_vencimento'))
+                        if status not in ["QUITADO", "BAIXADO", "PAGO", "RECEBIDO"]:
+                            
+                            dt_raw = i.get('data_vencimento')
+                            dt_venc = pd.to_datetime(dt_raw).date()
+                            
                             v = i.get('valor', 0)
+                            # Trata se o valor vier como float ou dicionário {'valor': 10.0}
                             val = v.get('valor', 0) if isinstance(v, dict) else v
+                            
                             consolidado.append({
-                                'data': dt_venc.date(), 
+                                'data': dt_venc, 
                                 'valor': float(val), 
                                 'tipo': rotulo, 
-                                'unidade': emp
+                                'unidade': emp,
+                                'status_original': status
                             })
 
     if consolidado:
         df = pd.DataFrame(consolidado)
         
-        # --- CARDS DE TOTAIS ---
-        total_receita = df[df['tipo'] == 'Receita']['valor'].sum()
-        total_despesa = df[df['tipo'] == 'Despesa']['valor'].sum()
+        # --- CARDS ---
+        tr = df[df['tipo'] == 'Receita']['valor'].sum()
+        tp = df[df['tipo'] == 'Despesa']['valor'].sum()
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("TOTAL A RECEBER", f"R$ {total_receita:,.2f}")
-        col2.metric("TOTAL A PAGAR", f"R$ {total_despesa:,.2f}", delta_color="inverse")
-        col3.metric("SALDO EM ABERTO", f"R$ {(total_receita - total_despesa):,.2f}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("TOTAL A RECEBER", f"R$ {tr:,.2f}")
+        c2.metric("TOTAL A PAGAR", f"R$ {tp:,.2f}")
+        c3.metric("SALDO LÍQUIDO", f"R$ {(tr - tp):,.2f}")
 
-        st.divider()
-
-        # --- GRÁFICO ---
-        st.subheader("📅 Projeção de Fluxo de Caixa por Data")
-        # Agrupa por data e tipo para o gráfico de barras
-        df_chart = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
+        # --- GRÁFICO DE BARRAS ---
+        st.subheader("📅 Evolução por Data de Vencimento")
+        df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
+        if 'Receita' not in df_g: df_g['Receita'] = 0
+        if 'Despesa' not in df_g: df_g['Despesa'] = 0
         
-        # Garante que as colunas existam para evitar erro no gráfico
-        if 'Receita' not in df_chart: df_chart['Receita'] = 0
-        if 'Despesa' not in df_chart: df_chart['Despesa'] = 0
-        
-        # Exibe gráfico de barras comparativo
-        st.bar_chart(df_chart[['Receita', 'Despesa']])
+        st.bar_chart(df_g[['Receita', 'Despesa']])
 
-        # --- TABELA DETALHADA ---
-        with st.expander("Ver lançamentos detalhados"):
-            st.dataframe(df.sort_values(by='data'), use_container_width=True)
+        st.write("### Detalhamento dos Dados")
+        st.dataframe(df)
     else:
-        st.warning("Nenhum dado financeiro em aberto encontrado nas empresas listadas.")
+        st.error("❌ Nenhum dado financeiro em aberto encontrado.")
+        st.info("Motivos possíveis: 1. As parcelas estão com status 'Quitado'. 2. O Token não tem permissão para a API V2. 3. Não há lançamentos financeiros criados (apenas Vendas).")
