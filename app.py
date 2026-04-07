@@ -71,9 +71,9 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
         st.error(f"Erro token {empresa}: {e}")
         return None
 
-# --- API CONTA AZUL V2 (CORRIGIDA) ---
-def buscar_contas(token, tipo):
-    url = f"https://api-v2.contaazul.com/financeiro/contas-a-{tipo}"
+# --- API CONTA AZUL (ENDPOINT CORRETO) ---
+def buscar_parcelas_v2(token, tipo):
+    url = "https://api-v2.contaazul.com/financeiro/parcelas"
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -85,8 +85,9 @@ def buscar_contas(token, tipo):
 
     while True:
         params = {
-            "page": pagina,
-            "size": 100
+            "pagina": pagina,
+            "tamanhoPagina": 100,
+            "tipo": tipo  # RECEBER ou PAGAR
         }
 
         try:
@@ -97,14 +98,13 @@ def buscar_contas(token, tipo):
                 break
 
             data = r.json()
-            itens = data.get("items", [])
+            itens = data.get("itens", [])
 
             if not itens:
                 break
 
             todos_itens.extend(itens)
 
-            # DEBUG
             st.write(f"Página {pagina} ({tipo}): {len(itens)} registros")
 
             if len(itens) < 100:
@@ -120,7 +120,7 @@ def buscar_contas(token, tipo):
 
 # --- UI ---
 st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Totais Financeiros e Gráfico")
+st.title("📊 Totais Financeiros (Conta Azul)")
 
 if st.button('🚀 Rodar Varredura'):
     aba = conectar_google_sheets()
@@ -140,8 +140,8 @@ if st.button('🚀 Rodar Varredura'):
         if not token:
             continue
 
-        for tipo_api, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
-            itens = buscar_contas(token, tipo_api)
+        for tipo_api, rotulo in [("RECEBER", "Receita"), ("PAGAR", "Despesa")]:
+            itens = buscar_parcelas_v2(token, tipo_api)
 
             st.write(f"{rotulo}: {len(itens)} registros")
 
@@ -153,15 +153,19 @@ if st.button('🚀 Rodar Varredura'):
                 try:
                     status = str(i.get('status', '')).upper()
 
-                    # Apenas títulos em aberto
-                    if status not in ["OPEN", "OVERDUE"]:
+                    # Ignora pagos
+                    if status in ["PAGO", "QUITADO", "RECEBIDO", "BAIXADO"]:
                         continue
 
-                    # Valor (V2)
-                    val = float(i.get('valor', 0))
+                    # Valor
+                    v = i.get("valor")
+                    if isinstance(v, dict):
+                        val = float(v.get("valor", 0))
+                    else:
+                        val = float(v or 0)
 
                     # Data
-                    dt_raw = i.get('data_vencimento')
+                    dt_raw = i.get('dataVencimento') or i.get('data_vencimento')
                     if not dt_raw:
                         continue
 
@@ -192,7 +196,7 @@ if st.button('🚀 Rodar Varredura'):
         c3.metric("SALDO EM ABERTO", f"R$ {saldo:,.2f}")
 
         # --- GRÁFICO ---
-        st.subheader("📅 Gráfico de Vencimentos")
+        st.subheader("📅 Vencimentos")
 
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
 
@@ -203,8 +207,8 @@ if st.button('🚀 Rodar Varredura'):
         st.bar_chart(df_g[['Receita', 'Despesa']])
 
         # --- TABELA ---
-        with st.expander("📋 Ver lista detalhada"):
+        with st.expander("📋 Ver detalhes"):
             st.dataframe(df)
 
     else:
-        st.error("❌ Nenhum dado encontrado. Verifique se há lançamentos no Conta Azul.")
+        st.error("❌ Nenhum dado encontrado no Conta Azul.")
