@@ -56,64 +56,74 @@ def buscar_financeiro_v2(token, tipo_evento):
     }
     try:
         r = requests.get(endpoint, headers=headers, params=params)
-        return r.json().get("itens", []) if r.status_code == 200 else []
+        if r.status_code == 200:
+            return r.json().get("itens", [])
+        return []
     except: return []
 
 # --- UI ---
-st.set_page_config(page_title="Resumo Financeiro 30D", layout="wide")
-st.title("📈 Tendência de Caixa (Próximos 30 Dias)")
+st.set_page_config(page_title="Resumo 30D", layout="wide")
+st.title("📈 Fluxo de Caixa (Próximos 30 Dias)")
 
 if st.button('🚀 Atualizar Indicadores'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
 
-    with st.spinner("Sincronizando dados..."):
+    with st.spinner("Buscando dados na Conta Azul..."):
         for row in linhas:
             emp = row['empresa']
             token = obter_access_token(emp, row['refresh_token'], aba)
             if token:
                 for t in ["contas-a-pagar", "contas-a-receber"]:
-                    dados = buscar_financeiro_v2(token, t)
+                    itens = buscar_financeiro_v2(token, t)
                     tipo_label = "Receber" if "receber" in t else "Pagar"
-                    for i in dados:
-                        # CORREÇÃO DO VALOR: Tentando campos comuns na V2
-                        valor = i.get('valor_total_liquido') or i.get('valor') or i.get('valor_previsto') or 0
+                    
+                    for i in itens:
+                        # --- LÓGICA DE CAPTURA DE VALOR ROBUSTA ---
+                        # 1. Tenta campo direto 'valor'
+                        # 2. Tenta 'valor' dentro de um objeto (comum na V2)
+                        # 3. Tenta 'valor_total'
+                        raw_val = i.get('valor')
+                        if isinstance(raw_val, dict):
+                            v = raw_val.get('valor', 0)
+                        else:
+                            v = raw_val or i.get('valor_total') or i.get('valor_bruto') or 0
+                        
                         consolidado.append({
                             'data': i.get('data_vencimento'),
-                            'valor': float(valor),
-                            'tipo': tipo_label,
-                            'unidade': emp
+                            'valor': float(v),
+                            'tipo': tipo_label
                         })
 
     if consolidado:
         df = pd.DataFrame(consolidado)
         df['data'] = pd.to_datetime(df['data'])
         
-        # MÉTRICAS
+        # Agrupamento para métricas
+        total_rec = df[df['tipo'] == 'Receber']['valor'].sum()
+        total_pag = df[df['tipo'] == 'Pagar']['valor'].sum()
+
         st.divider()
         c1, c2, c3 = st.columns(3)
-        rec = df[df['tipo'] == 'Receber']['valor'].sum()
-        pag = df[df['tipo'] == 'Pagar']['valor'].sum()
-        c1.metric("Recebimentos (30d)", f"R$ {rec:,.2f}")
-        c2.metric("Pagamentos (30d)", f"R$ {pag:,.2f}")
-        c3.metric("Saldo Líquido", f"R$ {(rec - pag):,.2f}", delta=f"{rec-pag:,.2f}")
+        c1.metric("Recebimentos", f"R$ {total_rec:,.2f}")
+        c2.metric("Pagamentos", f"R$ {total_pag:,.2f}")
+        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
 
-        # GRÁFICO DE TENDÊNCIA
-        st.subheader("📊 Evolução Diária do Fluxo")
+        # --- GRÁFICO DE TENDÊNCIA ---
+        st.subheader("📊 Tendência Acumulada")
         
-        # Agrupar por dia e tipo
-        df_diario = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0).reset_index()
+        df_plot = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0).reset_index()
         
-        # Garantir que ambas as colunas existam
-        for col in ['Receber', 'Pagar']:
-            if col not in df_diario.columns: df_diario[col] = 0
-            
-        df_diario['Saldo Diário'] = df_diario['Receber'] - df_diario['Pagar']
-        df_diario['Saldo Acumulado'] = df_diario['Saldo Diário'].cumsum()
-
-        # Plotar gráfico de linha (Tendência Acumulada)
-        st.line_chart(df_diario.set_index('data')[['Saldo Acumulado', 'Receber', 'Pagar']])
-
+        # Garantir colunas
+        if 'Receber' not in df_plot: df_plot['Receber'] = 0
+        if 'Pagar' not in df_plot: df_plot['Pagar'] = 0
+        
+        df_plot = df_plot.sort_values('data')
+        df_plot['Saldo_Diario'] = df_plot['Receber'] - df_plot['Pagar']
+        df_plot['Saldo_Acumulado'] = df_plot['Saldo_Diario'].cumsum()
+        
+        # Gráfico focado no saldo acumulado
+        st.line_chart(df_plot.set_index('data')[['Saldo_Acumulado']])
     else:
-        st.warning("Nenhum lançamento encontrado para os próximos 30 dias.")
+        st.warning("Nenhum dado financeiro encontrado para os próximos 30 dias.")
