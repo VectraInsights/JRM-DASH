@@ -34,24 +34,35 @@ def obter_access_token(empresa, refresh_token_raw):
         return response.json().get("access_token") if response.status_code == 200 else None
     except: return None
 
-def buscar_dados(token, tipo):
+def buscar_dados_v1(token, tipo):
+    # Testando o endpoint principal
     url = f"https://api.contaazul.com/v1/financeiro/eventos-financeiros/contas-a-{tipo}/buscar"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    
+    # Tentativa 1: Formato de data simples (YYYY-MM-DD) - Mais comum em APIs legadas que migraram
     params = {
-        "pagina": 1, "tamanho_pagina": 1000,
-        "data_vencimento_de": "2025-01-01T00:00:00Z",
-        "data_vencimento_ate": "2027-12-31T23:59:59Z"
+        "pagina": 1, 
+        "tamanho_pagina": 1000,
+        "data_vencimento_de": "2025-01-01",
+        "data_vencimento_ate": "2027-12-31"
     }
+    
     r = requests.get(url, headers=headers, params=params)
+    
+    # Se retornar vazio, tentamos sem filtros de data (para ver se vem QUALQUER coisa)
+    if r.status_code == 200 and not r.json().get("items", r.json().get("itens", [])):
+        st.info(f"Tentando busca global para {tipo}...")
+        r = requests.get(url, headers=headers, params={"pagina": 1, "tamanho_pagina": 100})
+
     if r.status_code == 200:
         res = r.json()
         return res.get("items", res.get("itens", []))
     return []
 
-# --- INTERFACE ---
-st.title("📊 Dashboard Financeiro (JTL)")
+# --- DASHBOARD ---
+st.title("📊 Painel Financeiro - Diagnóstico de Dados")
 
-if st.button('🚀 Executar Varredura'):
+if st.button('🚀 Iniciar Sincronização'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
@@ -61,55 +72,47 @@ if st.button('🚀 Executar Varredura'):
         token = obter_access_token(emp, row['refresh_token'])
         
         if token:
-            with st.status(f"Buscando dados de {emp}...") as s:
+            with st.status(f"Processando {emp}...") as s:
                 for t, label in [("receber", "Receita"), ("pagar", "Despesa")]:
-                    itens = buscar_dados(token, t)
+                    itens = buscar_dados_v1(token, t)
                     
-                    # LOG DE DIAGNÓSTICO
-                    st.write(f"🔍 {label}: {len(itens)} itens encontrados.")
+                    st.write(f"📡 API {label}: {len(itens)} registros brutos retornados.")
                     
                     for i in itens:
-                        # Tenta pegar o valor de várias formas possíveis na API
-                        v_bruto = i.get('valor_nominal') or i.get('valor') or i.get('valor_total', 0)
+                        # Captura flexível de valores (vários nomes possíveis na API)
+                        val = 0
+                        for campo in ['valor', 'valor_nominal', 'valor_total']:
+                            v = i.get(campo)
+                            if v:
+                                val = v.get('valor', v) if isinstance(v, dict) else v
+                                break
                         
-                        # Se o valor for um dicionário (comum na API V1), pega a chave 'valor'
-                        if isinstance(v_bruto, dict):
-                            val = v_bruto.get('valor', 0)
-                        else:
-                            val = v_bruto
-
-                        # Filtro de Status
+                        # Captura flexível de datas
+                        data_bruta = i.get('data_vencimento') or i.get('vencimento')
+                        
+                        # Filtro de status robusto
                         status = str(i.get('status', '')).upper()
                         if status not in ["QUITADO", "PAGO", "RECEBIDO", "BAIXADO"]:
                             consolidado.append({
-                                'data': pd.to_datetime(i.get('data_vencimento')).date(),
+                                'data': pd.to_datetime(data_bruta).date(),
                                 'valor': float(val),
                                 'tipo': label,
                                 'unidade': emp
                             })
-                s.update(label="Varredura completa!", state="complete")
+                s.update(label="Sincronização Finalizada!", state="complete")
 
     if consolidado:
         df = pd.DataFrame(consolidado)
-        
-        # Exibição dos Cards
         c1, c2, c3 = st.columns(3)
         rec = df[df['tipo'] == 'Receita']['valor'].sum()
         des = df[df['tipo'] == 'Despesa']['valor'].sum()
         c1.metric("A RECEBER", f"R$ {rec:,.2f}")
         c2.metric("A PAGAR", f"R$ {des:,.2f}")
-        c3.metric("SALDO LÍQUIDO", f"R$ {(rec-des):,.2f}")
+        c3.metric("SALDO", f"R$ {(rec-des):,.2f}")
         
-        # Gráfico
-        st.subheader("📅 Fluxo de Caixa")
-        df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
-        # Garante colunas para o gráfico não quebrar
-        if "Receita" not in df_g.columns: df_g["Receita"] = 0
-        if "Despesa" not in df_g.columns: df_g["Despesa"] = 0
-        st.bar_chart(df_g[["Receita", "Despesa"]])
-        
-        # Tabela
-        st.write("### Detalhamento")
+        st.bar_chart(df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0))
+        st.write("### Lista de Lançamentos Capturados")
         st.dataframe(df)
     else:
-        st.warning("A API respondeu, mas a lista de itens veio vazia. Verifique se os lançamentos no Conta Azul estão com 'Data de Vencimento' entre 2025 e 2027.")
+        st.error("🚨 A API conectou, mas a lista de itens continua vindo vazia.")
+        st.info("Isso pode significar que o seu Token tem acesso à API, mas não tem permissão para enxergar os dados da empresa JTL. Verifique se o usuário que gerou o Token tem permissão de 'Administrador' ou 'Financeiro' dentro do Conta Azul.")
