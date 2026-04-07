@@ -42,28 +42,34 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     except: pass
     return None
 
-def buscar_v2_corrigido(token, tipo):
-    # CORREÇÃO DA URL: Removido o '/v1/' duplicado que causava o 404
-    url = f"https://api-v2.contaazul.com/financeiro/contas-a-{tipo}/parcelas"
+def buscar_v2_final(token, tipo):
+    # AJUSTE DE ENDPOINT: Removido o prefixo /financeiro/ que costuma causar 404 na V2
+    # Testando o padrão: https://api-v2.contaazul.com/v1/contas-a-[tipo]/parcelas
+    url = f"https://api-v2.contaazul.com/v1/contas-a-{tipo}/parcelas"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
     
-    # Filtro de data amplo (obrigatório em algumas versões da V2)
+    # Range de datas obrigatório para evitar retorno vazio na V2
     params = {
         "data_vencimento_inicio": "2025-01-01T00:00:00Z",
         "data_vencimento_fim": "2027-12-31T23:59:59Z",
         "pagina": 1,
-        "tamanho_pagina": 1000
+        "tamanho_pagina": 500
     }
     
     try:
         r = requests.get(url, headers=headers, params=params)
+        # Se 404, tentamos a URL alternativa sem o /v1/
+        if r.status_code == 404:
+            url_alt = f"https://api-v2.contaazul.com/contas-a-{tipo}/parcelas"
+            r = requests.get(url_alt, headers=headers, params=params)
+            
         if r.status_code == 200:
             return r.json().get("itens", [])
         else:
-            st.error(f"Erro {tipo.upper()}: {r.status_code} em {url}")
+            st.error(f"Erro {tipo.upper()}: {r.status_code} - Verifique a URL")
             return []
     except Exception as e:
         st.error(f"Erro de conexão: {e}")
@@ -71,7 +77,7 @@ def buscar_v2_corrigido(token, tipo):
 
 # --- UI ---
 st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Totais e Gráfico Consolidado")
+st.title("📊 Resumo de Totais e Gráfico")
 
 if st.button('🚀 Atualizar Dashboard'):
     aba = conectar_google_sheets()
@@ -85,12 +91,12 @@ if st.button('🚀 Atualizar Dashboard'):
         if token:
             with st.status(f"Lendo {emp}...", expanded=True):
                 for path, label in [("receber", "Receita"), ("pagar", "Despesa")]:
-                    itens = buscar_v2_corrigido(token, path)
+                    itens = buscar_v2_final(token, path)
                     
                     for i in itens:
                         status = str(i.get('status', '')).upper()
-                        # Filtra apenas o que não foi liquidado
                         if status not in ["QUITADO", "PAGO", "RECEBIDO", "BAIXADO"]:
+                            # Captura de valor robusta
                             v = i.get('valor_nominal', i.get('valor', 0))
                             val = v if not isinstance(v, dict) else v.get('valor', 0)
                             
@@ -106,7 +112,7 @@ if st.button('🚀 Atualizar Dashboard'):
     if consolidado:
         df = pd.DataFrame(consolidado)
         
-        # --- CARDS DE TOTAIS ---
+        # --- CARDS ---
         tr = df[df['tipo'] == 'Receita']['valor'].sum()
         tp = df[df['tipo'] == 'Despesa']['valor'].sum()
         
@@ -124,4 +130,4 @@ if st.button('🚀 Atualizar Dashboard'):
         st.bar_chart(df_g[['Receita', 'Despesa']])
         st.dataframe(df)
     else:
-        st.warning("Nenhum lançamento encontrado para o período.")
+        st.warning("Nenhum dado retornado. Verifique se os lançamentos estão no período de 2025-2027.")
