@@ -49,36 +49,47 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
 def buscar_financeiro_v2(token, tipo_evento):
     """
     tipo_evento: 'contas-a-pagar' ou 'contas-a-receber'
-    CORREÇÃO: Parâmetros exatos da API V2: 'data_vencimento_de' e 'data_vencimento_ate'
     """
     endpoint = f"{URL_BASE_V2}/v1/financeiro/eventos-financeiros/{tipo_evento}/buscar"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
     
-    # Ajuste para pegar Vencidos (desde 2023) até o Futuro (próximos 60 dias)
+    # Definindo datas explicitamente como strings YYYY-MM-DD
     hoje = datetime.now()
+    data_de = "2023-01-01"
+    data_ate = (hoje + timedelta(days=60)).strftime("%Y-%m-%d")
+
+    # Parâmetros de consulta
     params = {
-        "data_vencimento_de": "2023-01-01", 
-        "data_vencimento_ate": (hoje + timedelta(days=60)).strftime("%Y-%m-%d"),
+        "data_vencimento_de": data_de,
+        "data_vencimento_ate": data_ate,
         "status": "ABERTO"
     }
 
     try:
+        # Usamos params=params para que o 'requests' monte a URL corretamente: ?data_vencimento_de=...
         r = requests.get(endpoint, headers=headers, params=params)
+        
         if r.status_code == 200:
             dados = r.json()
+            # Tenta extrair a lista de itens
             if isinstance(dados, list): return dados
             if isinstance(dados, dict):
                 return dados.get("items", dados.get("data", dados.get("content", [])))
         else:
+            # Se der erro 400 de novo, vamos mostrar os parâmetros enviados para conferir
             st.error(f"Erro {r.status_code} em {tipo_evento}: {r.text}")
+            st.info(f"Parâmetros enviados: {params}")
         return []
     except Exception as e:
         st.error(f"Erro na chamada: {e}")
         return []
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Dashboard JRM V2", layout="wide")
-st.title("📊 Fluxo de Caixa Consolidado")
+st.set_page_config(page_title="Dashboard Financeiro V2", layout="wide")
+st.title("📊 Fluxo de Caixa Consolidado (JRM)")
 
 if st.button('🚀 Sincronizar Agora'):
     aba = conectar_google_sheets()
@@ -101,38 +112,45 @@ if st.button('🚀 Sincronizar Agora'):
                     i.update({'tipo': 'Receber', 'unidade': emp})
                     consolidado.append(i)
                 
-                st.success(f"✅ {emp}: {len(pagar)} a pagar | {len(receber)} a receber")
+                st.success(f"✅ {emp}: {len(pagar)} títulos a pagar | {len(receber)} a receber")
             else:
-                st.error(f"❌ {emp}: Falha no Token")
+                st.error(f"❌ {emp}: Falha na renovação do Token")
 
         status.update(label="Sincronização concluída!", state="complete")
 
     if consolidado:
+        st.divider()
         df = pd.DataFrame(consolidado)
         
-        # Função para extrair valor e tratar o sinal
-        def tratar_financeiro(row):
-            val = row.get('valor_total') or row.get('valor') or 0
-            return float(val)
+        # Tratamento de valores para garantir cálculo numérico
+        def extrair_valor_numerico(row):
+            # A V2 pode retornar 'valor', 'valor_total' ou 'valor_liquido'
+            v = row.get('valor_total') or row.get('valor') or row.get('valor_previsto') or 0
+            try:
+                return float(v)
+            except:
+                return 0.0
 
-        df['valor_final'] = df.apply(tratar_financeiro, axis=1)
+        df['valor_final'] = df.apply(extrair_valor_numerico, axis=1)
         
-        # Métricas
-        st.divider()
+        # Exibição de Métricas
         c1, c2, c3 = st.columns(3)
         rec_total = df[df['tipo'] == 'Receber']['valor_final'].sum()
         pag_total = df[df['tipo'] == 'Pagar']['valor_final'].sum()
         
         c1.metric("Total a Receber", f"R$ {rec_total:,.2f}")
         c2.metric("Total a Pagar", f"R$ {pag_total:,.2f}")
-        c3.metric("Saldo Previsto", f"R$ {(rec_total - pag_total):,.2f}")
+        c3.metric("Saldo Líquido", f"R$ {(rec_total - pag_total):,.2f}")
 
-        # Tabela
-        st.subheader("📋 Lista de Lançamentos (Abertos + Vencidos)")
-        # Seleciona apenas colunas que existem para evitar erro de exibição
-        colunas_uteis = ['data_vencimento', 'descricao', 'valor_final', 'tipo', 'unidade']
-        existentes = [c for c in colunas_uteis if c in df.columns]
+        # Tabela Detalhada
+        st.subheader("📋 Detalhamento dos Lançamentos")
+        # Ajuste de nomes de colunas conforme o JSON da V2 (data_vencimento e descricao)
+        cols_display = ['data_vencimento', 'descricao', 'valor_final', 'tipo', 'unidade']
+        existentes = [c for c in cols_display if c in df.columns]
         
-        st.dataframe(df[existentes].sort_values('data_vencimento'), use_container_width=True)
+        st.dataframe(
+            df[existentes].sort_values('data_vencimento', ascending=True), 
+            use_container_width=True
+        )
     else:
-        st.warning("Nenhum lançamento em aberto encontrado.")
+        st.warning("A API não retornou nenhum lançamento aberto para o período.")
