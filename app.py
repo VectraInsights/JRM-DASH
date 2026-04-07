@@ -70,9 +70,9 @@ def obter_access_token(empresa, refresh_token_raw, aba):
         st.error(f"Erro token {empresa}: {e}")
         return None
 
-# --- API CORRETA (SEM /parcelas) ---
-def buscar_contas(token, tipo):
-    url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}"
+# --- API CERTA (PARCELAS) ---
+def buscar_parcelas(token):
+    url = "https://api-v2.contaazul.com/api/v1/financeiro/parcelas"
 
     headers = {
         "Authorization": f"Bearer {token}"
@@ -84,14 +84,14 @@ def buscar_contas(token, tipo):
     while True:
         params = {
             "pagina": pagina,
-            "tamanho_pagina": 100
+            "tamanhoPagina": 100
         }
 
         try:
             r = requests.get(url, headers=headers, params=params)
 
             if r.status_code != 200:
-                st.error(f"Erro API ({tipo}): {r.text}")
+                st.error(f"Erro API: {r.text}")
                 break
 
             data = r.json()
@@ -102,7 +102,7 @@ def buscar_contas(token, tipo):
 
             todos.extend(itens)
 
-            st.write(f"Página {pagina} ({tipo}): {len(itens)} registros")
+            st.write(f"Página {pagina}: {len(itens)} registros")
 
             if len(itens) < 100:
                 break
@@ -110,14 +110,14 @@ def buscar_contas(token, tipo):
             pagina += 1
 
         except Exception as e:
-            st.error(f"Erro API ({tipo}): {e}")
+            st.error(f"Erro API: {e}")
             break
 
     return todos
 
 # --- UI ---
 st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Dashboard Financeiro Conta Azul")
+st.title("📊 Dashboard Conta Azul (V2 Parcelas)")
 
 if st.button("🚀 Rodar Varredura"):
     aba = conectar_google_sheets()
@@ -137,46 +137,50 @@ if st.button("🚀 Rodar Varredura"):
         if not token:
             continue
 
-        for tipo, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
-            itens = buscar_contas(token, tipo)
+        itens = buscar_parcelas(token)
 
-            st.write(f"{rotulo}: {len(itens)} registros")
+        st.write(f"Total registros: {len(itens)}")
 
-            if not itens:
-                st.warning(f"Sem dados de {rotulo}")
-                continue
+        for i in itens:
+            try:
+                tipo = str(i.get("tipo", "")).upper()
+                status = str(i.get("status", "")).upper()
 
-            for i in itens:
-                try:
-                    status = str(i.get("status", "")).upper()
+                # ignora pagos
+                if status in ["PAGO", "QUITADO", "RECEBIDO", "BAIXADO"]:
+                    continue
 
-                    # ignora pagos
-                    if status in ["PAGO", "QUITADO", "RECEBIDO", "BAIXADO"]:
-                        continue
+                # define tipo
+                if tipo == "RECEBER":
+                    rotulo = "Receita"
+                elif tipo == "PAGAR":
+                    rotulo = "Despesa"
+                else:
+                    continue
 
-                    # valor
-                    v = i.get("valor")
-                    if isinstance(v, dict):
-                        val = float(v.get("valor", 0))
-                    else:
-                        val = float(i.get("valor_nominal", 0))
+                # valor
+                v = i.get("valor")
+                if isinstance(v, dict):
+                    val = float(v.get("valor", 0))
+                else:
+                    val = float(v or 0)
 
-                    # data
-                    dt_raw = i.get("data_vencimento")
-                    if not dt_raw:
-                        continue
+                # data
+                dt_raw = i.get("dataVencimento") or i.get("data_vencimento")
+                if not dt_raw:
+                    continue
 
-                    dt = pd.to_datetime(dt_raw).date()
+                dt = pd.to_datetime(dt_raw).date()
 
-                    consolidado.append({
-                        "data": dt,
-                        "valor": val,
-                        "tipo": rotulo,
-                        "empresa": emp
-                    })
+                consolidado.append({
+                    "data": dt,
+                    "valor": val,
+                    "tipo": rotulo,
+                    "empresa": emp
+                })
 
-                except Exception as e:
-                    st.warning(f"Erro item: {e}")
+            except Exception as e:
+                st.warning(f"Erro item: {e}")
 
     # --- RESULTADO ---
     if consolidado:
