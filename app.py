@@ -6,7 +6,7 @@ import base64
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# --- CONFIGURAÇÕES (Mantidas) ---
+# --- CONFIGURAÇÕES ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 CLIENT_ID = st.secrets["api"]["client_id"]
 CLIENT_SECRET = st.secrets["api"]["client_secret"]
@@ -40,13 +40,9 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     except: return None
 
 def buscar_parcelas_v2(token, tipo):
-    # Endpoint de parcelas da V2
     url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    
-    # REMOVIDO FILTRO DE DATA: Vamos trazer tudo o que a API permitir (limite de 500)
-    params = {"pagina": 1, "tamanho_pagina": 500} 
-    
+    params = {"pagina": 1, "tamanho_pagina": 100} 
     try:
         r = requests.get(url, headers=headers, params=params)
         if r.status_code == 200:
@@ -56,9 +52,9 @@ def buscar_parcelas_v2(token, tipo):
 
 # --- UI ---
 st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Resumo Financeiro Consolidado")
+st.title("📊 Totais Financeiros e Gráfico")
 
-if st.button('🚀 Atualizar Dashboard'):
+if st.button('🚀 Rodar Varredura'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
@@ -73,50 +69,53 @@ if st.button('🚀 Atualizar Dashboard'):
                     itens = buscar_parcelas_v2(token, tipo_api)
                     
                     if not itens:
-                        st.write(f"⚠️ {emp}: Nenhum item retornado para {rotulo}.")
-                    
+                        st.warning(f"A API não retornou parcelas de {rotulo} para {emp}.")
+                        continue
+
                     for i in itens:
-                        # TRATAMENTO DE STATUS: Aceita qualquer coisa que não seja 'QUITADO' ou 'BAIXADO'
                         status = str(i.get('status', '')).upper()
-                        if status not in ["QUITADO", "BAIXADO", "PAGO", "RECEBIDO"]:
+                        
+                        # Filtro: Ignora apenas o que está liquidado (PAGO/QUITADO/RECEBIDO)
+                        if status not in ["QUITADO", "PAGO", "RECEBIDO", "BAIXADO"]:
                             
-                            dt_raw = i.get('data_vencimento')
-                            dt_venc = pd.to_datetime(dt_raw).date()
-                            
-                            v = i.get('valor', 0)
-                            # Trata se o valor vier como float ou dicionário {'valor': 10.0}
-                            val = v.get('valor', 0) if isinstance(v, dict) else v
+                            # Captura de Valor (V2 multi-formato)
+                            v_raw = i.get('valor')
+                            if isinstance(v_raw, dict):
+                                val = v_raw.get('valor', 0)
+                            else:
+                                val = i.get('valor_nominal', i.get('valor', 0))
+
+                            dt_venc = pd.to_datetime(i.get('data_vencimento')).date()
                             
                             consolidado.append({
                                 'data': dt_venc, 
                                 'valor': float(val), 
                                 'tipo': rotulo, 
-                                'unidade': emp,
-                                'status_original': status
+                                'unidade': emp
                             })
 
     if consolidado:
         df = pd.DataFrame(consolidado)
         
-        # --- CARDS ---
+        # --- TOTAIS ---
         tr = df[df['tipo'] == 'Receita']['valor'].sum()
         tp = df[df['tipo'] == 'Despesa']['valor'].sum()
         
         c1, c2, c3 = st.columns(3)
         c1.metric("TOTAL A RECEBER", f"R$ {tr:,.2f}")
         c2.metric("TOTAL A PAGAR", f"R$ {tp:,.2f}")
-        c3.metric("SALDO LÍQUIDO", f"R$ {(tr - tp):,.2f}")
+        c3.metric("SALDO EM ABERTO", f"R$ {(tr - tp):,.2f}")
 
-        # --- GRÁFICO DE BARRAS ---
-        st.subheader("📅 Evolução por Data de Vencimento")
+        # --- GRÁFICO ---
+        st.subheader("📅 Gráfico de Vencimentos")
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
-        if 'Receita' not in df_g: df_g['Receita'] = 0
-        if 'Despesa' not in df_g: df_g['Despesa'] = 0
-        
+        # Garante que as colunas existam para o gráfico não quebrar
+        for col in ['Receita', 'Despesa']:
+            if col not in df_g.columns: df_g[col] = 0
+            
         st.bar_chart(df_g[['Receita', 'Despesa']])
-
-        st.write("### Detalhamento dos Dados")
-        st.dataframe(df)
+        
+        with st.expander("Ver lista de itens"):
+            st.write(df)
     else:
-        st.error("❌ Nenhum dado financeiro em aberto encontrado.")
-        st.info("Motivos possíveis: 1. As parcelas estão com status 'Quitado'. 2. O Token não tem permissão para a API V2. 3. Não há lançamentos financeiros criados (apenas Vendas).")
+        st.error("Nenhum dado encontrado. Verifique se os lançamentos financeiros existem no Conta Azul.")
