@@ -26,15 +26,14 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         return gspread.authorize(creds).open_by_key(ID_PLANILHA).worksheet("Página1")
     except Exception as e:
-        st.error(f"Erro Google Sheets: {e}"); st.stop()
+        st.error(f"Erro Google: {e}"); st.stop()
 
 def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     url = "https://auth.contaazul.com/oauth2/token"
-    refresh_token = str(refresh_token_raw).strip()
     try:
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data={
             "grant_type": "refresh_token",
-            "refresh_token": refresh_token
+            "refresh_token": str(refresh_token_raw).strip()
         })
         if response.status_code == 200:
             dados = response.json()
@@ -49,108 +48,85 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
 def buscar_financeiro_v2(token, tipo_evento):
     """
     tipo_evento: 'contas-a-pagar' ou 'contas-a-receber'
+    Conforme documentação: página e tamanho_pagina são OBRIGATÓRIOS.
     """
     endpoint = f"{URL_BASE_V2}/v1/financeiro/eventos-financeiros/{tipo_evento}/buscar"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     
-    # Definindo datas explicitamente como strings YYYY-MM-DD
     hoje = datetime.now()
-    data_de = "2023-01-01"
-    data_ate = (hoje + timedelta(days=60)).strftime("%Y-%m-%d")
-
-    # Parâmetros de consulta
     params = {
-        "data_vencimento_de": data_de,
-        "data_vencimento_ate": data_ate,
-        "status": "ABERTO"
+        "pagina": 1,
+        "tamanho_pagina": 1000, # Maximizando para pegar tudo de uma vez
+        "data_vencimento_de": "2023-01-01",
+        "data_vencimento_ate": (hoje + timedelta(days=90)).strftime("%Y-%m-%d"),
+        # Status deve ser passado como lista ou string única conforme o caso
+        "status": "EM_ABERTO" 
     }
 
     try:
-        # Usamos params=params para que o 'requests' monte a URL corretamente: ?data_vencimento_de=...
         r = requests.get(endpoint, headers=headers, params=params)
-        
         if r.status_code == 200:
             dados = r.json()
-            # Tenta extrair a lista de itens
-            if isinstance(dados, list): return dados
-            if isinstance(dados, dict):
-                return dados.get("items", dados.get("data", dados.get("content", [])))
+            # Conforme doc: a lista correta está na chave 'itens'
+            return dados.get("itens", [])
         else:
-            # Se der erro 400 de novo, vamos mostrar os parâmetros enviados para conferir
-            st.error(f"Erro {r.status_code} em {tipo_evento}: {r.text}")
-            st.info(f"Parâmetros enviados: {params}")
-        return []
+            st.error(f"Erro {r.status_code} na JTL ({tipo_evento}): {r.text}")
+            return []
     except Exception as e:
-        st.error(f"Erro na chamada: {e}")
+        st.error(f"Erro de conexão: {e}")
         return []
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Dashboard Financeiro V2", layout="wide")
-st.title("📊 Fluxo de Caixa Consolidado (JRM)")
+st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
+st.title("📊 Fluxo de Caixa JRM (API V2)")
 
-if st.button('🚀 Sincronizar Agora'):
+if st.button('🚀 Sincronizar com Conta Azul'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
 
-    with st.status("Buscando dados...", expanded=True) as status:
+    with st.status("Extraindo dados financeiros...", expanded=True) as status:
         for row in linhas:
             emp = row['empresa']
             token = obter_access_token(emp, row['refresh_token'], aba)
             
             if token:
+                # Busca Pagar e Receber
                 pagar = buscar_financeiro_v2(token, "contas-a-pagar")
                 receber = buscar_financeiro_v2(token, "contas-a-receber")
 
                 for i in pagar:
-                    i.update({'tipo': 'Pagar', 'unidade': emp})
+                    i.update({'tipo_jrm': 'Pagar', 'unidade_jrm': emp})
                     consolidado.append(i)
                 for i in receber:
-                    i.update({'tipo': 'Receber', 'unidade': emp})
+                    i.update({'tipo_jrm': 'Receber', 'unidade_jrm': emp})
                     consolidado.append(i)
                 
-                st.success(f"✅ {emp}: {len(pagar)} títulos a pagar | {len(receber)} a receber")
+                st.success(f"✅ {emp}: {len(pagar) + len(receber)} registros.")
             else:
-                st.error(f"❌ {emp}: Falha na renovação do Token")
-
-        status.update(label="Sincronização concluída!", state="complete")
+                st.error(f"❌ {emp}: Falha na autenticação.")
 
     if consolidado:
-        st.divider()
         df = pd.DataFrame(consolidado)
         
-        # Tratamento de valores para garantir cálculo numérico
-        def extrair_valor_numerico(row):
-            # A V2 pode retornar 'valor', 'valor_total' ou 'valor_liquido'
-            v = row.get('valor_total') or row.get('valor') or row.get('valor_previsto') or 0
-            try:
-                return float(v)
-            except:
-                return 0.0
+        # Na V2, o valor geralmente vem em 'valor' ou dentro de 'valor_total'
+        def tratar_valor(row):
+            return float(row.get('valor', 0))
 
-        df['valor_final'] = df.apply(extrair_valor_numerico, axis=1)
+        df['valor_num'] = df.apply(tratar_valor, axis=1)
         
-        # Exibição de Métricas
+        st.divider()
         c1, c2, c3 = st.columns(3)
-        rec_total = df[df['tipo'] == 'Receber']['valor_final'].sum()
-        pag_total = df[df['tipo'] == 'Pagar']['valor_final'].sum()
+        total_rec = df[df['tipo_jrm'] == 'Receber']['valor_num'].sum()
+        total_pag = df[df['tipo_jrm'] == 'Pagar']['valor_num'].sum()
         
-        c1.metric("Total a Receber", f"R$ {rec_total:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {pag_total:,.2f}")
-        c3.metric("Saldo Líquido", f"R$ {(rec_total - pag_total):,.2f}")
+        c1.metric("A Receber (Total)", f"R$ {total_rec:,.2f}")
+        c2.metric("A Pagar (Total)", f"R$ {total_pag:,.2f}")
+        c3.metric("Saldo Líquido", f"R$ {(total_rec - total_pag):,.2f}")
 
-        # Tabela Detalhada
+        # Exibição da tabela conforme colunas da documentação
         st.subheader("📋 Detalhamento dos Lançamentos")
-        # Ajuste de nomes de colunas conforme o JSON da V2 (data_vencimento e descricao)
-        cols_display = ['data_vencimento', 'descricao', 'valor_final', 'tipo', 'unidade']
-        existentes = [c for c in cols_display if c in df.columns]
-        
-        st.dataframe(
-            df[existentes].sort_values('data_vencimento', ascending=True), 
-            use_container_width=True
-        )
+        colunas_doc = ['data_vencimento', 'descricao', 'valor_num', 'tipo_jrm', 'unidade_jrm']
+        st.dataframe(df[colunas_doc].sort_values('data_vencimento'), use_container_width=True)
     else:
-        st.warning("A API não retornou nenhum lançamento aberto para o período.")
+        st.warning("Nenhum dado encontrado para os filtros aplicados.")
