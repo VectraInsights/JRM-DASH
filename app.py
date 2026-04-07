@@ -4,7 +4,6 @@ import pandas as pd
 import gspread
 import base64
 from google.oauth2.service_account import Credentials
-from datetime import datetime
 
 # --- CONFIGURAÇÕES ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
@@ -14,6 +13,7 @@ CLIENT_SECRET = st.secrets["api"]["client_secret"]
 # --- GOOGLE SHEETS ---
 def conectar_google_sheets():
     gs = st.secrets["connections"]["gsheets"]
+
     info = {
         "type": gs["type"],
         "project_id": gs["project_id"],
@@ -71,9 +71,9 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
         st.error(f"Erro token {empresa}: {e}")
         return None
 
-# --- BUSCA COM PAGINAÇÃO ---
-def buscar_parcelas_v2(token, tipo):
-    url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas"
+# --- API CONTA AZUL V2 (CORRIGIDA) ---
+def buscar_contas(token, tipo):
+    url = f"https://api-v2.contaazul.com/financeiro/contas-a-{tipo}"
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -85,26 +85,26 @@ def buscar_parcelas_v2(token, tipo):
 
     while True:
         params = {
-            "pagina": pagina,
-            "tamanho_pagina": 100
+            "page": pagina,
+            "size": 100
         }
 
         try:
             r = requests.get(url, headers=headers, params=params)
 
             if r.status_code != 200:
-                st.warning(f"Erro API ({tipo}): {r.text}")
+                st.error(f"Erro API ({tipo}): {r.text}")
                 break
 
             data = r.json()
-            itens = data.get("itens", [])
+            itens = data.get("items", [])
 
             if not itens:
                 break
 
             todos_itens.extend(itens)
 
-            # Debug
+            # DEBUG
             st.write(f"Página {pagina} ({tipo}): {len(itens)} registros")
 
             if len(itens) < 100:
@@ -141,7 +141,7 @@ if st.button('🚀 Rodar Varredura'):
             continue
 
         for tipo_api, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
-            itens = buscar_parcelas_v2(token, tipo_api)
+            itens = buscar_contas(token, tipo_api)
 
             st.write(f"{rotulo}: {len(itens)} registros")
 
@@ -153,17 +153,12 @@ if st.button('🚀 Rodar Varredura'):
                 try:
                     status = str(i.get('status', '')).upper()
 
-                    # Apenas em aberto
-                    if status not in ["EM_ABERTO", "VENCIDO", "PARCIAL"]:
+                    # Apenas títulos em aberto
+                    if status not in ["OPEN", "OVERDUE"]:
                         continue
 
-                    # Valor
-                    v_raw = i.get('valor', {})
-
-                    if isinstance(v_raw, dict):
-                        val = float(v_raw.get('valor', 0))
-                    else:
-                        val = float(i.get('valor_nominal', 0))
+                    # Valor (V2)
+                    val = float(i.get('valor', 0))
 
                     # Data
                     dt_raw = i.get('data_vencimento')
@@ -186,7 +181,6 @@ if st.button('🚀 Rodar Varredura'):
     if consolidado:
         df = pd.DataFrame(consolidado)
 
-        # Totais
         total_receber = df[df['tipo'] == 'Receita']['valor'].sum()
         total_pagar = df[df['tipo'] == 'Despesa']['valor'].sum()
         saldo = total_receber - total_pagar
@@ -197,7 +191,7 @@ if st.button('🚀 Rodar Varredura'):
         c2.metric("TOTAL A PAGAR", f"R$ {total_pagar:,.2f}")
         c3.metric("SALDO EM ABERTO", f"R$ {saldo:,.2f}")
 
-        # Gráfico
+        # --- GRÁFICO ---
         st.subheader("📅 Gráfico de Vencimentos")
 
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
@@ -208,9 +202,9 @@ if st.button('🚀 Rodar Varredura'):
 
         st.bar_chart(df_g[['Receita', 'Despesa']])
 
-        # Tabela
+        # --- TABELA ---
         with st.expander("📋 Ver lista detalhada"):
             st.dataframe(df)
 
     else:
-        st.error("❌ Nenhum dado encontrado. Verifique tokens, permissões ou dados no Conta Azul.")
+        st.error("❌ Nenhum dado encontrado. Verifique se há lançamentos no Conta Azul.")
