@@ -4,11 +4,12 @@ import pandas as pd
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+import base64
 
 # --- CONFIGURAÇÕES FIXAS ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 
-# --- CONEXÃO GOOGLE CORRIGIDA ---
+# --- CONEXÃO GOOGLE (BASE64 CORRETO) ---
 def conectar_google():
     try:
         if "google_sheets" not in st.secrets:
@@ -17,8 +18,13 @@ def conectar_google():
 
         google = st.secrets["google_sheets"]
 
-        # ✅ CORREÇÃO DEFINITIVA DO PEM
-        private_key = google["private_key"].replace("\\n", "\n")
+        # ✅ DECODIFICAÇÃO CORRETA (SEM REGEX, SEM GAMBIARRA)
+        private_key = base64.b64decode(
+            google["private_key_base64"]
+        ).decode("utf-8")
+
+        # garante quebra de linha correta
+        private_key = private_key.replace("\\n", "\n")
 
         info = {
             "type": google["type"],
@@ -92,7 +98,6 @@ def renovar_acesso_ca():
             st.session_state.access_token = dados.get("access_token")
 
             return True
-
         else:
             st.error(f"Erro ao renovar token: {res.text}")
             return False
