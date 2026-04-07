@@ -42,11 +42,15 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     except: pass
     return None
 
-def buscar_v2_com_datas(token, tipo):
-    url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+def buscar_v2_corrigido(token, tipo):
+    # CORREÇÃO DA URL: Removido o '/v1/' duplicado que causava o 404
+    url = f"https://api-v2.contaazul.com/financeiro/contas-a-{tipo}/parcelas"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
     
-    # AJUSTE CRÍTICO: Filtro de data amplo para não vir vazio
+    # Filtro de data amplo (obrigatório em algumas versões da V2)
     params = {
         "data_vencimento_inicio": "2025-01-01T00:00:00Z",
         "data_vencimento_fim": "2027-12-31T23:59:59Z",
@@ -59,17 +63,17 @@ def buscar_v2_com_datas(token, tipo):
         if r.status_code == 200:
             return r.json().get("itens", [])
         else:
-            st.error(f"Erro API {tipo.upper()}: {r.status_code} - {r.text}")
+            st.error(f"Erro {tipo.upper()}: {r.status_code} em {url}")
             return []
     except Exception as e:
-        st.error(f"Erro de conexão {tipo}: {e}")
+        st.error(f"Erro de conexão: {e}")
         return []
 
 # --- UI ---
-st.set_page_config(page_title="Fluxo de Caixa Consolidado", layout="wide")
-st.title("📈 Dashboard Financeiro (Correção de Filtros)")
+st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
+st.title("📊 Totais e Gráfico Consolidado")
 
-if st.button('🚀 Executar Varredura'):
+if st.button('🚀 Atualizar Dashboard'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
@@ -79,10 +83,9 @@ if st.button('🚀 Executar Varredura'):
         token = obter_access_token(emp, row['refresh_token'], aba)
         
         if token:
-            with st.status(f"Buscando dados de {emp}...", expanded=True):
+            with st.status(f"Lendo {emp}...", expanded=True):
                 for path, label in [("receber", "Receita"), ("pagar", "Despesa")]:
-                    itens = buscar_v2_com_datas(token, path)
-                    st.write(f"🔍 {emp}: Encontrados {len(itens)} lançamentos em {label}")
+                    itens = buscar_v2_corrigido(token, path)
                     
                     for i in itens:
                         status = str(i.get('status', '')).upper()
@@ -103,7 +106,7 @@ if st.button('🚀 Executar Varredura'):
     if consolidado:
         df = pd.DataFrame(consolidado)
         
-        # --- CARDS ---
+        # --- CARDS DE TOTAIS ---
         tr = df[df['tipo'] == 'Receita']['valor'].sum()
         tp = df[df['tipo'] == 'Despesa']['valor'].sum()
         
@@ -113,7 +116,7 @@ if st.button('🚀 Executar Varredura'):
         c3.metric("SALDO LÍQUIDO", f"R$ {(tr-tp):,.2f}")
 
         # --- GRÁFICO ---
-        st.subheader("📅 Projeção por Vencimento")
+        st.subheader("📅 Projeção de Fluxo de Caixa")
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
         for col in ['Receita', 'Despesa']:
             if col not in df_g.columns: df_g[col] = 0
@@ -121,4 +124,4 @@ if st.button('🚀 Executar Varredura'):
         st.bar_chart(df_g[['Receita', 'Despesa']])
         st.dataframe(df)
     else:
-        st.error("Nenhum dado encontrado após aplicar filtros de data.")
+        st.warning("Nenhum lançamento encontrado para o período.")
