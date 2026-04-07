@@ -190,4 +190,3 @@ if sync:
 
         else:
             st.info("Nenhum dado encontrado para o período.")
-```
