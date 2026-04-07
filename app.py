@@ -23,7 +23,7 @@ def conectar_google_sheets():
     creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
     return gspread.authorize(creds).open_by_key(ID_PLANILHA).worksheet("Página1")
 
-def obter_access_token(empresa, refresh_token_raw, aba_planilha):
+def obter_access_token(empresa, refresh_token_raw):
     url = "https://auth.contaazul.com/oauth2/token"
     try:
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data={
@@ -31,19 +31,10 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
             "refresh_token": str(refresh_token_raw).strip(),
             "scope": "openid profile aws.cognito.signin.user.admin"
         })
-        if response.status_code == 200:
-            dados = response.json()
-            # Se a API enviar um novo Refresh Token, atualiza a planilha automaticamente
-            novo_refresh = dados.get("refresh_token")
-            if novo_refresh and novo_refresh != refresh_token_raw:
-                cell = aba_planilha.find(empresa)
-                aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
-            return dados.get("access_token")
-    except: pass
-    return None
+        return response.json().get("access_token") if response.status_code == 200 else None
+    except: return None
 
 def buscar_dados(token, tipo):
-    # Endpoint conforme documentação do TI
     url = f"https://api.contaazul.com/v1/financeiro/eventos-financeiros/contas-a-{tipo}/buscar"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     params = {
@@ -52,46 +43,73 @@ def buscar_dados(token, tipo):
         "data_vencimento_ate": "2027-12-31T23:59:59Z"
     }
     r = requests.get(url, headers=headers, params=params)
-    return r.json().get("items", r.json().get("itens", [])) if r.status_code == 200 else []
+    if r.status_code == 200:
+        res = r.json()
+        return res.get("items", res.get("itens", []))
+    return []
 
-# --- DASHBOARD ---
+# --- INTERFACE ---
 st.title("📊 Dashboard Financeiro (JTL)")
 
-if st.button('🚀 Atualizar Dados'):
+if st.button('🚀 Executar Varredura'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
 
     for row in linhas:
         emp = row['empresa']
-        token = obter_access_token(emp, row['refresh_token'], aba)
+        token = obter_access_token(emp, row['refresh_token'])
         
         if token:
-            with st.spinner(f"Lendo {emp}..."):
+            with st.status(f"Buscando dados de {emp}...") as s:
                 for t, label in [("receber", "Receita"), ("pagar", "Despesa")]:
                     itens = buscar_dados(token, t)
+                    
+                    # LOG DE DIAGNÓSTICO
+                    st.write(f"🔍 {label}: {len(itens)} itens encontrados.")
+                    
                     for i in itens:
-                        if str(i.get('status')).upper() not in ["QUITADO", "PAGO", "RECEBIDO"]:
-                            v = i.get('valor', 0)
-                            val = v if not isinstance(v, dict) else v.get('valor', 0)
+                        # Tenta pegar o valor de várias formas possíveis na API
+                        v_bruto = i.get('valor_nominal') or i.get('valor') or i.get('valor_total', 0)
+                        
+                        # Se o valor for um dicionário (comum na API V1), pega a chave 'valor'
+                        if isinstance(v_bruto, dict):
+                            val = v_bruto.get('valor', 0)
+                        else:
+                            val = v_bruto
+
+                        # Filtro de Status
+                        status = str(i.get('status', '')).upper()
+                        if status not in ["QUITADO", "PAGO", "RECEBIDO", "BAIXADO"]:
                             consolidado.append({
                                 'data': pd.to_datetime(i.get('data_vencimento')).date(),
                                 'valor': float(val),
                                 'tipo': label,
                                 'unidade': emp
                             })
+                s.update(label="Varredura completa!", state="complete")
 
     if consolidado:
         df = pd.DataFrame(consolidado)
-        c1, c2, c3 = st.columns(3)
-        receita = df[df['tipo'] == 'Receita']['valor'].sum()
-        despesa = df[df['tipo'] == 'Despesa']['valor'].sum()
-        c1.metric("A RECEBER", f"R$ {receita:,.2f}")
-        c2.metric("A PAGAR", f"R$ {despesa:,.2f}")
-        c3.metric("SALDO", f"R$ {(receita-despesa):,.2f}")
         
+        # Exibição dos Cards
+        c1, c2, c3 = st.columns(3)
+        rec = df[df['tipo'] == 'Receita']['valor'].sum()
+        des = df[df['tipo'] == 'Despesa']['valor'].sum()
+        c1.metric("A RECEBER", f"R$ {rec:,.2f}")
+        c2.metric("A PAGAR", f"R$ {des:,.2f}")
+        c3.metric("SALDO LÍQUIDO", f"R$ {(rec-des):,.2f}")
+        
+        # Gráfico
         st.subheader("📅 Fluxo de Caixa")
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
-        st.bar_chart(df_g)
+        # Garante colunas para o gráfico não quebrar
+        if "Receita" not in df_g.columns: df_g["Receita"] = 0
+        if "Despesa" not in df_g.columns: df_g["Despesa"] = 0
+        st.bar_chart(df_g[["Receita", "Despesa"]])
+        
+        # Tabela
+        st.write("### Detalhamento")
+        st.dataframe(df)
     else:
-        st.warning("Nenhum dado encontrado. Verifique se o novo Refresh Token foi colado na planilha.")
+        st.warning("A API respondeu, mas a lista de itens veio vazia. Verifique se os lançamentos no Conta Azul estão com 'Data de Vencimento' entre 2025 e 2027.")
