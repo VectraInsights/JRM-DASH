@@ -8,24 +8,26 @@ import base64
 import re
 
 # --- CONFIGURAÇÕES FIXAS ---
+# Verifique se este ID corresponde à sua planilha de tokens
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 
-# --- FUNÇÃO DE CONEXÃO COM GOOGLE (VERSÃO ANTI-ERRO) ---
+# --- FUNÇÃO DE CONEXÃO COM GOOGLE (VERSÃO ANTI-ERRO DE CODEC) ---
 def conectar_google():
     try:
         # Puxa os dados da seção [google_sheets] do Secrets
         google = st.secrets["google_sheets"]
         
-        # 1. Pega a string do segredo
+        # 1. Pega a string e limpa TUDO que não for caractere Base64 (letras, números, +, /, =)
         b64_raw = str(google["private_key_base64"]).strip()
-        
-        # 2. LIMPEZA TOTAL: Remove o byte 0x93 e qualquer outro caractere que não seja Base64
-        # Isso remove aspas curvas, espaços, quebras de linha e símbolos estranhos
         b64_clean = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_raw)
         
-        # 3. Decodifica o Base64 limpo
-        decoded_key = base64.b64decode(b64_clean).decode("utf-8")
+        # 2. Decodifica para bytes
+        key_bytes = base64.b64decode(b64_clean)
         
+        # 3. Converte para texto IGNORANDO caracteres que não sejam UTF-8 (como o erro 0x93)
+        decoded_key = key_bytes.decode("utf-8", errors="ignore").strip()
+        
+        # Reconstrói o dicionário de credenciais
         info = {
             "type": google["type"],
             "project_id": google["project_id"],
@@ -49,7 +51,8 @@ def conectar_google():
 # --- GESTÃO DE TOKENS (PLANILHA) ---
 def gerenciar_token(novo_token=None):
     client = conectar_google()
-    if not client: return None
+    if not client:
+        return None
     
     try:
         sh = client.open_by_key(ID_PLANILHA)
@@ -61,17 +64,17 @@ def gerenciar_token(novo_token=None):
         else:
             return ws.acell('B2').value
     except Exception as e:
-        st.error(f"Erro ao acessar a aba 'Tokens' na planilha: {e}")
+        st.error(f"Erro ao acessar planilha de tokens: {e}")
         return None
 
 # --- RENOVAÇÃO CONTA AZUL ---
 def renovar_acesso_ca():
-    url = "https://api.contaazul.com/oauth2/token"
     refresh_atual = gerenciar_token()
-    
     if not refresh_atual:
+        st.error("Não foi possível obter o Refresh Token da planilha.")
         return False
         
+    url = "https://api.contaazul.com/oauth2/token"
     c_id = st.secrets["api"]["client_id"]
     c_secret = st.secrets["api"]["client_secret"]
     
@@ -84,19 +87,23 @@ def renovar_acesso_ca():
         res = requests.post(url, data=payload, auth=(c_id, c_secret))
         if res.status_code == 200:
             dados = res.json()
+            # Salva o novo refresh para a próxima vez
             gerenciar_token(novo_token=dados.get("refresh_token"))
+            # Armazena o access token na sessão atual
             st.session_state.access_token = dados.get("access_token")
             return True
         else:
-            st.error(f"Falha na renovação CA: {res.status_code}")
+            st.error(f"Erro na renovação (Status {res.status_code}): {res.text}")
             return False
-    except:
+    except Exception as e:
+        st.error(f"Falha na comunicação com Conta Azul: {e}")
         return False
 
 # --- BUSCA DE DADOS ---
 def buscar_dados_ca(endpoint, d_inicio, d_fim):
     if 'access_token' not in st.session_state:
-        if not renovar_acesso_ca(): return []
+        if not renovar_acesso_ca():
+            return []
 
     url = f"https://api.contaazul.com/v1/financeiro/{endpoint}"
     headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
@@ -106,6 +113,8 @@ def buscar_dados_ca(endpoint, d_inicio, d_fim):
     }
 
     res = requests.get(url, headers=headers, params=params)
+    
+    # Se o token expirou durante a sessão, renova e tenta de novo
     if res.status_code == 401:
         if renovar_acesso_ca():
             headers["Authorization"] = f"Bearer {st.session_state.access_token}"
@@ -113,36 +122,44 @@ def buscar_dados_ca(endpoint, d_inicio, d_fim):
             
     return res.json() if res.status_code == 200 else []
 
-# --- INTERFACE ---
-st.set_page_config(page_title="Dashboard JRM", layout="wide")
+# --- INTERFACE STREAMLIT ---
+st.set_page_config(page_title="JRM Dashboard", layout="wide", page_icon="📊")
 st.title("📊 Painel Financeiro JRM")
 
+# Sidebar para filtros
 with st.sidebar:
-    st.header("Configurações")
-    data_ini = st.date_input("Vencimento inicial", datetime(2026, 4, 1))
-    data_fim = st.date_input("Vencimento final", datetime(2026, 4, 30))
-    btn_sync = st.button("Sincronizar Dados")
+    st.header("Filtros de Data")
+    data_ini = st.date_input("Vencimento Inicial", datetime(2026, 4, 1))
+    data_fim = st.date_input("Vencimento Final", datetime(2026, 4, 30))
+    st.divider()
+    btn_sync = st.button("🔄 Sincronizar com Conta Azul")
 
+# Execução principal
 if btn_sync:
-    with st.spinner("Buscando informações..."):
+    with st.spinner("Buscando dados no Conta Azul..."):
         receber = buscar_dados_ca("contas-a-receber", data_ini, data_fim)
         pagar = buscar_dados_ca("contas-a-pagar", data_ini, data_fim)
 
         if receber or pagar:
-            df_receber = pd.DataFrame(receber)
-            df_pagar = pd.DataFrame(pagar)
+            df_r = pd.DataFrame(receber)
+            df_p = pd.DataFrame(pagar)
             
-            val_receber = df_receber['value'].sum() if not df_receber.empty else 0
-            val_pagar = df_pagar['value'].sum() if not df_pagar.empty else 0
+            # Métricas
+            val_r = df_r['value'].sum() if not df_r.empty and 'value' in df_r.columns else 0
+            val_p = df_p['value'].sum() if not df_p.empty and 'value' in df_p.columns else 0
             
             c1, c2, c3 = st.columns(3)
-            c1.metric("A Receber", f"R$ {val_receber:,.2f}")
-            c2.metric("A Pagar", f"R$ {val_pagar:,.2f}")
-            c3.metric("Saldo Período", f"R$ {val_receber - val_pagar:,.2f}")
+            c1.metric("Total a Receber", f"R$ {val_r:,.2f}")
+            c2.metric("Total a Pagar", f"R$ {val_p:,.2f}")
+            c3.metric("Saldo do Período", f"R$ {val_r - val_p:,.2f}", delta_color="normal")
             
             st.divider()
-            t1, t2 = st.tabs(["Receitas", "Despesas"])
-            with t1: st.dataframe(df_receber, use_container_width=True)
-            with t2: st.dataframe(df_pagar, use_container_width=True)
+            
+            # Tabelas detalhadas
+            tab1, tab2 = st.tabs(["📈 Contas a Receber", "📉 Contas a Pagar"])
+            with tab1:
+                st.dataframe(df_r, use_container_width=True)
+            with tab2:
+                st.dataframe(df_p, use_container_width=True)
         else:
-            st.info("Nenhum dado encontrado.")
+            st.info("Nenhum lançamento encontrado para o período selecionado.")
