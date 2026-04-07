@@ -12,28 +12,32 @@ ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
 
 def conectar_google():
     try:
+        if "google_sheets" not in st.secrets:
+            st.error("Seção [google_sheets] não encontrada no Secrets.")
+            return None
+            
         google = st.secrets["google_sheets"]
         
-        # 1. Limpeza agressiva do Base64
-        # Remove aspas, espaços, quebras de linha literais e caracteres não-base64
+        # 1. LIMPEZA TOTAL DO BASE64
+        # Remove TUDO que não for letra, número, +, / ou = (limpa aspas, espaços e \n invisíveis)
         b64_raw = str(google["private_key_base64"])
         b64_clean = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_raw)
         
-        # 2. Decodifica para texto
-        decoded_key_bytes = base64.b64decode(b64_clean)
-        decoded_key_str = decoded_key_bytes.decode("utf-8", errors="ignore")
+        # 2. DECODIFICAÇÃO
+        decoded_bytes = base64.b64decode(b64_clean)
+        # 'latin-1' é mais permissivo para evitar erros de codec iniciais
+        decoded_str = decoded_bytes.decode("latin-1").strip()
         
-        # 3. RECONSTRUÇÃO PURA DA CHAVE (Ignora o que veio e monta o padrão PEM)
-        # Remove headers antigos se existirem para evitar duplicidade
-        core_key = decoded_key_str.replace("-----BEGIN PRIVATE KEY-----", "")
-        core_key = core_key.replace("-----END PRIVATE KEY-----", "")
-        core_key = core_key.replace("\\n", "").replace("\n", "").strip()
+        # 3. RECONSTRUÇÃO DA ESTRUTURA PEM
+        # Remove qualquer lixo de header que possa ter vindo na string
+        core = decoded_str.replace("-----BEGIN PRIVATE KEY-----", "")
+        core = core.replace("-----END PRIVATE KEY-----", "")
+        core = re.sub(r'\s+', '', core) # Remove qualquer espaço ou quebra de linha interna
         
-        # O Google precisa que a chave tenha exatamente este formato de quebras de linha
+        # Monta a chave com quebras de linha exatas a cada 64 caracteres (exigência RSA)
         final_key = "-----BEGIN PRIVATE KEY-----\n"
-        # Quebra o miolo da chave em blocos de 64 caracteres (padrão RFC 7468)
-        for i in range(0, len(core_key), 64):
-            final_key += core_key[i:i+64] + "\n"
+        for i in range(0, len(core), 64):
+            final_key += core[i:i+64] + "\n"
         final_key += "-----END PRIVATE KEY-----\n"
 
         info = {
@@ -53,7 +57,7 @@ def conectar_google():
         creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"Erro Crítico na Conexão Google: {e}")
+        st.sidebar.error(f"Erro de Conexão Google: {e}")
         return None
 
 def gerenciar_token(novo_token=None):
@@ -67,7 +71,7 @@ def gerenciar_token(novo_token=None):
             return novo_token
         return ws.acell('B2').value
     except Exception as e:
-        st.error(f"Erro na aba 'Tokens': {e}")
+        st.sidebar.error(f"Erro na Planilha: {e}")
         return None
 
 def renovar_acesso_ca():
@@ -115,28 +119,35 @@ st.set_page_config(page_title="Dashboard JRM", layout="wide")
 st.title("📊 Painel Financeiro JRM")
 
 with st.sidebar:
-    st.header("Filtros")
+    st.header("Configurações")
     data_ini = st.date_input("Vencimento inicial", datetime(2026, 4, 1))
     data_fim = st.date_input("Vencimento final", datetime(2026, 4, 30))
-    if st.button("🔄 Sincronizar Dados"):
-        with st.spinner("Buscando informações..."):
-            receber = buscar_dados_ca("contas-a-receber", data_ini, data_fim)
-            pagar = buscar_dados_ca("contas-a-pagar", data_ini, data_fim)
+    st.divider()
+    btn_sync = st.button("🔄 Sincronizar Agora")
+
+if btn_sync:
+    with st.spinner("Conectando e buscando dados..."):
+        receber = buscar_dados_ca("contas-a-receber", data_ini, data_fim)
+        pagar = buscar_dados_ca("contas-a-pagar", data_ini, data_fim)
+        
+        if receber or pagar:
+            df_r = pd.DataFrame(receber)
+            df_p = pd.DataFrame(pagar)
             
-            if receber or pagar:
-                df_r = pd.DataFrame(receber)
-                df_p = pd.DataFrame(pagar)
-                
-                v_r = df_r['value'].sum() if not df_r.empty and 'value' in df_r.columns else 0
-                v_p = df_p['value'].sum() if not df_p.empty and 'value' in df_p.columns else 0
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("A Receber", f"R$ {v_r:,.2f}")
-                c2.metric("A Pagar", f"R$ {v_p:,.2f}")
-                c3.metric("Saldo", f"R$ {v_r - v_p:,.2f}")
-                
-                t1, t2 = st.tabs(["Receitas", "Despesas"])
-                t1.dataframe(df_r, use_container_width=True)
-                t2.dataframe(df_p, use_container_width=True)
-            else:
-                st.warning("Nenhum dado encontrado.")
+            # Ajuste de colunas caso a API retorne nomes diferentes
+            v_r = df_r['value'].sum() if not df_r.empty and 'value' in df_r.columns else 0
+            v_p = df_p['value'].sum() if not df_p.empty and 'value' in df_p.columns else 0
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("A Receber", f"R$ {v_r:,.2f}")
+            col2.metric("A Pagar", f"R$ {v_p:,.2f}")
+            col3.metric("Saldo Previsto", f"R$ {v_r - v_p:,.2f}")
+            
+            st.divider()
+            tab1, tab2 = st.tabs(["💰 Receitas", "💸 Despesas"])
+            with tab1:
+                st.dataframe(df_r, use_container_width=True)
+            with tab2:
+                st.dataframe(df_p, use_container_width=True)
+        else:
+            st.info("Nenhum dado financeiro retornado para o período.")
