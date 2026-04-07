@@ -1,99 +1,103 @@
 import streamlit as st
 import requests
 import pandas as pd
-import base64
 from datetime import datetime
 
-# --- CREDENCIAIS (COPIE DIRETAMENTE DO PAINEL CONTA AZUL) ---
-CLIENT_ID = "SEU_CLIENT_ID"
-CLIENT_SECRET = "SEU_CLIENT_SECRET"
-REFRESH_TOKEN_INICIAL = "SEU_REFRESH_TOKEN"
+# --- CREDENCIAIS (COPIE E COLE COM ATENÇÃO) ---
+# Use .strip() para garantir que espaços acidentais sejam removidos
+CLIENT_ID = "SEU_CLIENT_ID_AQUI".strip()
+CLIENT_SECRET = "SEU_CLIENT_SECRET_AQUI".strip()
+REFRESH_TOKEN_INICIAL = "SEU_REFRESH_TOKEN_AQUI".strip()
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="Financeiro Pro", layout="wide")
 
-def atualizar_tokens():
-    """Realiza o Refresh do Token com tratamento de erro 'invalid_client'"""
+def renovar_acesso():
+    """Tenta renovar o token usando as credenciais fornecidas"""
     url = "https://api.contaazul.com/oauth2/token"
     
-    # 1. Preparar o cabeçalho Basic Auth (Obrigatório para evitar invalid_client)
-    auth_pass = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    auth_encoded = base64.b64encode(auth_pass.encode()).decode()
+    # O Refresh Token que vamos usar (prioriza o que está na memória da sessão)
+    token_atual = st.session_state.get('refresh_token', REFRESH_TOKEN_INICIAL)
     
-    headers = {
-        "Authorization": f"Basic {auth_encoded}",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    
-    # 2. Usar o refresh token da sessão (se existir) ou o inicial
-    token_para_uso = st.session_state.get('refresh_token', REFRESH_TOKEN_INICIAL)
-    
-    data = {
+    payload = {
         "grant_type": "refresh_token",
-        "refresh_token": token_para_uso
+        "refresh_token": token_atual
     }
 
     try:
-        response = requests.post(url, data=data, headers=headers)
-        res_json = response.json()
+        # Usando a autenticação nativa do Requests (mais seguro)
+        response = requests.post(
+            url, 
+            data=payload, 
+            auth=(CLIENT_ID, CLIENT_SECRET)
+        )
         
         if response.status_code == 200:
-            # IMPORTANTE: Salvar o novo Refresh Token, pois o antigo pode expirar
-            st.session_state.access_token = res_json.get("access_token")
-            st.session_state.refresh_token = res_json.get("refresh_token")
+            dados = response.json()
+            st.session_state.access_token = dados.get("access_token")
+            st.session_state.refresh_token = dados.get("refresh_token")
             return True
         else:
-            st.error(f"Erro Crítico: {res_json.get('error_description')}")
+            # Exibe exatamente o que a API respondeu para diagnóstico
+            erro_msg = response.json().get('error_description', response.text)
+            st.error(f"Falha na Autenticação: {erro_msg}")
             return False
+            
     except Exception as e:
-        st.error(f"Falha na comunicação: {e}")
+        st.error(f"Erro de rede: {e}")
         return False
 
-# --- LÓGICA DE BUSCA DE CONTAS ---
-def buscar_contas(endpoint, d1, d2):
+# --- BUSCA DE DADOS (CONTAS) ---
+def buscar_financeiro(endpoint, d_inicio, d_fim):
     if 'access_token' not in st.session_state:
-        if not atualizar_tokens(): return []
+        if not renovar_acesso(): return []
 
     url = f"https://api.contaazul.com/v1/financeiro/{endpoint}"
     headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
-    params = {"data_vencimento_de": d1, "data_vencimento_ate": d2}
+    params = {
+        "data_vencimento_de": d_inicio,
+        "data_vencimento_ate": d_fim,
+        "size": 100
+    }
 
     res = requests.get(url, headers=headers, params=params)
     
-    # Se o Access Token expirou (401), tenta renovar UMA vez
+    # Se o Access Token expirou (401), tenta renovar uma vez
     if res.status_code == 401:
-        if atualizar_tokens():
+        if renovar_acesso():
             headers["Authorization"] = f"Bearer {st.session_state.access_token}"
             res = requests.get(url, headers=headers, params=params)
             
     return res.json() if res.status_code == 200 else []
 
 # --- INTERFACE STREAMLIT ---
-st.sidebar.title("Filtros Financeiros")
-d_ini = st.sidebar.date_input("Vencimento De", datetime(2026, 4, 1))
-d_fim = st.sidebar.date_input("Vencimento Até", datetime(2026, 4, 30))
+st.sidebar.title("⚙️ Painel de Controle")
+data_ini = st.sidebar.date_input("Vencimento Inicial", datetime(2026, 4, 1))
+data_fim = st.sidebar.date_input("Vencimento Final", datetime(2026, 4, 30))
 
-if st.sidebar.button("📊 ANALISAR CONTAS"):
-    st.subheader(f"Movimentações de {d_ini.strftime('%d/%m/%Y')} a {d_fim.strftime('%d/%m/%Y')}")
+if st.sidebar.button("📊 SINCRONIZAR"):
+    st.title("💰 Fluxo de Caixa Realizado/Previsto")
     
-    with st.spinner("Acessando Conta Azul..."):
-        dados_rec = buscar_contas("contas-a-receber", d_ini, d_fim)
-        dados_pag = buscar_contas("contas-a-pagar", d_ini, d_fim)
+    with st.spinner("Conectando ao Conta Azul..."):
+        contas_rec = buscar_financeiro("contas-a-receber", data_ini, data_fim)
+        contas_pag = buscar_financeiro("contas-a-pagar", data_ini, data_fim)
 
-        df_rec = pd.DataFrame(dados_rec)
-        df_pag = pd.DataFrame(dados_pag)
+        df_rec = pd.DataFrame(contas_rec)
+        df_pag = pd.DataFrame(contas_pag)
 
-        # Exibição de Métricas
+        # Dashboard de métricas
         c1, c2, c3 = st.columns(3)
-        total_rec = df_rec['value'].sum() if not df_rec.empty else 0
-        total_pag = df_pag['value'].sum() if not df_pag.empty else 0
+        v_rec = df_rec['value'].sum() if not df_rec.empty else 0
+        v_pag = df_pag['value'].sum() if not df_pag.empty else 0
         
-        c1.metric("A Receber", f"R$ {total_rec:,.2f}")
-        c2.metric("A Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo", f"R$ {total_rec - total_pag:,.2f}")
+        c1.metric("Receitas", f"R$ {v_rec:,.2f}")
+        c2.metric("Despesas", f"R$ {v_pag:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Líquido", f"R$ {v_rec - v_pag:,.2f}")
 
-        # Tabelas
-        t1, t2 = st.tabs(["Receitas", "Despesas"])
+        # Visualização em Tabelas
+        st.divider()
+        t1, t2 = st.tabs(["📋 Contas a Receber", "💸 Contas a Pagar"])
+        
         with t1:
             if not df_rec.empty:
                 st.dataframe(df_rec[['customer_name', 'value', 'due_date', 'status']], use_container_width=True)
@@ -101,4 +105,4 @@ if st.sidebar.button("📊 ANALISAR CONTAS"):
             if not df_pag.empty:
                 st.dataframe(df_pag[['supplier_name', 'value', 'due_date', 'status']], use_container_width=True)
 else:
-    st.info("Configure as datas e clique em analisar.")
+    st.info("Ajuste o período na barra lateral e clique em Sincronizar.")
