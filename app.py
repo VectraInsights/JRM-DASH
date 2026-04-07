@@ -25,10 +25,13 @@ def conectar_google_sheets():
     return gspread.authorize(creds).open_by_key(ID_PLANILHA).worksheet("Página1")
 
 def obter_access_token(empresa, refresh_token_raw, aba_planilha):
+    # Endpoint de Token atualizado conforme suporte do TI
     url = "https://auth.contaazul.com/oauth2/token"
     try:
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data={
-            "grant_type": "refresh_token", "refresh_token": str(refresh_token_raw).strip()
+            "grant_type": "refresh_token", 
+            "refresh_token": str(refresh_token_raw).strip(),
+            "scope": "openid profile aws.cognito.signin.user.admin" # Adicionado escopo obrigatório
         })
         if response.status_code == 200:
             dados = response.json()
@@ -37,30 +40,32 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
                 cell = aba_planilha.find(empresa)
                 aba_planilha.update_cell(cell.row, cell.col + 1, novo_refresh)
             return dados.get("access_token")
-    except: return None
+    except: pass
+    return None
 
-def buscar_dados_financeiros(token, tipo):
-    # Mudança para o endpoint base (mais robusto que o de parcelas para totais)
-    url = f"https://api.contaazul.com/v1/financeiro/contas-a-{tipo}"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    
-    # Removido filtros de data para trazer TUDO em aberto
-    params = {"status": "EM_ABERTO"} 
+def buscar_v2(token, tipo):
+    # OBRIGATÓRIO usar API-V2 para o novo modelo de autenticação
+    url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    # Parâmetros simplificados para evitar erro de filtro
+    params = {"pagina": 1, "tamanho_pagina": 100}
     
     try:
         r = requests.get(url, headers=headers, params=params)
         if r.status_code == 200:
-            # A V1 retorna uma lista direta ou dentro de um objeto dependendo da conta
-            res = r.json()
-            return res if isinstance(res, list) else res.get("items", res.get("itens", []))
+            return r.json().get("itens", [])
         return []
-    except: return []
+    except:
+        return []
 
 # --- UI ---
-st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Totais Financeiros e Gráfico")
+st.set_page_config(page_title="Dashboard CA Novo", layout="wide")
+st.title("📈 Totais e Projeção (Padrão OIDC)")
 
-if st.button('🚀 Atualizar Dados'):
+if st.button('🚀 Atualizar Dashboard'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
@@ -70,25 +75,28 @@ if st.button('🚀 Atualizar Dados'):
         token = obter_access_token(emp, row['refresh_token'], aba)
         
         if token:
-            with st.spinner(f"Lendo {emp}..."):
-                for tipo_api, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
-                    itens = buscar_dados_financeiros(token, tipo_api)
+            with st.spinner(f"Processando {emp}..."):
+                # Busca Receber e Pagar na V2
+                for api_path, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
+                    itens = buscar_v2(token, api_path)
                     
                     for i in itens:
-                        # Captura de Valor (Tratando floats e objetos)
-                        v_raw = i.get('valor', 0)
-                        val = v_raw if not isinstance(v_raw, dict) else v_raw.get('valor', 0)
-                        
-                        # Captura de Data
-                        dt_raw = i.get('data_vencimento', i.get('vencimento'))
-                        dt_venc = pd.to_datetime(dt_raw).date()
-                        
-                        consolidado.append({
-                            'data': dt_venc, 
-                            'valor': float(val), 
-                            'tipo': rotulo, 
-                            'unidade': emp
-                        })
+                        status = str(i.get('status', '')).upper()
+                        # Na V2 os status em aberto são: EM_ABERTO, ATRASADO, PARCIALMENTE_RECEBIDO
+                        if "QUITADO" not in status and "PAGO" not in status and "RECEBIDO" not in status:
+                            
+                            # Na V2 o valor vem no campo 'valor_nominal' ou 'valor'
+                            v = i.get('valor_nominal', i.get('valor', 0))
+                            val = v if not isinstance(v, dict) else v.get('valor', 0)
+                            
+                            dt_venc = pd.to_datetime(i.get('data_vencimento')).date()
+                            
+                            consolidado.append({
+                                'data': dt_venc,
+                                'valor': float(val),
+                                'tipo': rotulo,
+                                'unidade': emp
+                            })
 
     if consolidado:
         df = pd.DataFrame(consolidado)
@@ -100,18 +108,17 @@ if st.button('🚀 Atualizar Dados'):
         c1, c2, c3 = st.columns(3)
         c1.metric("TOTAL A RECEBER", f"R$ {tr:,.2f}")
         c2.metric("TOTAL A PAGAR", f"R$ {tp:,.2f}")
-        c3.metric("SALDO EM ABERTO", f"R$ {(tr - tp):,.2f}")
+        c3.metric("SALDO LÍQUIDO", f"R$ {(tr-tp):,.2f}")
 
         # --- GRÁFICO ---
-        st.subheader("📅 Projeção de Caixa")
+        st.subheader("📅 Gráfico de Fluxo de Caixa")
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
-        for col in ['Receita', 'Despesa']:
-            if col not in df_g.columns: df_g[col] = 0
+        for c in ['Receita', 'Despesa']:
+            if c not in df_g.columns: df_g[c] = 0
             
         st.bar_chart(df_g[['Receita', 'Despesa']])
         
-        with st.expander("Ver Detalhes"):
+        with st.expander("Dados Detalhados"):
             st.dataframe(df)
     else:
-        st.error("⚠️ A API retornou listas vazias.")
-        st.info("Verifique se o seu App no Conta Azul tem permissão de 'Escrita e Leitura' no Financeiro.")
+        st.error("Dados não encontrados. Verifique se as parcelas estão geradas no Conta Azul.")
