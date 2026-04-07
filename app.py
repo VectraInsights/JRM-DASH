@@ -4,7 +4,7 @@ import pandas as pd
 import gspread
 import base64
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÕES ---
 ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
@@ -42,36 +42,34 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     except: pass
     return None
 
-def buscar_v2_auto(token, tipo):
+def buscar_financeiro_v1_novo(token, tipo):
+    # ENDPOINT EXATO DA DOCUMENTAÇÃO ENVIADA
+    url = f"https://api.contaazul.com/v1/financeiro/eventos-financeiros/contas-a-{tipo}/buscar"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    params = {
-        "data_vencimento_inicio": "2025-01-01T00:00:00Z",
-        "data_vencimento_fim": "2027-12-31T23:59:59Z",
-        "tamanho_pagina": 500
-    }
-
-    # Tentativa de URLs (Ordem de probabilidade para OIDC)
-    urls_para_testar = [
-        f"https://api-v2.contaazul.com/v1/financeiro/contas-{tipo}/parcelas",     # Padrão V2 Financeiro
-        f"https://api.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas",     # Padrão V1 híbrido
-        f"https://api-v2.contaazul.com/financeiro/contas-{tipo}/parcelas"        # Direto no Gateway
-    ]
-
-    for url in urls_para_testar:
-        try:
-            r = requests.get(url, headers=headers, params=params)
-            if r.status_code == 200:
-                return r.json().get("itens", [])
-            elif r.status_code == 404:
-                continue # Tenta a próxima URL
-        except:
-            continue
     
-    return []
+    # Parâmetros obrigatórios conforme a documentação
+    params = {
+        "pagina": 1,
+        "tamanho_pagina": 1000,
+        "data_vencimento_de": "2025-01-01T00:00:00Z",
+        "data_vencimento_ate": "2027-12-31T23:59:59Z"
+    }
+    
+    try:
+        r = requests.get(url, headers=headers, params=params)
+        if r.status_code == 200:
+            # O retorno costuma ser {'itens': [...]} ou {'items': [...]}
+            data = r.json()
+            return data.get("items", data.get("itens", []))
+        else:
+            st.error(f"Erro {tipo}: {r.status_code} - {r.text}")
+            return []
+    except:
+        return []
 
 # --- UI ---
-st.set_page_config(page_title="Dashboard Financeiro", layout="wide")
-st.title("📊 Resumo Consolidado (Totais e Gráfico)")
+st.set_page_config(page_title="Dashboard Financeiro CA", layout="wide")
+st.title("📈 Projeção de Caixa e Totais")
 
 if st.button('🚀 Atualizar Dashboard'):
     aba = conectar_google_sheets()
@@ -83,18 +81,23 @@ if st.button('🚀 Atualizar Dashboard'):
         token = obter_access_token(emp, row['refresh_token'], aba)
         
         if token:
-            with st.status(f"Processando {emp}...", expanded=True):
-                # O tipo na V2 costuma ser 'receber' e 'pagar' (sem o 'a') em alguns endpoints
-                for t_api, label in [("receber", "Receita"), ("pagar", "Despesa")]:
-                    itens = buscar_v2_auto(token, t_api)
+            with st.status(f"Lendo {emp}...", expanded=False):
+                for path, label in [("receber", "Receita"), ("pagar", "Despesa")]:
+                    itens = buscar_financeiro_v1_novo(token, path)
                     
                     for i in itens:
+                        # Filtro de status: Pega apenas o que não está liquidado
+                        # Na V1 o status pode ser 'EM_ABERTO', 'VENCIDO', 'PARCIAL'
                         status = str(i.get('status', '')).upper()
                         if status not in ["QUITADO", "PAGO", "RECEBIDO", "BAIXADO"]:
-                            v = i.get('valor_nominal', i.get('valor', 0))
+                            
+                            # Captura de valor (Tratando se vier como objeto ou float)
+                            v = i.get('valor', 0)
                             val = v if not isinstance(v, dict) else v.get('valor', 0)
                             
-                            dt_venc = pd.to_datetime(i.get('data_vencimento')).date()
+                            # Captura de data de vencimento
+                            dt_raw = i.get('data_vencimento')
+                            dt_venc = pd.to_datetime(dt_raw).date()
                             
                             consolidado.append({
                                 'data': dt_venc,
@@ -106,7 +109,7 @@ if st.button('🚀 Atualizar Dashboard'):
     if consolidado:
         df = pd.DataFrame(consolidado)
         
-        # --- CARDS ---
+        # --- CARDS DE TOTAIS ---
         tr = df[df['tipo'] == 'Receita']['valor'].sum()
         tp = df[df['tipo'] == 'Despesa']['valor'].sum()
         
@@ -116,13 +119,14 @@ if st.button('🚀 Atualizar Dashboard'):
         c3.metric("SALDO LÍQUIDO", f"R$ {(tr-tp):,.2f}")
 
         # --- GRÁFICO ---
-        st.subheader("📅 Projeção de Fluxo de Caixa")
+        st.subheader("📅 Fluxo de Vencimentos")
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
         for col in ['Receita', 'Despesa']:
             if col not in df_g.columns: df_g[col] = 0
             
         st.bar_chart(df_g[['Receita', 'Despesa']])
-        st.dataframe(df)
+        
+        with st.expander("Ver Detalhamento Completo"):
+            st.dataframe(df.sort_values('data'), use_container_width=True)
     else:
-        st.error("❌ A varredura não encontrou dados nas URLs testadas.")
-        st.info("Isso acontece se o seu Client_ID não tiver permissão 'Financial' no painel do Conta Azul.")
+        st.error("Nenhum lançamento encontrado nas datas especificadas.")
