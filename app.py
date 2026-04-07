@@ -25,13 +25,12 @@ def conectar_google_sheets():
     return gspread.authorize(creds).open_by_key(ID_PLANILHA).worksheet("Página1")
 
 def obter_access_token(empresa, refresh_token_raw, aba_planilha):
-    # Endpoint de Token atualizado conforme suporte do TI
     url = "https://auth.contaazul.com/oauth2/token"
     try:
         response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET), data={
             "grant_type": "refresh_token", 
             "refresh_token": str(refresh_token_raw).strip(),
-            "scope": "openid profile aws.cognito.signin.user.admin" # Adicionado escopo obrigatório
+            "scope": "openid profile aws.cognito.signin.user.admin"
         })
         if response.status_code == 200:
             dados = response.json()
@@ -43,29 +42,34 @@ def obter_access_token(empresa, refresh_token_raw, aba_planilha):
     except: pass
     return None
 
-def buscar_v2(token, tipo):
-    # OBRIGATÓRIO usar API-V2 para o novo modelo de autenticação
+def buscar_v2_com_datas(token, tipo):
     url = f"https://api-v2.contaazul.com/v1/financeiro/contas-a-{tipo}/parcelas"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    
+    # AJUSTE CRÍTICO: Filtro de data amplo para não vir vazio
+    params = {
+        "data_vencimento_inicio": "2025-01-01T00:00:00Z",
+        "data_vencimento_fim": "2027-12-31T23:59:59Z",
+        "pagina": 1,
+        "tamanho_pagina": 1000
     }
-    # Parâmetros simplificados para evitar erro de filtro
-    params = {"pagina": 1, "tamanho_pagina": 100}
     
     try:
         r = requests.get(url, headers=headers, params=params)
         if r.status_code == 200:
             return r.json().get("itens", [])
-        return []
-    except:
+        else:
+            st.error(f"Erro API {tipo.upper()}: {r.status_code} - {r.text}")
+            return []
+    except Exception as e:
+        st.error(f"Erro de conexão {tipo}: {e}")
         return []
 
 # --- UI ---
-st.set_page_config(page_title="Dashboard CA Novo", layout="wide")
-st.title("📈 Totais e Projeção (Padrão OIDC)")
+st.set_page_config(page_title="Fluxo de Caixa Consolidado", layout="wide")
+st.title("📈 Dashboard Financeiro (Correção de Filtros)")
 
-if st.button('🚀 Atualizar Dashboard'):
+if st.button('🚀 Executar Varredura'):
     aba = conectar_google_sheets()
     linhas = aba.get_all_records()
     consolidado = []
@@ -75,17 +79,15 @@ if st.button('🚀 Atualizar Dashboard'):
         token = obter_access_token(emp, row['refresh_token'], aba)
         
         if token:
-            with st.spinner(f"Processando {emp}..."):
-                # Busca Receber e Pagar na V2
-                for api_path, rotulo in [("receber", "Receita"), ("pagar", "Despesa")]:
-                    itens = buscar_v2(token, api_path)
+            with st.status(f"Buscando dados de {emp}...", expanded=True):
+                for path, label in [("receber", "Receita"), ("pagar", "Despesa")]:
+                    itens = buscar_v2_com_datas(token, path)
+                    st.write(f"🔍 {emp}: Encontrados {len(itens)} lançamentos em {label}")
                     
                     for i in itens:
                         status = str(i.get('status', '')).upper()
-                        # Na V2 os status em aberto são: EM_ABERTO, ATRASADO, PARCIALMENTE_RECEBIDO
-                        if "QUITADO" not in status and "PAGO" not in status and "RECEBIDO" not in status:
-                            
-                            # Na V2 o valor vem no campo 'valor_nominal' ou 'valor'
+                        # Filtra apenas o que não foi liquidado
+                        if status not in ["QUITADO", "PAGO", "RECEBIDO", "BAIXADO"]:
                             v = i.get('valor_nominal', i.get('valor', 0))
                             val = v if not isinstance(v, dict) else v.get('valor', 0)
                             
@@ -94,7 +96,7 @@ if st.button('🚀 Atualizar Dashboard'):
                             consolidado.append({
                                 'data': dt_venc,
                                 'valor': float(val),
-                                'tipo': rotulo,
+                                'tipo': label,
                                 'unidade': emp
                             })
 
@@ -111,14 +113,12 @@ if st.button('🚀 Atualizar Dashboard'):
         c3.metric("SALDO LÍQUIDO", f"R$ {(tr-tp):,.2f}")
 
         # --- GRÁFICO ---
-        st.subheader("📅 Gráfico de Fluxo de Caixa")
+        st.subheader("📅 Projeção por Vencimento")
         df_g = df.groupby(['data', 'tipo'])['valor'].sum().unstack(fill_value=0)
-        for c in ['Receita', 'Despesa']:
-            if c not in df_g.columns: df_g[c] = 0
+        for col in ['Receita', 'Despesa']:
+            if col not in df_g.columns: df_g[col] = 0
             
         st.bar_chart(df_g[['Receita', 'Despesa']])
-        
-        with st.expander("Dados Detalhados"):
-            st.dataframe(df)
+        st.dataframe(df)
     else:
-        st.error("Dados não encontrados. Verifique se as parcelas estão geradas no Conta Azul.")
+        st.error("Nenhum dado encontrado após aplicar filtros de data.")
