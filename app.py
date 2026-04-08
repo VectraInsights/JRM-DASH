@@ -1,192 +1,162 @@
 import streamlit as st
-import requests
 import pandas as pd
-from datetime import datetime
+import requests
 import gspread
-from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
 
-# --- CONFIGURAÇÕES FIXAS ---
-ID_PLANILHA = "10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao"
+# =========================
+# CONFIG
+# =========================
+CONTA_AZUL_CLIENT_ID = "SEU_CLIENT_ID"
+CONTA_AZUL_CLIENT_SECRET = "SEU_CLIENT_SECRET"
 
-# --- CONEXÃO GOOGLE (OFICIAL E CORRETA) ---
-def conectar_google():
-    try:
-        if "google_sheets" not in st.secrets:
-            st.error("Seção [google_sheets] não encontrada no Secrets.")
-            return None
+SHEET_URL = "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit?gid=0#gid=0"
 
-        google = st.secrets["google_sheets"]
+# =========================
+# GOOGLE SHEETS
+# =========================
+def conectar_google_sheets():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
 
-        # ✅ Ajuste correto do PEM
-        private_key = google["private_key"].replace("\\n", "\n")
+    creds = ServiceAccountCredentials.from_json_keyfile_name(
+        "credentials.json", scope
+    )
 
-        info = {
-            "type": google["type"],
-            "project_id": google["project_id"],
-            "private_key_id": google["private_key_id"],
-            "private_key": private_key,
-            "client_email": google["client_email"],
-            "client_id": google["client_id"],
-            "auth_uri": google["auth_uri"],
-            "token_uri": google["token_uri"],
-            "auth_provider_x509_cert_url": google["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": google["client_x509_cert_url"],
-        }
+    client = gspread.authorize(creds)
+    sheet = client.open_by_url(SHEET_URL).sheet1
 
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-
-        creds = Credentials.from_service_account_info(info, scopes=scopes)
-        client = gspread.authorize(creds)
-
-        return client
-
-    except Exception as e:
-        st.error(f"Erro Crítico na Conexão Google: {e}")
-        return None
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
 
-# --- GERENCIAMENTO TOKEN ---
-def gerenciar_token(novo_token=None):
-    client = conectar_google()
-    if not client:
-        return None
-
-    try:
-        sh = client.open_by_key(ID_PLANILHA)
-        ws = sh.worksheet("Tokens")
-
-        if novo_token:
-            ws.update_acell('B2', novo_token)
-            return novo_token
-
-        return ws.acell('B2').value
-
-    except Exception as e:
-        st.error(f"Erro ao acessar aba de Tokens: {e}")
-        return None
-
-
-# --- RENOVA TOKEN CONTA AZUL ---
-def renovar_acesso_ca():
-    refresh_atual = gerenciar_token()
-    if not refresh_atual:
-        return False
-
+# =========================
+# CONTA AZUL - AUTH
+# =========================
+def gerar_access_token(refresh_token):
     url = "https://api.contaazul.com/oauth2/token"
-    c_id = st.secrets["api"]["client_id"]
-    c_secret = st.secrets["api"]["client_secret"]
 
     payload = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_atual.strip()
+        "refresh_token": refresh_token,
+        "client_id": CONTA_AZUL_CLIENT_ID,
+        "client_secret": CONTA_AZUL_CLIENT_SECRET
     }
 
-    try:
-        res = requests.post(url, data=payload, auth=(c_id, c_secret))
+    response = requests.post(url, data=payload)
 
-        if res.status_code == 200:
-            dados = res.json()
-
-            # salva novo refresh token
-            gerenciar_token(novo_token=dados.get("refresh_token"))
-
-            # salva access token na sessão
-            st.session_state.access_token = dados.get("access_token")
-
-            return True
-        else:
-            st.error(f"Erro ao renovar token: {res.text}")
-            return False
-
-    except Exception as e:
-        st.error(f"Erro na Conta Azul: {e}")
-        return False
+    if response.status_code == 200:
+        return response.json()["access_token"]
+    else:
+        st.error(f"Erro ao gerar token: {response.text}")
+        return None
 
 
-# --- BUSCA DADOS CONTA AZUL ---
-def buscar_dados_ca(endpoint, d_inicio, d_fim):
-
-    if 'access_token' not in st.session_state:
-        if not renovar_acesso_ca():
-            return []
-
-    url = f"https://api.contaazul.com/v1/financeiro/{endpoint}"
+# =========================
+# BUSCAR DADOS
+# =========================
+def buscar_contas(access_token, tipo="receber"):
+    if tipo == "receber":
+        url = "https://api.contaazul.com/v1/financeiro/contas-a-receber"
+    else:
+        url = "https://api.contaazul.com/v1/financeiro/contas-a-pagar"
 
     headers = {
-        "Authorization": f"Bearer {st.session_state.access_token}"
+        "Authorization": f"Bearer {access_token}"
     }
 
-    params = {
-        "data_vencimento_de": d_inicio.strftime('%Y-%m-%d'),
-        "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')
-    }
+    response = requests.get(url, headers=headers)
 
-    try:
-        res = requests.get(url, headers=headers, params=params)
-
-        # tenta renovar se token expirou
-        if res.status_code == 401:
-            if renovar_acesso_ca():
-                headers["Authorization"] = f"Bearer {st.session_state.access_token}"
-                res = requests.get(url, headers=headers, params=params)
-
-        if res.status_code == 200:
-            return res.json()
-        else:
-            st.error(f"Erro API Conta Azul: {res.text}")
-            return []
-
-    except Exception as e:
-        st.error(f"Erro na requisição: {e}")
+    if response.status_code == 200:
+        return response.json()
+    else:
         return []
 
 
-# --- INTERFACE ---
-st.set_page_config(page_title="Dashboard JRM", layout="wide")
-st.title("📊 Painel Financeiro JRM")
+# =========================
+# PROCESSAMENTO
+# =========================
+def processar_dados(empresas_df):
+    dados_gerais = []
 
-with st.sidebar:
-    st.header("Filtros")
+    for _, row in empresas_df.iterrows():
+        empresa = row["empresa"]
+        refresh_token = row["refresh_token"]
 
-    data_ini = st.date_input("Vencimento inicial", datetime(2026, 4, 1))
-    data_fim = st.date_input("Vencimento final", datetime(2026, 4, 30))
+        access_token = gerar_access_token(refresh_token)
 
-    sync = st.button("🔄 Sincronizar Agora")
+        if not access_token:
+            continue
+
+        contas_receber = buscar_contas(access_token, "receber")
+        contas_pagar = buscar_contas(access_token, "pagar")
+
+        for c in contas_receber:
+            dados_gerais.append({
+                "empresa": empresa,
+                "tipo": "Receber",
+                "valor": c.get("valor", 0),
+                "data": c.get("dataVencimento")
+            })
+
+        for c in contas_pagar:
+            dados_gerais.append({
+                "empresa": empresa,
+                "tipo": "Pagar",
+                "valor": c.get("valor", 0),
+                "data": c.get("dataVencimento")
+            })
+
+    return pd.DataFrame(dados_gerais)
 
 
-# --- EXECUÇÃO ---
-if sync:
-    with st.spinner("Sincronizando com Conta Azul..."):
+# =========================
+# DASHBOARD
+# =========================
+def dashboard(df):
+    st.title("📊 Dashboard Financeiro")
 
-        receber = buscar_dados_ca("contas-a-receber", data_ini, data_fim)
-        pagar = buscar_dados_ca("contas-a-pagar", data_ini, data_fim)
+    if df.empty:
+        st.warning("Sem dados")
+        return
 
-        if receber or pagar:
+    col1, col2 = st.columns(2)
 
-            df_r = pd.DataFrame(receber)
-            df_p = pd.DataFrame(pagar)
+    total_receber = df[df["tipo"] == "Receber"]["valor"].sum()
+    total_pagar = df[df["tipo"] == "Pagar"]["valor"].sum()
 
-            v_r = df_r['value'].sum() if not df_r.empty and 'value' in df_r.columns else 0
-            v_p = df_p['value'].sum() if not df_p.empty and 'value' in df_p.columns else 0
+    col1.metric("💰 A Receber", f"R$ {total_receber:,.2f}")
+    col2.metric("💸 A Pagar", f"R$ {total_pagar:,.2f}")
 
-            c1, c2, c3 = st.columns(3)
+    st.divider()
 
-            c1.metric("A Receber", f"R$ {v_r:,.2f}")
-            c2.metric("A Pagar", f"R$ {v_p:,.2f}")
-            c3.metric("Saldo Líquido", f"R$ {v_r - v_p:,.2f}")
+    st.subheader("Por Empresa")
+    resumo = df.groupby(["empresa", "tipo"])["valor"].sum().unstack().fillna(0)
 
-            st.divider()
+    st.dataframe(resumo)
 
-            tab1, tab2 = st.tabs(["Contas a Receber", "Contas a Pagar"])
+    st.subheader("Detalhado")
+    st.dataframe(df)
 
-            with tab1:
-                st.dataframe(df_r, use_container_width=True)
 
-            with tab2:
-                st.dataframe(df_p, use_container_width=True)
+# =========================
+# APP
+# =========================
+def main():
+    st.set_page_config(layout="wide")
 
-        else:
-            st.info("Nenhum dado encontrado para o período.")
+    st.sidebar.title("⚙️ Configuração")
+
+    if st.sidebar.button("Atualizar dados"):
+        st.cache_data.clear()
+
+    empresas_df = conectar_google_sheets()
+    df = processar_dados(empresas_df)
+
+    dashboard(df)
+
+
+if __name__ == "__main__":
+    main()
