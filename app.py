@@ -1,3 +1,13 @@
+import streamlit as st
+import requests
+import base64
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+import time
+
 # --- 1. CONFIGURAÇÕES INICIAIS ---
 st.set_page_config(page_title="BPO Dashboard", layout="wide")
 
