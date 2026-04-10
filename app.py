@@ -152,3 +152,33 @@ if st.button("🚀 Sincronizar Dados", type="primary"):
         st.dataframe(df.sort_values('Data'), use_container_width=True)
     else:
         st.info("Nenhum dado encontrado.")
+
+# --- BLOCO DE DEPURAÇÃO (DEBUG) ---
+with st.expander("🐞 Depurador de Planilha e Conexão", expanded=False):
+    st.write("### Verificando Dados da Planilha")
+    sh = get_sheet()
+    if sh:
+        try:
+            # Lê todos os dados para ver o que existe
+            raw_data = sh.get_all_records()
+            if raw_data:
+                df_debug = pd.DataFrame(raw_data)
+                st.write("✅ Dados lidos com sucesso:")
+                st.dataframe(df_debug)
+                
+                st.write(f"**Empresa Selecionada no Menu:** `{sel_empresa}`")
+                
+                # Verifica se a empresa selecionada existe na coluna 'empresa'
+                if sel_empresa != "TODAS":
+                    existe = sel_empresa in df_debug['empresa'].values
+                    st.write(f"**Empresa encontrada na lista?** {'✅ Sim' if existe else '❌ Não'}")
+            else:
+                st.warning("⚠️ A planilha parece estar conectada, mas está totalmente VAZIA.")
+        except Exception as e:
+            st.error(f"❌ Erro ao ler registros: {e}")
+    else:
+        st.error("❌ Não foi possível conectar à planilha. Verifique o st.secrets e o compartilhamento.")
+
+    st.write("### Verificando Filtros de Data")
+    st.write(f"Busca de: `{d_inicio.strftime('%Y-%m-%dT00:00:00Z')}`")
+    st.write(f"Busca até: `{d_fim.strftime('%Y-%m-%dT23:59:59Z')}`")
