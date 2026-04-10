@@ -154,31 +154,43 @@ if st.button("🚀 Sincronizar Dados", type="primary"):
         st.info("Nenhum dado encontrado.")
 
 # --- BLOCO DE DEPURAÇÃO (DEBUG) ---
-with st.expander("🐞 Depurador de Planilha e Conexão", expanded=False):
-    st.write("### Verificando Dados da Planilha")
-    sh = get_sheet()
-    if sh:
-        try:
-            # Lê todos os dados para ver o que existe
-            raw_data = sh.get_all_records()
-            if raw_data:
-                df_debug = pd.DataFrame(raw_data)
-                st.write("✅ Dados lidos com sucesso:")
-                st.dataframe(df_debug)
-                
-                st.write(f"**Empresa Selecionada no Menu:** `{sel_empresa}`")
-                
-                # Verifica se a empresa selecionada existe na coluna 'empresa'
-                if sel_empresa != "TODAS":
-                    existe = sel_empresa in df_debug['empresa'].values
-                    st.write(f"**Empresa encontrada na lista?** {'✅ Sim' if existe else '❌ Não'}")
-            else:
-                st.warning("⚠️ A planilha parece estar conectada, mas está totalmente VAZIA.")
-        except Exception as e:
-            st.error(f"❌ Erro ao ler registros: {e}")
-    else:
-        st.error("❌ Não foi possível conectar à planilha. Verifique o st.secrets e o compartilhamento.")
+if st.button("🚀 Sincronizar Dados", type="primary"):
+    alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
+    dados = []
+    
+    for emp in alvos:
+        token = get_access_token(emp)
+        if not token: 
+            st.error(f"❌ Não consegui renovar o acesso para {emp}. Tente vincular novamente.")
+            continue
 
-    st.write("### Verificando Filtros de Data")
-    st.write(f"Busca de: `{d_inicio.strftime('%Y-%m-%dT00:00:00Z')}`")
-    st.write(f"Busca até: `{d_fim.strftime('%Y-%m-%dT23:59:59Z')}`")
+        for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
+            url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
+            res = requests.get(url, 
+                headers={"Authorization": f"Bearer {token}"},
+                params={
+                    "expiration_date_from": d_inicio.strftime('%Y-%m-%dT00:00:00Z'),
+                    "expiration_date_to": d_fim.strftime('%Y-%m-%dT23:59:59Z')
+                })
+            
+            # Se não for 200 (Sucesso), mostra o que aconteceu
+            if res.status_code != 200:
+                st.error(f"Erro na API ({tipo} - {emp}): {res.status_code} - {res.text}")
+                continue
+
+            # Se for 200, processa os dados
+            lista_retorno = res.json()
+            if not lista_retorno:
+                st.info(f"ℹ️ Sem lançamentos de {tipo} para {emp} no período selecionado.")
+            
+            for i in lista_retorno:
+                dt = i.get('due_date') or i.get('expiration_date')
+                dados.append({
+                    'Empresa': emp, 'Data': pd.to_datetime(dt[:10]),
+                    'Tipo': tipo, 'Valor': float(i.get('value', 0)),
+                    'Descrição': i.get('description', 'S/D')
+                })
+
+    if dados:
+        st.success(f"✅ {len(dados)} lançamentos encontrados!")
+        st.dataframe(pd.DataFrame(dados).sort_values('Data'), use_container_width=True)
