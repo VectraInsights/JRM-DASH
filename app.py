@@ -234,19 +234,24 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 7. DASHBOARD VISUAL (MÉTRICAS, GRÁFICO E TABELA) ---
+   # --- 7. DASHBOARD VISUAL (MÉTRICAS, GRÁFICO E TABELA) ---
     if data_points:
         df = pd.DataFrame(data_points)
-        df_daily = df.groupby().sum().unstack(fill_value=0).reset_index()
-        for col in:
-            if col not in df_daily: df_daily = 0
+        # Agrupa por data e tipo, depois reorganiza as colunas
+        df_daily = df.groupby(['Data', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
+        
+        # Garante que as colunas existam mesmo se não houver lançamentos de um tipo
+        for col in ['Recebimentos', 'Pagamentos']:
+            if col not in df_daily.columns:
+                df_daily[col] = 0.0
         
         df_daily = df_daily.sort_values('Data')
         
-        total_rec = df_daily.sum()
-        total_pag = df_daily.sum()
-        df_daily = df_daily - df_daily
-        df_daily = df_daily.cumsum()
+        # Cálculos de Totais e Saldo
+        total_rec = df_daily['Recebimentos'].sum()
+        total_pag = df_daily['Pagamentos'].sum()
+        df_daily['Saldo Diário'] = df_daily['Recebimentos'] - df_daily['Pagamentos']
+        df_daily['Acumulado'] = df_daily['Saldo Diário'].cumsum()
         
         st.markdown("---")
         c1, c2, c3 = st.columns(3)
@@ -254,10 +259,11 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}")
         c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
 
+        # Gráfico
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=df_daily, y=df_daily, name='Receber', marker_color='#00CC96'))
-        fig.add_trace(go.Bar(x=df_daily, y=-df_daily, name='Pagar', marker_color='#EF553B'))
-        fig.add_trace(go.Scatter(x=df_daily, y=df_daily, name='Saldo Acumulado', line=dict(color='#34495e', width=3)))
+        fig.add_trace(go.Bar(x=df_daily['Data'], y=df_daily['Recebimentos'], name='Receber', marker_color='#00CC96'))
+        fig.add_trace(go.Bar(x=df_daily['Data'], y=-df_daily['Pagamentos'], name='Pagar', marker_color='#EF553B'))
+        fig.add_trace(go.Scatter(x=df_daily['Data'], y=df_daily['Acumulado'], name='Saldo Acumulado', line=dict(color='#34495e', width=3)))
         
         fig.update_layout(
             barmode='relative', 
@@ -267,9 +273,10 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         )
         st.plotly_chart(fig, use_container_width=True)
 
+        # Tabela (Aqui estava o erro de sintaxe)
         st.subheader("Detalhamento por Dia")
-        df_tab = df_daily].copy()
-        df_tab = df_tab.dt.strftime('%d/%m/%Y')
+        df_tab = df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Acumulado']].copy()
+        df_tab['Data'] = df_tab['Data'].dt.strftime('%d/%m/%Y')
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
