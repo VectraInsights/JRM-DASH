@@ -131,25 +131,42 @@ if empresa_selecionada == "Adicionar Novo Cliente...":
     """)
     st.link_button("🔑 Autorizar Cliente na Conta Azul", auth_url)
 
-elif empresa_selecionada:
-    st.write(f"### Dados do Cliente: {empresa_selecionada}")
-    
-    refresh_token_atual = df_tokens.loc[df_tokens['empresa'] == empresa_selecionada, 'refresh_token'].values[0]
-    
-    if pd.isna(refresh_token_atual) or refresh_token_atual == "":
-        st.warning("Refresh token não encontrado na planilha. Refaça a autorização.")
-    else:
-        if st.button("Buscar Contas Financeiras", type="primary"):
-            with st.spinner("Atualizando token e buscando dados da Conta Azul..."):
+if st.button("Buscar Contas e Saldos", type="primary"):
+            with st.spinner("Sincronizando com Conta Azul..."):
                 access_token = refresh_access_token(empresa_selecionada, refresh_token_atual)
                 
                 if access_token:
-                    dados = obter_saldos_contas(access_token)
+                    # 1. Busca a lista de contas
+                    resposta_contas = obter_saldos_contas(access_token)
                     
-                    if type(dados) == list: # A API da CA geralmente retorna uma lista em caso de sucesso
-                        st.success("Dados importados com sucesso!")
-                        df_contas = pd.DataFrame(dados)
-                        st.dataframe(df_contas)
+                    # Ajuste para a estrutura correta (dicionário com chave 'itens')
+                    if isinstance(resposta_contas, dict) and "itens" in resposta_contas:
+                        st.success(f"Conectado a {empresa_selecionada}!")
+                        
+                        contas = resposta_contas["itens"]
+                        lista_final = []
+
+                        for conta in contas:
+                            # 2. Para cada conta, vamos buscar o saldo atual (Endpoint específico)
+                            id_conta = conta['id']
+                            url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{id_conta}/saldo-atual"
+                            h = {"Authorization": f"Bearer {access_token}"}
+                            res_saldo = requests.get(url_saldo, headers=h).json()
+                            
+                            # Adiciona o saldo ao dicionário da conta
+                            conta['saldo_atual'] = res_saldo.get('valor', 0.0)
+                            lista_final.append(conta)
+
+                        # Exibe em uma tabela bonita
+                        df_final = pd.DataFrame(lista_final)
+                        
+                        # Selecionando colunas relevantes para o dashboard
+                        colunas_uteis = ['nome', 'banco', 'tipo', 'saldo_atual', 'ativo']
+                        st.dataframe(df_final[colunas_uteis], use_container_width=True)
+                        
+                        # Exibe um Card com o Saldo Total Consolidado
+                        saldo_total = df_final[df_final['ativo'] == True]['saldo_atual'].sum()
+                        st.metric("Saldo Total Consolidado (Contas Ativas)", f"R$ {saldo_total:,.2f}")
                     else:
-                        st.error("Erro na comunicação com a API da Conta Azul.")
-                        st.write(dados)
+                        st.error("Estrutura de resposta inesperada.")
+                        st.write(resposta_contas)
