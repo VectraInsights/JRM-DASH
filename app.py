@@ -24,31 +24,33 @@ st.markdown(f"""
         .stApp {{ background-color: {bg}; color: {txt}; }}
         [data-testid="stSidebar"] {{ background-color: {side_bg} !important; }}
         
-        /* Botão de Tema minimalista no canto superior direito */
-        .st-emotion-cache-12fmjuu {{ display: none; }} /* Esconde menu original se houver */
+        /* Botão de Tema no canto superior direito real */
         .floating-theme {{
             position: fixed;
-            top: 12px;
-            right: 15px;
-            z-index: 999999;
+            top: 10px;
+            right: 20px;
+            z-index: 1000000;
         }}
         .floating-theme button {{
             background: transparent !important;
-            border: none !important;
-            font-size: 14px !important;
-            opacity: 0.5;
+            border: 1px solid #444 !important;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px !important;
         }}
-        .floating-theme button:hover {{ opacity: 1; }}
 
-        /* Ajuste Sidebar */
+        /* Esconder o olho na sidebar e criar o espaço de rolagem */
+        .spacer {{ height: 120vh; }} 
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"],
         [data-testid="stSidebar"] .stDateInput div {{ background-color: {input_fill} !important; color: {txt} !important; }}
-        
-        .spacer {{ height: 100vh; }} /* Força rolagem longa para o olho */
     </style>
     """, unsafe_allow_html=True)
 
-# Botão de Tema no local solicitado
+# Botão de Tema fixo no topo direito
 st.markdown('<div class="floating-theme">', unsafe_allow_html=True)
 if st.button("🌓", key="theme_toggle"):
     st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
@@ -68,27 +70,44 @@ def get_sheet():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
     return gspread.authorize(creds).open_by_url(PLANILHA_URL).sheet1
 
-def update_refresh_token_in_sheet(empresa_nome, new_refresh_token):
+def update_token(empresa_nome, refresh_token):
     sh = get_sheet()
     try:
         cell = sh.find(empresa_nome)
-        sh.update_cell(cell.row, 2, new_refresh_token)
+        sh.update_cell(cell.row, 2, refresh_token)
     except:
-        sh.append_row([empresa_nome, new_refresh_token])
+        sh.append_row([empresa_nome, refresh_token])
 
-def get_tokens(refresh_token, empresa_nome):
+def get_access_token(refresh_token, empresa_nome):
     url = "https://auth.contaazul.com/oauth2/token"
     res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, 
                         data={"grant_type": "refresh_token", "refresh_token": refresh_token})
     if res.status_code == 200:
         data = res.json()
-        new_rt = data.get("refresh_token")
-        if new_rt:
-            update_refresh_token_in_sheet(empresa_nome, new_rt)
+        update_token(empresa_nome, data.get("refresh_token"))
         return data.get("access_token")
     return None
 
-# --- 3. SIDEBAR ---
+# --- 3. FLUXO DE CONEXÃO (RENOMEAR) ---
+if "code" in st.query_params:
+    st.markdown("### 🔑 Finalizar Conexão")
+    with st.container(border=True):
+        nome_empresa = st.text_input("Dê um nome para esta empresa:", placeholder="Ex: Cliente X")
+        if st.button("Salvar Empresa", type="primary"):
+            if nome_empresa:
+                r = requests.post("https://auth.contaazul.com/oauth2/token", 
+                                  headers={"Authorization": f"Basic {B64_AUTH}"},
+                                  data={"grant_type": "authorization_code", "code": st.query_params["code"], "redirect_uri": REDIRECT_URI})
+                if r.status_code == 200:
+                    update_token(nome_empresa, r.json().get("refresh_token"))
+                    st.success(f"Empresa '{nome_empresa}' conectada com sucesso!")
+                    st.query_params.clear()
+                    st.rerun()
+            else:
+                st.error("Por favor, digite um nome.")
+    st.stop() # Interrompe o dashboard até salvar
+
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.subheader("Filtros")
     df_db = pd.DataFrame(get_sheet().get_all_records())
@@ -103,24 +122,13 @@ with st.sidebar:
         st.session_state.adm_mode = not st.session_state.adm_mode
         st.rerun()
 
-# --- 4. ÁREA ADM & CONSULTA ---
+# --- 5. DASHBOARD ---
 st.title("📊 Fluxo de Caixa BPO")
 
-# Captura de código da URL (Login Conta Azul)
-if "code" in st.query_params:
-    with st.status("Registrando nova empresa..."):
-        r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
-                          data={"grant_type": "authorization_code", "code": st.query_params["code"], "redirect_uri": REDIRECT_URI})
-        if r.status_code == 200:
-            st.success("Conectado! Nomeie a empresa na Área ADM.")
-            # Aqui você pode salvar com um nome genérico e depois renomear na planilha
-            update_refresh_token_in_sheet("NOVA_EMPRESA_PENDENTE", r.json().get("refresh_token"))
-            st.query_params.clear()
-
 if st.session_state.adm_mode:
-    with st.expander("🔑 Configurações", expanded=True):
-        if st.text_input("Acesso", type="password") == "8429coconoiaKc#":
-            st.link_button("🔌 Conectar Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
+    with st.expander("🔑 Área Administrador", expanded=True):
+        if st.text_input("Senha", type="password") == "8429coconoiaKc#":
+            st.link_button("🔌 Conectar Nova Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
 
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
@@ -128,24 +136,19 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     
     for emp in lista:
         row = df_db[df_db['empresa'] == emp].iloc[0]
-        acc_token = get_tokens(row['refresh_token'], emp)
+        token = get_access_token(row['refresh_token'], emp)
         
-        if acc_token:
+        if token:
             url = "https://api.contaazul.com/v1/financeiro/lancamentos"
-            params_api = {
-                "data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'),
-                "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z')
-            }
-            res = requests.get(url, headers={"Authorization": f"Bearer {acc_token}"}, params=params_api)
+            params = {"data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'), "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z')}
+            res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
             
             if res.status_code == 200:
                 for lanc in res.json():
-                    # Proteção contra erros de atributo
                     if isinstance(lanc, dict):
                         v = lanc.get('valor', 0)
                         tp = lanc.get('tipo')
                         dt = lanc.get('data_vencimento')
-                        
                         if dt and tp:
                             data_points.append({
                                 'Data': pd.to_datetime(dt).date(),
@@ -181,4 +184,4 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         df_tab['Data'] = df_tab['Data'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum dado financeiro encontrado para este período.")
+        st.warning("Nenhum dado encontrado para o período.")
