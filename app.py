@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURAÇÕES ---
 st.set_page_config(page_title="BPO Dashboard - Fluxo de Caixa", layout="wide")
 
-# Credenciais
 CLIENT_ID = st.secrets["conta_azul"]["client_id"]
 CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
 REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
@@ -53,71 +52,78 @@ def refresh_access_token(empresa, refresh_token_atual):
     return None
 
 def fetch_financeiro(token, tipo, d_inicio, d_fim):
-    """Busca lançamentos. Removido filtro de status para trazer tudo do período."""
+    """Busca lançamentos com tratamento de datas e paginação"""
     url = f"https://api-v2.contaazul.com/v1/{tipo}"
+    # Formatação rigorosa para a API
     params = {
         "due_after": f"{d_inicio}T00:00:00Z",
-        "due_before": f"{d_fim}T23:59:59Z"
+        "due_before": f"{d_fim}T23:59:59Z",
+        "size": 1000  # Aumentado para evitar vir vazio por paginação
     }
     headers = {"Authorization": f"Bearer {token}"}
-    res = requests.get(url, headers=headers, params=params).json()
-    return res if isinstance(res, list) else res.get("itens", [])
+    res = requests.get(url, headers=headers, params=params)
+    
+    if res.status_code == 200:
+        data = res.json()
+        return data if isinstance(data, list) else data.get("itens", [])
+    return []
 
 # --- 4. INTERFACE ---
 st.title("📈 Fluxo de Caixa Inteligente")
 
-# --- MODO ADMIN (Proteção de Conexão) ---
 with st.sidebar:
-    st.header("⚙️ Configurações")
-    admin_mode = st.toggle("Modo Administrador")
-    if admin_mode:
-        senha = st.text_input("Senha de acesso", type="password")
-        if senha == "admin123": # Altere sua senha aqui
-            st.success("Acesso liberado")
-            url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=ESTADO&scope=openid+profile+aws.cognito.signin.user.admin"
-            st.link_button("🔗 Conectar Nova Empresa", url_auth)
-        elif senha:
-            st.error("Senha incorreta")
-
-    st.divider()
     st.header("🔍 Filtros")
     df_db = get_tokens_db()
     empresas_list = df_db['empresa'].unique().tolist() if not df_db.empty else []
     
-    selecao = st.selectbox("Empresa", ["TODAS (CONSOLIDADO)"] + empresas_list)
+    selecao = st.selectbox("Selecione a Empresa", ["TODAS (CONSOLIDADO)"] + empresas_list)
     
+    # Data no padrão brasileiro visualmente
     data_ini = st.date_input("Data Início", datetime.now() - timedelta(days=30), format="DD/MM/YYYY")
     data_fim = st.date_input("Data Fim", datetime.now() + timedelta(days=30), format="DD/MM/YYYY")
+    
+    st.divider()
+    # MODO ADMIN BEM ESCONDIDO (Apenas um checkbox vazio no rodapé da sidebar)
+    admin_check = st.checkbox(" ", value=False, help="Área restrita")
+    if admin_check:
+        senha = st.text_input("Chave de Acesso", type="password")
+        if senha == "8429coconoiaKc#":
+            st.success("Admin Ativo")
+            url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=ESTADO&scope=openid+profile+aws.cognito.signin.user.admin"
+            st.link_button("🔗 Conectar Nova Empresa", url_auth)
 
-# --- LÓGICA DE PROCESSAMENTO ---
+# --- 5. LÓGICA DE PROCESSAMENTO ---
 if st.button("🚀 Gerar Fluxo de Caixa", type="primary"):
     empresas_para_processar = empresas_list if selecao == "TODAS (CONSOLIDADO)" else [selecao]
     
-    all_data_in = []
-    all_data_out = []
+    all_data = []
     
-    with st.spinner(f"Processando {len(empresas_para_processar)} empresa(s)..."):
+    with st.spinner(f"Sincronizando dados..."):
         for emp in empresas_para_processar:
-            token_ref = df_db.loc[df_db['empresa'] == emp, 'refresh_token'].values[0]
-            token_acc = refresh_access_token(emp, token_ref)
-            
-            if token_acc:
-                rec = fetch_financeiro(token_acc, "receivables", data_ini, data_fim)
-                pag = fetch_financeiro(token_acc, "payables", data_ini, data_fim)
+            try:
+                token_ref = df_db.loc[df_db['empresa'] == emp, 'refresh_token'].values[0]
+                token_acc = refresh_access_token(emp, token_ref)
                 
-                for item in rec:
-                    all_data_in.append({'data': item['due_date'][:10], 'valor': float(item['value']), 'empresa': emp})
-                for item in pag:
-                    all_data_out.append({'data': item['due_date'][:10], 'valor': float(item['value']) * -1, 'empresa': emp})
+                if token_acc:
+                    # Busca Receber e Pagar
+                    rec = fetch_financeiro(token_acc, "receivables", data_ini, data_fim)
+                    pag = fetch_financeiro(token_acc, "payables", data_ini, data_fim)
+                    
+                    for item in rec:
+                        val = item.get('value') or item.get('amount') or 0
+                        all_data.append({'data': item['due_date'][:10], 'valor': float(val), 'tipo': 'Entrada', 'desc': item.get('description', 'S/D'), 'empresa': emp})
+                    
+                    for item in pag:
+                        val = item.get('value') or item.get('amount') or 0
+                        all_data.append({'data': item['due_date'][:10], 'valor': float(val) * -1, 'tipo': 'Saída', 'desc': item.get('description', 'S/D'), 'empresa': emp})
+            except Exception as e:
+                st.error(f"Erro na empresa {emp}: {e}")
 
-    if all_data_in or all_data_out:
-        df_in = pd.DataFrame(all_data_in)
-        df_out = pd.DataFrame(all_data_out)
-        
-        # Consolidação para o Gráfico
-        df_total = pd.concat([df_in, df_out])
+    if all_data:
+        df_total = pd.DataFrame(all_data)
         df_total['data'] = pd.to_datetime(df_total['data'])
         
+        # Agrupamento para o gráfico
         grafico_df = df_total.groupby(df_total['data'].dt.date)['valor'].agg([
             ('Entradas', lambda x: x[x > 0].sum()),
             ('Saídas', lambda x: abs(x[x < 0].sum()))
@@ -125,26 +131,36 @@ if st.button("🚀 Gerar Fluxo de Caixa", type="primary"):
 
         # Métricas
         c1, c2, c3 = st.columns(3)
-        total_rec = grafico_df['Entradas'].sum()
-        total_pag = grafico_df['Saídas'].sum()
-        c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Líquido", f"R$ {(total_rec - total_pag):,.2f}")
+        total_in = grafico_df['Entradas'].sum()
+        total_out = grafico_df['Saídas'].sum()
+        c1.metric("Total Entradas", f"R$ {total_in:,.2f}")
+        c2.metric("Total Saídas", f"R$ {total_out:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Líquido", f"R$ {(total_in - total_out):,.2f}")
 
-        # Gráfico de Área
-        st.subheader(f"Evolução: {selecao}")
+        st.subheader(f"Evolução Financeira: {selecao}")
         st.area_chart(grafico_df)
 
-        # Tabela Detalhada com data BR
-        with st.expander("Ver lançamentos detalhados"):
-            df_table = df_total.copy()
-            df_table['data'] = df_table['data'].dt.strftime('%d/%m/%Y')
-            df_table['valor'] = df_table['valor'].map('R$ {:,.2f}'.format)
-            st.dataframe(df_table, use_container_width=True, hide_index=True)
+        with st.expander("📄 Detalhamento dos Lançamentos (Lista Completa)"):
+            df_view = df_total.sort_values(by='data', ascending=True).copy()
+            df_view['data'] = df_view['data'].dt.strftime('%d/%m/%Y')
+            st.dataframe(df_view[['data', 'empresa', 'tipo', 'desc', 'valor']], use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum lançamento encontrado para o período/empresa selecionada.")
+        st.warning("Nenhum lançamento encontrado. Verifique se o período selecionado possui contas (mesmo que já pagas) na Conta Azul.")
 
-# --- TRATAMENTO DE RETORNO OAUTH ---
+# --- 6. TRATAMENTO DE RETORNO OAUTH (MODO ADMIN) ---
 if "code" in st.query_params:
-    st.info("Nova autorização detectada...")
-    # ... (mesma lógica de vinculação anterior)
+    st.divider()
+    st.subheader("🔑 Finalizar Nova Integração")
+    code = st.query_params["code"]
+    
+    nome_emp = st.text_input("Identificação da Empresa para a Planilha:")
+    if st.button("Confirmar e Salvar"):
+        if nome_emp:
+            res = requests.post("https://auth.contaazul.com/oauth2/token", 
+                               headers={"Authorization": f"Basic {B64_AUTH}", "Content-Type": "application/x-www-form-urlencoded"},
+                               data={"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI})
+            if res.status_code == 200:
+                update_refresh_token(nome_emp, res.json().get("refresh_token"))
+                st.success("Salvo!")
+                st.query_params.clear()
+                st.rerun()
