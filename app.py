@@ -1,109 +1,108 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
+import requests
+from urllib.parse import urlencode
+import uuid
 
-# ====================== CONFIGURAÇÕES ======================
-st.set_page_config(page_title="BPO Dashboard", layout="wide")
+# ====================== CONFIGURAÇÕES CONTA AZUL ======================
+CLIENT_ID = st.secrets["conta_azul"]["client_id"]
+CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
+REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]   # ex: https://seu-app.streamlit.app/callback
 
-# Inicializa session_state
-if 'empresas' not in st.session_state:
-    st.session_state.empresas = []          # lista de dicts
-if 'empresa_selecionada' not in st.session_state:
-    st.session_state.empresa_selecionada = None
-if 'modo_edicao' not in st.session_state:
-    st.session_state.modo_edicao = False
+AUTH_URL = "https://api.contaazul.com/oauth/authorize"
+TOKEN_URL = "https://api.contaazul.com/oauth/token"
 
-# ====================== SIDEBAR - GERENCIAMENTO DE EMPRESAS ======================
-st.sidebar.title("Empresas")
+# ====================== SESSION STATE ======================
+if 'pending_token' not in st.session_state:
+    st.session_state.pending_token = None
+if 'pending_empresa' not in st.session_state:
+    st.session_state.pending_empresa = {}
 
-# --- Botão para adicionar nova empresa ---
-if st.sidebar.button("➕ Nova Empresa", use_container_width=True):
-    st.session_state.modo_edicao = True
-    st.session_state.empresa_selecionada = None   # indica que é uma nova empresa
+# ====================== DETECTAR CALLBACK ======================
+query_params = st.query_params
 
-# Lista de empresas existentes
-if st.session_state.empresas:
-    empresa_nomes = [emp["nome"] for emp in st.session_state.empresas]
-    empresa_selecionada = st.sidebar.selectbox(
-        "Empresa Atual",
-        options=empresa_nomes,
-        index=empresa_nomes.index(st.session_state.empresa_selecionada) 
-              if st.session_state.empresa_selecionada in empresa_nomes else 0
-    )
-    st.session_state.empresa_selecionada = empresa_selecionada
-else:
-    st.sidebar.info("Nenhuma empresa cadastrada ainda.")
-
-# ====================== FORMULÁRIO DE NOVA/EDIÇÃO DE EMPRESA ======================
-if st.session_state.modo_edicao:
-    st.subheader("Nova Empresa" if not st.session_state.empresa_selecionada else f"Editando: {st.session_state.empresa_selecionada}")
-
-    with st.form("form_empresa"):
-        nome_atual = st.session_state.empresa_selecionada if st.session_state.empresa_selecionada else ""
+if 'code' in query_params and st.session_state.pending_token is None:
+    code = query_params['code']
+    
+    # Troca code por token
+    data = {
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': REDIRECT_URI,
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+    }
+    
+    try:
+        response = requests.post(TOKEN_URL, data=data)
+        response.raise_for_status()
+        token_data = response.json()
         
-        nome_empresa = st.text_input("Nome da Empresa *", value=nome_atual, key="nome_input")
+        st.session_state.pending_token = {
+            'access_token': token_data['access_token'],
+            'refresh_token': token_data.get('refresh_token'),
+            'expires_in': token_data.get('expires_in'),
+            'empresa_id': token_data.get('empresa_id')  # se a Conta Azul retornar
+        }
+        
+        # Limpa os query params para evitar loop
+        st.query_params.clear()
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"Erro ao obter token: {e}")
+        st.query_params.clear()
+
+# ====================== FORMULÁRIO PARA NOME DA EMPRESA (APÓS CALLBACK) ======================
+if st.session_state.pending_token is not None:
+    st.subheader("✅ Conexão com Conta Azul realizada com sucesso!")
+    st.info("Agora dê um nome identificador para esta empresa no seu dashboard.")
+
+    with st.form("form_nome_empresa"):
+        nome_empresa = st.text_input(
+            "Nome da Empresa *", 
+            value=st.session_state.pending_empresa.get("nome", ""),
+            placeholder="Ex: Cliente ABC - Matriz",
+            help="Esse é o nome que aparecerá no seu dashboard"
+        )
         
         col1, col2 = st.columns(2)
         with col1:
-            cnpj = st.text_input("CNPJ", key="cnpj_input")
+            cnpj = st.text_input("CNPJ (opcional)", value=st.session_state.pending_empresa.get("cnpj", ""))
         with col2:
-            responsavel = st.text_input("Responsável", key="resp_input")
+            responsavel = st.text_input("Responsável (opcional)", value=st.session_state.pending_empresa.get("responsavel", ""))
         
-        observacao = st.text_area("Observações", key="obs_input")
+        observacao = st.text_area("Observações", value=st.session_state.pending_empresa.get("observacao", ""))
         
-        submitted = st.form_submit_button("Salvar Empresa")
+        salvar = st.form_submit_button("💾 Salvar Empresa e Token")
         
-        if submitted:
+        if salvar:
             if not nome_empresa.strip():
-                st.error("Nome da empresa é obrigatório!")
+                st.error("O nome da empresa é obrigatório!")
             else:
-                # Verifica se já existe empresa com esse nome (exceto se for edição)
-                if (not st.session_state.empresa_selecionada or 
-                    nome_empresa != st.session_state.empresa_selecionada):
-                    if any(emp["nome"].upper() == nome_empresa.upper() for emp in st.session_state.empresas):
-                        st.error("Já existe uma empresa com esse nome!")
-                        st.stop()
-                
-                nova_empresa = {
+                # Salva tudo junto (token + dados da empresa)
+                empresa_dict = {
                     "nome": nome_empresa.strip(),
                     "cnpj": cnpj.strip(),
                     "responsavel": responsavel.strip(),
                     "observacao": observacao.strip(),
-                    "data_cadastro": datetime.now().strftime("%d/%m/%Y %H:%M")
+                    "access_token": st.session_state.pending_token["access_token"],
+                    "refresh_token": st.session_state.pending_token.get("refresh_token"),
+                    "conectado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "conta_azul_id": st.session_state.pending_token.get("empresa_id")
                 }
                 
-                if st.session_state.empresa_selecionada:  # Modo edição
-                    # Atualiza a empresa existente
-                    for i, emp in enumerate(st.session_state.empresas):
-                        if emp["nome"] == st.session_state.empresa_selecionada:
-                            st.session_state.empresas[i] = nova_empresa
-                            break
-                    st.success(f"Empresa '{nome_empresa}' atualizada com sucesso!")
-                else:  # Nova empresa
-                    st.session_state.empresas.append(nova_empresa)
-                    st.success(f"Empresa '{nome_empresa}' cadastrada com sucesso!")
+                # Aqui você salva no Google Sheets (gspread) ou no seu banco
+                # Exemplo:
+                # salvar_no_google_sheets(empresa_dict)
                 
-                # Finaliza o modo edição
-                st.session_state.modo_edicao = False
-                st.session_state.empresa_selecionada = nome_empresa
+                st.success(f"Empresa **{nome_empresa}** salva com sucesso!")
+                
+                # Limpa o pending
+                st.session_state.pending_token = None
+                st.session_state.pending_empresa = {}
                 st.rerun()
 
-    if st.button("Cancelar"):
-        st.session_state.modo_edicao = False
+    if st.button("Cancelar conexão"):
+        st.session_state.pending_token = None
+        st.session_state.pending_empresa = {}
         st.rerun()
-
-# ====================== DASHBOARD PRINCIPAL ======================
-if st.session_state.empresa_selecionada and not st.session_state.modo_edicao:
-    st.title(f"Dashboard - {st.session_state.empresa_selecionada}")
-    
-    # Aqui vai o resto do seu dashboard (gráficos, métricas, etc.)
-    st.info("Dashboard da empresa carregado com sucesso!")
-    
-    # Exemplo: mostrar dados da empresa
-    empresa_atual = next((emp for emp in st.session_state.empresas if emp["nome"] == st.session_state.empresa_selecionada), None)
-    if empresa_atual:
-        st.write(empresa_atual)
-
-else:
-    st.title("BPO Dashboard")
-    st.warning("Selecione ou cadastre uma empresa no menu lateral para começar.")
