@@ -5,7 +5,6 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
-import plotly.express as px
 
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="BPO Dashboard", layout="wide")
@@ -19,8 +18,8 @@ st.markdown(f"""
     <style>
         #MainMenu, footer, header {{visibility: hidden;}}
         .stApp {{ background-color: {bg}; color: {txt}; }}
-        [data-
-""", unsafe_allow_html=True)   # ← mantive exatamente como você enviou (mesmo truncado)
+    </style>
+""", unsafe_allow_html=True)
 
 # ====================== CALLBACK CONTA AZUL (CORREÇÃO) ======================
 if 'pending_token' not in st.session_state:
@@ -32,7 +31,6 @@ if 'processing_callback' not in st.session_state:
 
 query_params = st.query_params
 
-# Trata o retorno da Conta Azul (quando volta com ?code= na URL)
 if 'code' in query_params and st.session_state.pending_token is None:
     if st.session_state.processing_callback:
         st.stop()
@@ -74,7 +72,7 @@ if 'code' in query_params and st.session_state.pending_token is None:
         st.query_params.clear()
         st.session_state.processing_callback = False
 
-# ====================== FORMULÁRIO PARA NOME DA EMPRESA (APÓS CALLBACK) ======================
+# ====================== FORMULÁRIO PARA NOME DA EMPRESA ======================
 if st.session_state.get('pending_token') is not None:
     st.subheader("✅ Conexão com Conta Azul realizada com sucesso!")
     st.info("Agora informe o nome da empresa para salvar a conexão.")
@@ -98,7 +96,6 @@ if st.session_state.get('pending_token') is not None:
             if not nome_empresa.strip():
                 st.error("Nome da empresa é obrigatório!")
             else:
-                # <<< AQUI VOCÊ USA A MESMA LÓGICA DE SALVAMENTO QUE JÁ TINHA >>>
                 empresa_dict = {
                     "nome": nome_empresa.strip(),
                     "cnpj": cnpj.strip(),
@@ -110,12 +107,10 @@ if st.session_state.get('pending_token') is not None:
                     "conta_azul_id": st.session_state.pending_token.get("empresa_id")
                 }
                 
-                # Cole aqui o seu código de salvamento no Google Sheets (gspread)
-                # Exemplo:
-                # salvar_empresa_no_gspread(empresa_dict)
+                # <<< COLE AQUI SUA LÓGICA ORIGINAL DE SALVAMENTO NO GSPREAD >>>
+                # Exemplo: salvar_empresa_no_gspread(empresa_dict)
                 
                 st.success(f"Empresa **{nome_empresa}** salva com sucesso!")
-                
                 st.session_state.pending_token = None
                 st.session_state.pending_empresa = {}
                 st.rerun()
@@ -125,6 +120,6 @@ if st.session_state.get('pending_token') is not None:
         st.session_state.pending_empresa = {}
         st.rerun()
 
-# ====================== RESTO DO SEU CÓDIGO ORIGINAL (continua aqui) ======================
-# Cole todo o restante do seu código a partir daqui (sidebar, dashboard, gráficos, etc.)
-# Nada foi alterado ou removido.
+# ====================== AQUI COMEÇA O SEU CÓDIGO ORIGINAL COMPLETO ======================
+# Cole TODO o restante do seu código original a partir daqui
+# (sidebar, métricas, gráficos, gspread, tudo que vinha depois do st.markdown)
