@@ -52,22 +52,17 @@ def update_token_sheet(empresa, rt):
     try:
         cell = sh.find(empresa)
         sh.update_cell(cell.row, 2, rt)
-        return True
     except:
         sh.append_row([empresa, rt])
-        return True
 
 def get_new_access_token(empresa):
-    """Busca o refresh_token atual na planilha e gera um novo access_token"""
     sh = get_sheet()
     try:
         cell = sh.find(empresa)
         rt_atual = sh.cell(cell.row, 2).value
-        
-        url = "https://auth.contaazul.com/oauth2/token"
-        res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, 
+        res = requests.post("https://auth.contaazul.com/oauth2/token", 
+                            headers={"Authorization": f"Basic {B64_AUTH}"}, 
                             data={"grant_type": "refresh_token", "refresh_token": rt_atual})
-        
         if res.status_code == 200:
             data = res.json()
             update_token_sheet(empresa, data['refresh_token'])
@@ -79,19 +74,48 @@ def get_new_access_token(empresa):
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("Filtros")
-    df_db = pd.DataFrame(get_sheet().get_all_records())
-    empresas_list = df_db['empresa'].unique().tolist() if not df_db.empty else []
+    try:
+        df_db = pd.DataFrame(get_sheet().get_all_records())
+        empresas_list = df_db['empresa'].unique().tolist()
+    except:
+        empresas_list = []
+        
     selecao = st.selectbox("Empresa", ["TODAS"] + empresas_list)
     d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
+    
     st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
     if st.button("👁️", key="adm_eye"):
         st.session_state.adm_mode = not st.session_state.adm_mode
         st.rerun()
 
-# --- 4. EXECUÇÃO ---
+# --- 4. ÁREA ADMINISTRATIVA ---
 st.title("📊 Fluxo de Caixa BPO")
 
+if st.session_state.adm_mode:
+    with st.container(border=True):
+        st.subheader("🔑 Área do Administrador")
+        senha = st.text_input("Senha de Acesso", type="password")
+        if senha == "8429coconoiaKc#":
+            st.success("Acesso Liberado")
+            st.link_button("🔌 Conectar/Reconectar Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
+            
+            # Captura de retorno da conexão
+            if "code" in st.query_params:
+                st.divider()
+                st.warning("Nova conexão detectada!")
+                nome_nova = st.text_input("Nome da Empresa que acabou de logar:")
+                if st.button("Salvar Nova Conexão"):
+                    r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
+                                      data={"grant_type": "authorization_code", "code": st.query_params["code"], "redirect_uri": REDIRECT_URI})
+                    if r.status_code == 200:
+                        update_token_sheet(nome_nova, r.json()['refresh_token'])
+                        st.success("Salvo! Limpando URL...")
+                        time.sleep(1)
+                        st.query_params.clear()
+                        st.rerun()
+
+# --- 5. CONSULTA ---
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
     lista_alvo = empresas_list if selecao == "TODAS" else [selecao]
@@ -100,48 +124,32 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     st.subheader("🛠️ Log de Depuração")
     
     for emp in lista_alvo:
-        st.write(f"--- **Empresa:** {emp} ---")
+        st.write(f"**Empresa:** {emp}")
         token = get_new_access_token(emp)
         
-        if token:
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Cache-Control": "no-cache",
-                "Content-Type": "application/json"
-            }
-            url = "https://api.contaazul.com/v1/financeiro/lancamentos"
-            params = {
-                "data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'),
-                "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z')
-            }
-            
-            res = requests.get(url, headers=headers, params=params)
-            
-            # Se ainda der 401, tentamos uma última vez limpando o estado
-            if res.status_code == 401:
-                st.warning("🔄 Token invalidado na chamada. Tentando redundância...")
-                time.sleep(1)
-                token = get_new_access_token(emp)
-                headers["Authorization"] = f"Bearer {token}"
-                res = requests.get(url, headers=headers, params=params)
+        if not token:
+            st.error(f"❌ Falha ao renovar Token para {emp}. O Refresh Token pode ter expirado. Por favor, reconecte a empresa no modo ADM.")
+            continue
 
-            if res.status_code == 200:
-                itens = res.json()
-                st.write(f"✅ Sucesso: {len(itens)} lançamentos (Token: ...{token[-4:]})")
-                for lanc in itens:
-                    if isinstance(lanc, dict):
-                        v, tp, dt = lanc.get('valor', 0), lanc.get('tipo'), lanc.get('data_vencimento')
-                        if dt and tp:
-                            data_points.append({
-                                'Data': pd.to_datetime(dt).date(),
-                                'Tipo': 'Recebimentos' if tp == 'RECEBER' else 'Pagamentos',
-                                'Valor': float(v)
-                            })
-            else:
-                st.error(f"❌ Erro Final {res.status_code}: {res.text}")
+        headers = {"Authorization": f"Bearer {token}", "Cache-Control": "no-cache"}
+        url = "https://api.contaazul.com/v1/financeiro/lancamentos"
+        params = {"data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'), "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z')}
+        
+        res = requests.get(url, headers=headers, params=params)
+        
+        if res.status_code == 200:
+            itens = res.json()
+            st.write(f"✅ {len(itens)} lançamentos obtidos.")
+            for lanc in itens:
+                if isinstance(lanc, dict):
+                    data_points.append({
+                        'Data': pd.to_datetime(lanc.get('data_vencimento')).date(),
+                        'Tipo': 'Recebimentos' if lanc.get('tipo') == 'RECEBER' else 'Pagamentos',
+                        'Valor': float(lanc.get('valor', 0))
+                    })
         else:
-            st.error(f"❌ Não foi possível obter token para {emp}.")
-    
+            st.error(f"❌ Erro {res.status_code} na API. Verifique as permissões do App.")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     if data_points:
@@ -152,18 +160,16 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         
         df_daily = df_daily.sort_values('Data')
         df_daily['Saldo_Acumulado'] = (df_daily['Recebimentos'] - df_daily['Pagamentos']).cumsum()
-        df_daily['Data_Formatada'] = df_daily['Data'].apply(lambda x: x.strftime('%d/%m'))
-
+        
+        # Dashboard Visual
         c1, c2, c3 = st.columns(3)
         c1.metric("A Receber", f"R$ {df_daily['Recebimentos'].sum():,.2f}")
         c2.metric("A Pagar", f"R$ {df_daily['Pagamentos'].sum():,.2f}")
         c3.metric("Saldo Líquido", f"R$ {(df_daily['Recebimentos'].sum() - df_daily['Pagamentos'].sum()):,.2f}")
 
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=df_daily['Data_Formatada'], y=df_daily['Recebimentos'], name='Receber', marker_color='#00CC96'))
-        fig.add_trace(go.Bar(x=df_daily['Data_Formatada'], y=df_daily['Pagamentos'], name='Pagar', marker_color='#EF553B'))
-        fig.add_trace(go.Scatter(x=df_daily['Data_Formatada'], y=df_daily['Saldo_Acumulado'], name='Saldo', line=dict(color='#34495e', width=3)))
-        
-        fig.update_layout(template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white", barmode='group', height=450)
+        fig.add_trace(go.Bar(x=df_daily['Data'], y=df_daily['Recebimentos'], name='Receber', marker_color='#00CC96'))
+        fig.add_trace(go.Bar(x=df_daily['Data'], y=df_daily['Pagamentos'], name='Pagar', marker_color='#EF553B'))
+        fig.update_layout(template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white", barmode='group')
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Saldo_Acumulado']], use_container_width=True, hide_index=True)
+        st.dataframe(df_daily, use_container_width=True, hide_index=True)
