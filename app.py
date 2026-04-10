@@ -76,8 +76,8 @@ with st.sidebar:
     df_db = pd.DataFrame(get_sheet().get_all_records())
     empresas = df_db['empresa'].unique().tolist() if not df_db.empty else []
     selecao = st.selectbox("Empresa", ["TODAS"] + empresas)
-    d_ini = st.date_input("Início", datetime.now())
-    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=15))
+    d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
+    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
     st.markdown("<br>" * 10, unsafe_allow_html=True)
     st.divider()
