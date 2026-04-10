@@ -5,24 +5,23 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- CONFIGURAÇÕES BÁSICAS ---
+# --- 1. CONFIGURAÇÕES INICIAIS ---
 st.set_page_config(page_title="Dashboard BPO - Conta Azul", layout="wide")
 
-# Puxando credenciais do Streamlit Secrets
+# Credenciais vindas do st.secrets
 CLIENT_ID = st.secrets["conta_azul"]["client_id"]
 CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
 REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
-
-# URL exata da sua planilha
 PLANILHA_URL = "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
 
-# Codificação Base64 exigida pela Conta Azul
+# Preparação do Header de Autenticação (Base64)
 auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
 B64_AUTH = base64.b64encode(auth_str.encode()).decode()
 
-# --- INTEGRAÇÃO GOOGLE SHEETS ---
+# --- 2. FUNÇÕES DE BANCO DE DADOS (GOOGLE SHEETS) ---
 @st.cache_resource
 def init_gspread():
+    """Inicializa a conexão com o Google Sheets"""
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds_dict = dict(st.secrets["google_sheets"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -32,21 +31,25 @@ def init_gspread():
 sheet = init_gspread()
 
 def get_tokens_db():
+    """Lê os tokens salvos na planilha"""
     records = sheet.get_all_records()
     return pd.DataFrame(records)
 
 def update_refresh_token_in_sheet(empresa, novo_refresh_token):
+    """Atualiza o refresh token na planilha (obrigatório a cada uso)"""
     df = get_tokens_db()
+    empresa = empresa.upper().strip()
     try:
-        # Pega o index e soma 2 (gspread começa na linha 1, mais a linha de cabeçalho)
-        row_index = df.index[df['empresa'] == empresa].tolist()[0] + 2 
+        # Localiza a linha da empresa
+        row_index = df.index[df['empresa'].str.upper() == empresa].tolist()[0] + 2 
         sheet.update_cell(row_index, 2, novo_refresh_token) 
     except IndexError:
-        # Se for uma empresa nova, adiciona no fim da planilha
+        # Se a empresa não existir na lista, adiciona uma nova linha
         sheet.append_row([empresa, novo_refresh_token])
 
-# --- FUNÇÕES DA API CONTA AZUL ---
+# --- 3. FUNÇÕES DA API CONTA AZUL ---
 def exchange_code_for_token(code):
+    """Troca o código da URL pelos primeiros tokens"""
     url = "https://auth.contaazul.com/oauth2/token"
     headers = {
         "Authorization": f"Basic {B64_AUTH}",
@@ -60,7 +63,8 @@ def exchange_code_for_token(code):
     response = requests.post(url, headers=headers, data=data)
     return response.json()
 
-def refresh_access_token(empresa, refresh_token):
+def refresh_access_token(empresa, refresh_token_atual):
+    """Gera um novo access_token usando o refresh_token salvo"""
     url = "https://auth.contaazul.com/oauth2/token"
     headers = {
         "Authorization": f"Basic {B64_AUTH}",
@@ -68,105 +72,108 @@ def refresh_access_token(empresa, refresh_token):
     }
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token
+        "refresh_token": refresh_token_atual
     }
     response = requests.post(url, headers=headers, data=data)
     
     if response.status_code == 200:
-        tokens = response.json()
-        novo_access_token = tokens.get("access_token")
-        novo_refresh_token = tokens.get("refresh_token")
-        
-        update_refresh_token_in_sheet(empresa, novo_refresh_token)
-        return novo_access_token
+        dados = response.json()
+        # Salva o NOVO refresh token que a API enviou (o antigo expira)
+        update_refresh_token_in_sheet(empresa, dados.get("refresh_token"))
+        return dados.get("access_token")
     else:
-        st.error(f"Sessão expirada para {empresa}. Solicite reautorização.")
+        st.error(f"Erro na renovação: {response.text}")
         return None
 
-def obter_saldos_contas(access_token):
-    url = "https://api-v2.contaazul.com/v1/conta-financeira"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
-    return response.json()
+# --- 4. INTERFACE DO USUÁRIO (STREAMLIT) ---
+st.title("📊 Dashboard Consolidado Conta Azul")
 
-# --- INTERFACE DO STREAMLIT ---
-st.title("📊 Painel de Conciliação BPO")
-
-# 1. Processamento do Código de Autorização OAuth
+# Verificação de Retorno da Autorização (OAuth Code na URL)
 query_params = st.query_params
 if "code" in query_params:
-    st.info("🔄 Capturando autorização da URL...")
     code = query_params["code"]
-    
-    # Campo para identificar qual cliente acabou de autorizar
-    empresa_alvo = st.text_input("Qual o nome desta empresa? (ex: JTL, ROSE, JRM)")
-    if st.button("Vincular Nova Empresa"):
-        tokens = exchange_code_for_token(code)
-        if "refresh_token" in tokens:
-            update_refresh_token_in_sheet(empresa_alvo.upper(), tokens["refresh_token"])
-            st.success(f"✅ Integração de {empresa_alvo} concluída!")
+    st.success("✅ Autorização recebida!")
+    nome_empresa = st.text_input("Para qual empresa é esta autorização? (Ex: JRM, LGP)")
+    if st.button("Confirmar Vinculação"):
+        res = exchange_code_for_token(code)
+        if "refresh_token" in res:
+            update_refresh_token_in_sheet(nome_empresa, res["refresh_token"])
+            st.success(f"Empresa {nome_empresa} conectada com sucesso!")
             st.query_params.clear()
             st.rerun()
         else:
-            st.error("Falha ao autenticar. Tente novamente.")
-            st.write(tokens)
+            st.error("Erro ao obter tokens. Verifique as credenciais.")
 
 st.divider()
 
-# 2. Gestão das Empresas e Extração de Dados
-df_tokens = get_tokens_db()
-empresas_cadastradas = df_tokens['empresa'].tolist() if not df_tokens.empty else []
+# Sidebar para Seleção de Empresa
+df_db = get_tokens_db()
+if not df_db.empty:
+    lista_empresas = df_db['empresa'].unique().tolist()
+    st.sidebar.header("Configurações")
+    empresa_selecionada = st.sidebar.selectbox("Selecione a Empresa:", ["Adicionar Nova..."] + lista_empresas)
+else:
+    empresa_selecionada = "Adicionar Nova..."
 
-st.sidebar.header("Empresas Conectadas")
-empresa_selecionada = st.sidebar.selectbox("Selecione um cliente:", ["Adicionar Novo Cliente..."] + empresas_cadastradas)
+if empresa_selecionada == "Adicionar Nova...":
+    st.info("Clique no botão abaixo para conectar uma nova conta da Conta Azul ao dashboard.")
+    url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=ESTADO&scope=openid+profile+aws.cognito.signin.user.admin"
+    st.link_button("🔗 Conectar Nova Empresa", url_auth)
 
-if empresa_selecionada == "Adicionar Novo Cliente...":
-    st.write("### Conectar uma nova empresa na Conta Azul")
-    state = "SECURE_STATE"
-    auth_url = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state={state}&scope=openid+profile+aws.cognito.signin.user.admin"
+else:
+    # --- LOGICA PRINCIPAL DO DASHBOARD PARA UMA EMPRESA ---
+    st.header(f"🏢 Empresa: {empresa_selecionada}")
     
-    st.markdown("""
-    1. Certifique-se de estar logado na Conta Azul da empresa do cliente.
-    2. Clique no botão abaixo para autorizar este aplicativo.
-    """)
-    st.link_button("🔑 Autorizar Cliente na Conta Azul", auth_url)
-
-if st.button("Buscar Contas e Saldos", type="primary"):
-            with st.spinner("Sincronizando com Conta Azul..."):
-                access_token = refresh_access_token(empresa_selecionada, refresh_token_atual)
+    # Busca o refresh token na planilha
+    refresh_token_db = df_db.loc[df_db['empresa'] == empresa_selecionada, 'refresh_token'].values[0]
+    
+    if st.button("🔄 Sincronizar Dados Financeiros", type="primary"):
+        with st.spinner("Atualizando tokens e buscando saldos..."):
+            # 1. Renova o acesso
+            token_acesso = refresh_access_token(empresa_selecionada, refresh_token_db)
+            
+            if token_acesso:
+                # 2. Busca contas financeiras
+                url_contas = "https://api-v2.contaazul.com/v1/conta-financeira"
+                headers_api = {"Authorization": f"Bearer {token_acesso}"}
+                res_contas = requests.get(url_contas, headers=headers_api).json()
                 
-                if access_token:
-                    # 1. Busca a lista de contas
-                    resposta_contas = obter_saldos_contas(access_token)
+                if "itens" in res_contas:
+                    contas = res_contas["itens"]
+                    dados_consolidados = []
                     
-                    # Ajuste para a estrutura correta (dicionário com chave 'itens')
-                    if isinstance(resposta_contas, dict) and "itens" in resposta_contas:
-                        st.success(f"Conectado a {empresa_selecionada}!")
+                    progress_text = st.empty()
+                    
+                    # 3. Busca saldo individual de cada conta
+                    for i, conta in enumerate(contas):
+                        progress_text.text(f"Lendo saldo: {conta['nome']} ({i+1}/{len(contas)})")
+                        id_c = conta['id']
+                        url_s = f"https://api-v2.contaazul.com/v1/conta-financeira/{id_c}/saldo-atual"
+                        res_s = requests.get(url_s, headers=headers_api).json()
                         
-                        contas = resposta_contas["itens"]
-                        lista_final = []
-
-                        for conta in contas:
-                            # 2. Para cada conta, vamos buscar o saldo atual (Endpoint específico)
-                            id_conta = conta['id']
-                            url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{id_conta}/saldo-atual"
-                            h = {"Authorization": f"Bearer {access_token}"}
-                            res_saldo = requests.get(url_saldo, headers=h).json()
-                            
-                            # Adiciona o saldo ao dicionário da conta
-                            conta['saldo_atual'] = res_saldo.get('valor', 0.0)
-                            lista_final.append(conta)
-
-                        # Exibe em uma tabela bonita
-                        df_final = pd.DataFrame(lista_final)
-                        
-                        # Selecionando colunas relevantes para o dashboard
-                        colunas_uteis = ['nome', 'banco', 'tipo', 'saldo_atual', 'ativo']
-                        st.dataframe(df_final[colunas_uteis], use_container_width=True)
-                        
-                        # Exibe um Card com o Saldo Total Consolidado
-                        saldo_total = df_final[df_final['ativo'] == True]['saldo_atual'].sum()
-                        st.metric("Saldo Total Consolidado (Contas Ativas)", f"R$ {saldo_total:,.2f}")
-                    else:
-                        st.error("Estrutura de resposta inesperada.")
-                        st.write(resposta_contas)
+                        conta['saldo'] = res_s.get('valor', 0.0)
+                        dados_consolidados.append(conta)
+                    
+                    progress_text.empty()
+                    
+                    # 4. Exibição
+                    df_final = pd.DataFrame(dados_consolidados)
+                    
+                    # Filtros de visualização
+                    df_ativa = df_final[df_final['ativo'] == True].copy()
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Saldo Total (Contas Ativas)", f"R$ {df_ativa['saldo'].sum():,.2f}")
+                    with col2:
+                        st.metric("Total de Contas", len(df_ativa))
+                    
+                    st.subheader("Detalhamento por Conta")
+                    st.dataframe(
+                        df_ativa[['nome', 'banco', 'tipo', 'saldo']], 
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.error("Erro ao processar lista de contas.")
+                    st.write(res_contas)
