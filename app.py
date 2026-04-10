@@ -10,181 +10,141 @@ import plotly.graph_objects as go
 # --- CONFIGURAÇÕES DE PÁGINA ---
 st.set_page_config(page_title="BPO Dashboard - JRM", layout="wide")
 
-# Inicialização do tema (Padrão: Escuro)
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'dark'
-
 # URLs da API Conta Azul
 API_BASE_URL = "https://api-v2.contaazul.com"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 
-# --- FUNÇÕES DE SUPORTE ---
+# --- FUNÇÕES DE CONEXÃO ---
 
 def get_sheet():
-    """Conecta à planilha do Google para buscar empresas e refresh_tokens."""
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
-    # Abre a planilha pelo ID extraído da sua URL
-    return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
+    """Conecta à planilha mestre de tokens."""
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
+        return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
+    except Exception as e:
+        st.error(f"Erro de conexão com Google Sheets: {e}")
+        return None
 
 def get_access_token(empresa_nome):
-    """Realiza o refresh do token OAuth2 conforme 'Autenticação na API da Conta Azul.docx'."""
+    """Renova o token para a empresa específica."""
     try:
         sh = get_sheet()
         cell = sh.find(empresa_nome)
-        if not cell:
-            return None
+        if not cell: return None
         
         refresh_token_atual = sh.cell(cell.row, 2).value
-        
-        # Header de autorização Basic (client_id:client_secret em base64)
         auth_str = f"{st.secrets['conta_azul']['client_id']}:{st.secrets['conta_azul']['client_secret']}"
         auth_header = base64.b64encode(auth_str.encode()).decode()
         
-        payload = {
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token_atual
-        }
-        
-        headers = {
-            "Authorization": f"Basic {auth_header}",
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
-        
-        response = requests.post(TOKEN_URL, headers=headers, data=payload)
-        
-        if response.status_code == 200:
-            token_data = response.json()
-            # Salva o novo refresh_token na planilha (importante: ele muda a cada uso)
+        res = requests.post(TOKEN_URL, 
+            headers={"Authorization": f"Basic {auth_header}", "Content-Type": "application/x-www-form-urlencoded"},
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token_atual})
+
+        if res.status_code == 200:
+            token_data = res.json()
             sh.update_cell(cell.row, 2, token_data['refresh_token'])
             return token_data['access_token']
-        else:
-            return None
-    except Exception as e:
-        return None
+    except: return None
+    return None
 
 # --- INTERFACE (SIDEBAR) ---
 
 with st.sidebar:
-    st.title("⚙️ Painel de Controlo")
+    st.title("🚀 BPO Financeiro")
     
-    try:
-        df_sheet = pd.DataFrame(get_sheet().get_all_records())
-        lista_empresas = df_sheet['empresa'].unique().tolist()
-    except:
+    # Busca lista de empresas atualizada
+    sh = get_sheet()
+    if sh:
+        df_sheet = pd.DataFrame(sh.get_all_records())
+        lista_empresas = df_sheet['empresa'].unique().tolist() if not df_sheet.empty else []
+    else:
         lista_empresas = []
-        st.error("Erro ao carregar lista de empresas da planilha.")
 
-    sel_empresa = st.selectbox("Selecione a Empresa", ["TODAS"] + lista_empresas)
+    sel_empresa = st.selectbox("Filtrar Empresa", ["TODAS"] + lista_empresas)
     
     col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        d_inicio = st.date_input("Data Início", datetime.now() - timedelta(days=7))
-    with col_d2:
-        d_fim = st.date_input("Data Fim", datetime.now() + timedelta(days=30))
+    d_inicio = col_d1.date_input("Início", datetime.now() - timedelta(days=7))
+    d_fim = col_d2.date_input("Fim", datetime.now() + timedelta(days=30))
     
     st.divider()
-    # A variável abaixo controla se os logs aparecem ou não
-    debug_mode = st.checkbox("🔍 Ativar Log de Depuração", value=False)
+    
+    # --- ACESSO LIBERADO: VINCULAR EMPRESAS ---
+    with st.expander("🔗 Vincular/Gerenciar Empresas", expanded=False):
+        nova_emp = st.text_input("Nome da Nova Empresa")
+        novo_rt = st.text_input("Refresh Token Inicial", help="Obtido no primeiro acesso à API")
+        if st.button("Salvar Vínculo"):
+            if nova_emp and novo_rt and sh:
+                sh.append_row([nova_emp, novo_rt])
+                st.success(f"{nova_emp} vinculada com sucesso!")
+                st.rerun()
+            else:
+                st.warning("Preencha todos os campos.")
 
-# --- LÓGICA PRINCIPAL ---
+    st.divider()
+    debug_mode = st.checkbox("🔍 Modo Depuração", value=False)
 
-if st.button("🚀 Sincronizar Fluxo de Caixa", type="primary"):
+# --- PROCESSAMENTO ---
+
+if st.button("Sincronizar Dados", type="primary"):
     alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
     dados_totais = []
-    logs_sessao = []
+    logs = []
 
-    with st.spinner(f"A processar {len(alvos)} empresa(s)..."):
-        for emp in alvos:
-            token = get_access_token(emp)
-            if not token:
-                if debug_mode: logs_sessao.append({"empresa": emp, "erro": "Falha na renovação do token"})
-                continue
+    for emp in alvos:
+        token = get_access_token(emp)
+        if not token:
+            if debug_mode: logs.append(f"❌ {emp}: Falha no token")
+            continue
 
-            # Endpoints corrigidos conforme a documentação 'Financeiro.docx'
-            # Evitamos o '/eventos-financeiros/' que causava o erro 502/405
-            rotas = [
-                ("Receber", f"{API_BASE_URL}/v1/financeiro/contas-a-receber"),
-                ("Pagar", f"{API_BASE_URL}/v1/financeiro/contas-a-pagar")
-            ]
+        for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
+            url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
+            params = {
+                "expiration_date_from": d_inicio.strftime('%Y-%m-%dT00:00:00Z'),
+                "expiration_date_to": d_fim.strftime('%Y-%m-%dT23:59:59Z')
+            }
+            res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
+            
+            if debug_mode:
+                logs.append({"Empresa": emp, "Tipo": tipo, "Status": res.status_code, "URL": res.url, "Response": res.text[:200]})
 
-            for tipo, url in rotas:
-                # Parâmetros de data no formato ISO exigido pela v2
-                params = {
-                    "expiration_date_from": d_inicio.strftime('%Y-%m-%dT00:00:00Z'),
-                    "expiration_date_to": d_fim.strftime('%Y-%m-%dT23:59:59Z')
-                }
-                
-                res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
-                
-                # Armazena logs apenas se solicitado
-                if debug_mode:
-                    logs_sessao.append({
-                        "Empresa": emp,
-                        "Fluxo": tipo,
-                        "Status": res.status_code,
-                        "URL_Chamada": res.url,
-                        "Resposta_Raw": res.text[:250] # Limite para não poluir
+            if res.status_code == 200:
+                for i in res.json():
+                    dt = i.get('due_date') or i.get('expiration_date')
+                    dados_totais.append({
+                        'Empresa': emp,
+                        'Data': pd.to_datetime(dt[:10]),
+                        'Tipo': tipo,
+                        'Valor': float(i.get('value', 0)),
+                        'Descrição': i.get('description', 'S/D')
                     })
 
-                if res.status_code == 200:
-                    items = res.json()
-                    for i in items:
-                        # Pega a data de vencimento (pode vir como due_date ou expiration_date)
-                        dt_str = i.get('due_date') or i.get('expiration_date')
-                        dados_totais.append({
-                            'Empresa': emp,
-                            'Data_Ref': pd.to_datetime(dt_str[:10]),
-                            'Tipo': tipo,
-                            'Valor': float(i.get('value', 0)),
-                            'Descritivo': i.get('description', i.get('memo', 'Sem descrição')),
-                            'Status': i.get('status', 'Pendente')
-                        })
-
-    # --- EXIBIÇÃO DOS DADOS ---
-    
+    # --- DASHBOARD ---
     if dados_totais:
-        df_final = pd.DataFrame(dados_totais)
+        df = pd.DataFrame(dados_totais)
         
-        # Cards de Resumo
-        c1, c2, c3 = st.columns(3)
-        v_receber = df_final[df_final['Tipo'] == 'Receber']['Valor'].sum()
-        v_pagar = df_final[df_final['Tipo'] == 'Pagar']['Valor'].sum()
-        
-        c1.metric("Total a Receber", f"R$ {v_receber:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {v_pagar:,.2f}", delta_color="inverse")
-        c3.metric("Saldo do Período", f"R$ {(v_receber - v_pagar):,.2f}")
+        # Métricas
+        m1, m2, m3 = st.columns(3)
+        rec = df[df['Tipo'] == 'Receber']['Valor'].sum()
+        pag = df[df['Tipo'] == 'Pagar']['Valor'].sum()
+        m1.metric("A Receber", f"R$ {rec:,.2f}")
+        m2.metric("A Pagar", f"R$ {pag:,.2f}", delta_color="inverse")
+        m3.metric("Saldo", f"R$ {(rec-pag):,.2f}")
 
-        # Gráfico Comparativo
-        st.subheader("Evolução Financeira Diária")
-        df_graph = df_final.groupby(['Data_Ref', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
-        
+        # Gráfico
+        st.subheader("Fluxo por Dia")
+        df_g = df.groupby(['Data', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
         fig = go.Figure()
-        if 'Receber' in df_graph.columns:
-            fig.add_trace(go.Bar(x=df_graph['Data_Ref'], y=df_graph['Receber'], name='Receber', marker_color='#2ecc71'))
-        if 'Pagar' in df_graph.columns:
-            fig.add_trace(go.Bar(x=df_graph['Data_Ref'], y=-df_graph['Pagar'], name='Pagar', marker_color='#e74c3c'))
-        
-        fig.update_layout(barmode='relative', template="plotly_dark" if IS_DARK else "plotly_white")
+        if 'Receber' in df_g.columns: fig.add_trace(go.Bar(x=df_g['Data'], y=df_g['Receber'], name='Receber', marker_color='#00CC96'))
+        if 'Pagar' in df_g.columns: fig.add_trace(go.Bar(x=df_g['Data'], y=-df_g['Pagar'], name='Pagar', marker_color='#EF553B'))
+        fig.update_layout(barmode='relative', template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Tabela Detalhada
-        st.subheader("Lista de Lançamentos")
-        st.dataframe(
-            df_final.sort_values(by='Data_Ref'), 
-            use_container_width=True, 
-            column_config={
-                "Data_Ref": st.column_config.DateColumn("Vencimento"),
-                "Valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f")
-            }
-        )
+        # Tabela
+        st.dataframe(df.sort_values('Data'), use_container_width=True)
     else:
-        st.info("Nenhum dado encontrado para o período selecionado.")
+        st.info("Nenhum lançamento encontrado.")
 
-    # --- ÁREA DE DEPURAÇÃO (SÓ APARECE SE O BOTÃO NO SIDEBAR FOR ATIVADO) ---
-    if debug_mode and logs_sessao:
-        st.divider()
-        with st.expander("🛠️ Detalhes da Depuração (API)", expanded=True):
-            for log in logs_sessao:
-                st.write(f"**Empresa:** {log.get('Empresa', 'N/A')} | **Status:** {log.get('Status')}")
-                st.json(log)
+    if debug_mode and logs:
+        with st.expander("Logs Técnicos"):
+            for l in logs: st.json(l)
