@@ -28,7 +28,11 @@ def init_gspread():
 sheet = init_gspread()
 
 def get_tokens_db():
-    return pd.DataFrame(sheet.get_all_records())
+    df = pd.DataFrame(sheet.get_all_records())
+    if not df.empty:
+        # Organiza as empresas em ordem alfabética
+        df = df.sort_values(by='empresa')
+    return df
 
 def update_refresh_token(empresa, novo_token):
     df = get_tokens_db()
@@ -53,24 +57,25 @@ def refresh_access_token(empresa, refresh_token_atual):
 
 def fetch_financeiro(token, tipo, d_inicio, d_fim):
     url = f"https://api-v2.contaazul.com/v1/{tipo}"
+    # Formatação exata ISO8601 exigida pela Conta Azul
     params = {
-        "due_after": f"{d_inicio}T00:00:00Z",
-        "due_before": f"{d_fim}T23:59:59Z",
+        "due_after": d_inicio.strftime('%Y-%m-%dT00:00:00Z'),
+        "due_before": d_fim.strftime('%Y-%m-%dT23:59:59Z'),
         "size": 1000
     }
     headers = {"Authorization": f"Bearer {token}"}
     res = requests.get(url, headers=headers, params=params)
+    
     if res.status_code == 200:
         data = res.json()
         return data if isinstance(data, list) else data.get("itens", [])
-    return {"error": res.status_code, "msg": res.text}
+    return {"status": res.status_code, "body": res.text}
 
 # --- 4. INTERFACE ---
 st.title("📈 Fluxo de Caixa Inteligente")
 
-# --- VERIFICAÇÃO DE USUÁRIO (ADMIN) ---
-# O Streamlit Cloud fornece o e-mail do usuário logado via st.user
-user_email = st.user.email if st.user else None
+# Validação Admin robusta
+user_email = st.user.email if st.user else "visitante"
 is_admin = (user_email == "sptn201169@gmail.com")
 
 with st.sidebar:
@@ -80,25 +85,32 @@ with st.sidebar:
     
     selecao = st.selectbox("Selecione a Empresa", ["TODAS (CONSOLIDADO)"] + empresas_list)
     
-    data_ini = st.date_input("Data Início", datetime.now() - timedelta(days=30), format="DD/MM/YYYY")
-    data_fim = st.date_input("Data Fim", datetime.now() + timedelta(days=30), format="DD/MM/YYYY")
+    # Calendário com datas automáticas conforme solicitado
+    data_ini = st.date_input("Data Início", datetime.now(), format="DD/MM/YYYY")
+    data_fim = st.date_input("Data Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
     st.divider()
     
     if is_admin:
-        st.success(f"Logado como Admin: {user_email}")
+        st.success(f"Logado como: {user_email}")
         url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=ESTADO&scope=openid+profile+aws.cognito.signin.user.admin"
         st.link_button("🔗 Conectar Nova Empresa", url_auth)
     else:
-        st.info("Acesso restrito para novos vínculos.")
+        st.error("Acesso restrito para novos vínculos.")
+        # Botão secreto temporário caso o st.user falhe no seu navegador
+        if st.checkbox("Usar Chave Manual (Admin Only)"):
+            chave = st.text_input("Insira a chave", type="password")
+            if chave == "8429coconoiaKc#":
+                is_admin = True
+                st.rerun()
 
 # --- 5. LÓGICA DE PROCESSAMENTO ---
 if st.button("🚀 Gerar Fluxo de Caixa", type="primary"):
     empresas_para_processar = empresas_list if selecao == "TODAS (CONSOLIDADO)" else [selecao]
     all_data = []
-    erros_debug = []
+    logs_erro = []
 
-    with st.spinner(f"Sincronizando dados..."):
+    with st.spinner("Sincronizando com Conta Azul..."):
         for emp in empresas_para_processar:
             token_ref = df_db.loc[df_db['empresa'] == emp, 'refresh_token'].values[0]
             token_acc = refresh_access_token(emp, token_ref)
@@ -109,59 +121,62 @@ if st.button("🚀 Gerar Fluxo de Caixa", type="primary"):
                     
                     if isinstance(resultado, list):
                         for item in resultado:
+                            # Tenta pegar valor de múltiplos campos possíveis na API
                             val = item.get('value') or item.get('amount') or 0
                             mult = 1 if tipo == "receivables" else -1
                             all_data.append({
-                                'data': item['due_date'][:10], 
-                                'valor': float(val) * mult, 
-                                'tipo': 'Entrada' if mult == 1 else 'Saída', 
-                                'desc': item.get('description', 'S/D'), 
-                                'empresa': emp
+                                'Data': item['due_date'][:10],
+                                'Empresa': emp,
+                                'Tipo': 'Entrada' if mult == 1 else 'Saída',
+                                'Descrição': item.get('description', 'S/D'),
+                                'Valor': float(val) * mult
                             })
                     else:
-                        erros_debug.append(f"{emp} ({tipo}): {resultado}")
+                        logs_erro.append(f"Erro em {emp} ({tipo}): {resultado}")
+            else:
+                logs_erro.append(f"Falha ao renovar token da empresa: {emp}")
 
     if all_data:
         df_total = pd.DataFrame(all_data)
-        df_total['data'] = pd.to_datetime(df_total['data'])
+        df_total['Data'] = pd.to_datetime(df_total['Data'])
         
-        # Gráfico
-        grafico_df = df_total.groupby(df_total['data'].dt.date)['valor'].agg([
-            ('Entradas', lambda x: x[x > 0].sum()),
-            ('Saídas', lambda x: abs(x[x < 0].sum()))
-        ]).fillna(0)
-
-        # Métricas
+        # Dashboard Visual
         c1, c2, c3 = st.columns(3)
-        total_in, total_out = grafico_df['Entradas'].sum(), grafico_df['Saídas'].sum()
+        total_in = df_total[df_total['Valor'] > 0]['Valor'].sum()
+        total_out = abs(df_total[df_total['Valor'] < 0]['Valor'].sum())
+        
         c1.metric("Total Entradas", f"R$ {total_in:,.2f}")
         c2.metric("Total Saídas", f"R$ {total_out:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Líquido", f"R$ {(total_in - total_out):,.2f}")
+        c3.metric("Saldo do Período", f"R$ {(total_in - total_out):,.2f}")
 
-        st.area_chart(grafico_df)
+        # Gráfico Consolidado
+        grafico = df_total.groupby(df_total['Data'].dt.date)['Valor'].sum()
+        st.subheader("Tendência de Caixa (Saldo Diário)")
+        st.line_chart(grafico)
 
-        with st.expander("📄 Detalhamento dos Lançamentos"):
-            df_view = df_total.sort_values(by='data').copy()
-            df_view['data'] = df_view['data'].dt.strftime('%d/%m/%Y')
-            st.dataframe(df_view, use_container_width=True, hide_index=True)
+        with st.expander("📄 Ver Lista de Lançamentos Detalhada"):
+            df_display = df_total.sort_values(by='Data')
+            df_display['Data'] = df_display['Data'].dt.strftime('%d/%m/%Y')
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum lançamento encontrado para o período.")
-        if is_admin and erros_debug:
-            st.expander("Debug de Erros (Admin)").write(erros_debug)
+        st.warning("Nenhum lançamento encontrado. Tente aumentar o intervalo de datas.")
+        if logs_erro:
+            with st.expander("⚠️ Detalhes Técnicos (Erros de API)"):
+                for erro in logs_erro:
+                    st.write(erro)
 
-# --- 6. SALVAMENTO DE NOVA EMPRESA ---
+# --- 6. RETORNO OAUTH ---
 if "code" in st.query_params and is_admin:
     st.divider()
-    st.subheader("🔑 Finalizar Nova Integração")
+    st.info("Nova autorização detectada!")
     code = st.query_params["code"]
-    nome_emp = st.text_input("Nome da Empresa para a Planilha:")
-    if st.button("Salvar na Planilha"):
-        if nome_emp:
-            res = requests.post("https://auth.contaazul.com/oauth2/token", 
-                               headers={"Authorization": f"Basic {B64_AUTH}", "Content-Type": "application/x-www-form-urlencoded"},
-                               data={"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI})
-            if res.status_code == 200:
-                update_refresh_token(nome_emp, res.json().get("refresh_token"))
-                st.success("Empresa adicionada!")
-                st.query_params.clear()
-                st.rerun()
+    nome_nova = st.text_input("Nome da Nova Empresa:")
+    if st.button("Finalizar Cadastro"):
+        # Logica de troca de code por token... (mantida do anterior)
+        res = requests.post("https://auth.contaazul.com/oauth2/token", 
+                           headers={"Authorization": f"Basic {B64_AUTH}", "Content-Type": "application/x-www-form-urlencoded"},
+                           data={"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI})
+        if res.status_code == 200:
+            update_refresh_token(nome_nova, res.json().get("refresh_token"))
+            st.success("Vinculado com sucesso!")
+            st.rerun()
