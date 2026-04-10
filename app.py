@@ -23,19 +23,10 @@ st.markdown(f"""
         #MainMenu, footer, header {{visibility: hidden;}}
         .stApp {{ background-color: {bg}; color: {txt}; }}
         [data-testid="stSidebar"] {{ background-color: {side_bg} !important; }}
-        
-        /* Ajuste de visibilidade dos inputs na sidebar */
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"],
-        [data-testid="stSidebar"] .stDateInput div {{
-            background-color: {input_fill} !important;
-            color: {txt} !important;
-        }}
+        [data-testid="stSidebar"] .stDateInput div {{ background-color: {input_fill} !important; color: {txt} !important; }}
         [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {{ color: {txt} !important; }}
-        
-        [data-testid="stSidebar"] button {{
-            border: none !important; background: transparent !important;
-            font-size: 22px !important;
-        }}
+        [data-testid="stSidebar"] button {{ border: none !important; background: transparent !important; font-size: 22px !important; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,7 +48,7 @@ def refresh_access_token(refresh_token):
     res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, data={"grant_type": "refresh_token", "refresh_token": refresh_token})
     return res.json().get("access_token") if res.status_code == 200 else None
 
-# --- 3. INTERCEPTAR RETORNO DA CONTA AZUL ---
+# --- 3. CAPTURA DE NOVO ACESSO ---
 params = st.query_params
 if "code" in params:
     st.info("🎯 Conexão detectada! Finalize o cadastro abaixo:")
@@ -120,38 +111,50 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
                 url = f"https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/{slug}/buscar"
                 res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, 
                                    params={"data_vencimento_de": d_ini.strftime('%Y-%m-%d'), 
-                                           "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')}).json()
+                                           "data_vencimento_ate": d_fim.strftime('%Y-%m-%d'),
+                                           "tamanho_pagina": 1000}).json()
                 
                 for i in res.get("itens", []):
-                    # Mapeamento v2: tenta 'value' depois 'valor'
-                    val = i.get('value') or i.get('valor') or 0
-                    dt = i.get('due_date') or i.get('data_vencimento')
-                    data_points.append({
-                        'Data': pd.to_datetime(dt).date(),
-                        'Tipo': 'Recebimentos' if t=='receivables' else 'Pagamentos',
-                        'Valor': float(val)
-                    })
+                    # CAPTURA AGRESSIVA DE VALOR E DATA
+                    val = i.get('value') or i.get('valor') or i.get('valor_total') or i.get('total') or 0
+                    dt = i.get('due_date') or i.get('data_vencimento') or i.get('data')
+                    
+                    if dt:
+                        data_points.append({
+                            'Data': pd.to_datetime(dt).date(),
+                            'Tipo': 'Recebimentos' if t=='receivables' else 'Pagamentos',
+                            'Valor': float(val)
+                        })
 
     if data_points:
         df = pd.DataFrame(data_points)
         df_daily = df.groupby(['Data', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
+        
         for col in ['Recebimentos', 'Pagamentos']:
             if col not in df_daily: df_daily[col] = 0
         
         df_daily = df_daily.sort_values('Data')
-        df_daily['Saldo_Acumulado'] = (df_daily['Recebimentos'] - df_daily['Pagamentos']).cumsum()
-        
-        # Gráfico
+        df_daily['Saldo_Dia'] = df_daily['Recebimentos'] - df_daily['Pagamentos']
+        df_daily['Saldo_Acumulado'] = df_daily['Saldo_Dia'].cumsum()
+        df_daily['Data_Grafico'] = df_daily['Data'].apply(lambda x: x.strftime('%d/%m'))
+
+        # --- GRÁFICO ---
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=df_daily['Data'], y=df_daily['Recebimentos'], name='Recebimentos', marker_color='#00CC96'))
-        fig.add_trace(go.Bar(x=df_daily['Data'], y=-df_daily['Pagamentos'], name='Pagamentos', marker_color='#EF553B'))
-        fig.add_trace(go.Scatter(x=df_daily['Data'], y=df_daily['Saldo_Acumulado'], name='Saldo', line=dict(color='#34495e', width=3)))
-        fig.update_layout(barmode='relative', template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white")
+        fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Recebimentos'], name='Recebimentos', marker_color='#00CC96'))
+        fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=-df_daily['Pagamentos'], name='Pagamentos', marker_color='#EF553B'))
+        fig.add_trace(go.Scatter(x=df_daily['Data_Grafico'], y=df_daily['Saldo_Acumulado'], name='Saldo', line=dict(color='#34495e', width=3), mode='lines+markers'))
+        
+        fig.update_layout(
+            barmode='relative', 
+            template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white",
+            xaxis=dict(type='category'), # Força exibição de todas as datas como texto
+            height=500
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Tabela Formatada
-        df_tab = df_daily.copy()
+        # Tabela Formatada (Sem horas)
+        df_tab = df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Saldo_Acumulado']].copy()
         df_tab['Data'] = df_tab['Data'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum dado encontrado para o período.")
+        st.error("Nenhum dado encontrado. Verifique se as empresas estão conectadas corretamente na Área ADM.")
