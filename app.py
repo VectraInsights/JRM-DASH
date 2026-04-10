@@ -114,37 +114,46 @@ if st.button("🚀 Sincronizar Dados", type="primary"):
             token = get_access_token(emp)
             
             if not token: 
-                st.error(f"❌ Erro de Conexão: A empresa '{emp}' precisa ser vinculada novamente.")
+                st.error(f"❌ Erro de Conexão: A empresa '{emp}' precisa de novo vínculo.")
                 continue
 
+            # Usando EXATAMENTE os endpoints que você forneceu
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
-                # URL CORRIGIDA (Sem o /api redundante)
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
                 
+                # Ajuste de data para o formato simples YYYY-MM-DD
+                # Muitas vezes o erro 404 ocorre quando o parâmetro vai com caracteres inválidos
                 res = requests.get(
                     url, 
                     headers={"Authorization": f"Bearer {token}"},
                     params={
-                        "expiration_date_from": d_inicio.strftime('%Y-%m-%dT00:00:00Z'),
-                        "expiration_date_to": d_fim.strftime('%Y-%m-%dT23:59:59Z')
+                        "expiration_date_from": d_inicio.strftime('%Y-%m-%d'),
+                        "expiration_date_to": d_fim.strftime('%Y-%m-%d')
                     }
                 )
                 
                 if res.status_code == 200:
                     lista_retorno = res.json()
-                    for i in lista_retorno:
+                    # A API costuma retornar uma lista direta ou um dicionário com 'items'
+                    # Se vier como lista:
+                    itens = lista_retorno if isinstance(lista_retorno, list) else lista_retorno.get('items', [])
+                    
+                    for i in itens:
                         dt = i.get('due_date') or i.get('expiration_date')
-                        dados.append({
-                            'Empresa': emp, 
-                            'Data': pd.to_datetime(dt[:10]),
-                            'Tipo': tipo, 
-                            'Valor': float(i.get('value', 0)),
-                            'Descrição': i.get('description', 'S/D')
-                        })
+                        if dt:
+                            dados.append({
+                                'Empresa': emp, 
+                                'Data': pd.to_datetime(dt[:10]),
+                                'Tipo': tipo, 
+                                'Valor': float(i.get('value', 0)),
+                                'Descrição': i.get('description', 'S/D')
+                            })
                 else:
-                    st.error(f"⚠️ Erro na API ({tipo} - {emp}): {res.status_code}")
+                    # Se der 404 aqui, vamos ver a URL completa gerada para debugar
+                    st.error(f"Erro {res.status_code} em {emp} ({tipo})")
+                    st.code(f"URL tentada: {res.url}") 
             
-            status.update(label=f"Dados de {emp} carregados!", state="complete")
+            status.update(label=f"Dados de {emp} processados!", state="complete")
 
     if dados:
         df_final = pd.DataFrame(dados)
