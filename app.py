@@ -7,7 +7,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# --- 1. CONFIGURAÇÕES E TEMA ---
+# --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="BPO Dashboard", layout="wide")
 
 if 'theme' not in st.session_state: st.session_state.theme = 'dark'
@@ -25,8 +25,8 @@ st.markdown(f"""
         [data-testid="stSidebar"] {{ background-color: {side_bg} !important; }}
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"],
         [data-testid="stSidebar"] .stDateInput div {{ background-color: {input_fill} !important; color: {txt} !important; }}
-        [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {{ color: {txt} !important; }}
         [data-testid="stSidebar"] button {{ border: none !important; background: transparent !important; font-size: 22px !important; }}
+        .stMetric {{ background-color: {side_bg}; padding: 15px; border-radius: 10px; border: 1px solid #444; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -48,35 +48,16 @@ def refresh_access_token(refresh_token):
     res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, data={"grant_type": "refresh_token", "refresh_token": refresh_token})
     return res.json().get("access_token") if res.status_code == 200 else None
 
-# --- 3. CAPTURA DE NOVO ACESSO ---
-params = st.query_params
-if "code" in params:
-    st.info("🎯 Conexão detectada! Finalize o cadastro abaixo:")
-    with st.form("registro_empresa"):
-        nome_emp = st.text_input("Nome da Empresa:")
-        if st.form_submit_button("Salvar e Ativar"):
-            res = requests.post("https://auth.contaazul.com/oauth2/token", 
-                                headers={"Authorization": f"Basic {B64_AUTH}"}, 
-                                data={"grant_type": "authorization_code", "code": params["code"], "redirect_uri": REDIRECT_URI})
-            if res.status_code == 200:
-                rt = res.json().get("refresh_token")
-                sh = get_sheet()
-                try:
-                    cell = sh.find(nome_emp)
-                    sh.update_cell(cell.row, 2, rt)
-                except:
-                    sh.append_row([nome_emp, rt])
-                st.query_params.clear()
-                st.rerun()
-
-# --- 4. SIDEBAR ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.subheader("Filtros")
     df_db = pd.DataFrame(get_sheet().get_all_records())
     empresas = df_db['empresa'].unique().tolist() if not df_db.empty else []
     selecao = st.selectbox("Empresa", ["TODAS"] + empresas)
+    
+    # Período padrão de 7 dias
     d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
-    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=15), format="DD/MM/YYYY")
+    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
     st.markdown("<br>" * 10, unsafe_allow_html=True)
     st.divider()
@@ -90,13 +71,14 @@ with st.sidebar:
             st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
             st.rerun()
 
-# --- 5. DASHBOARD ---
-st.title("📊 Fluxo de Caixa BPO")
-
+# --- 4. ÁREA ADM ---
 if st.session_state.adm_mode:
     with st.expander("🔑 Área ADM", expanded=True):
         if st.text_input("Senha", type="password") == "8429coconoiaKc#":
             st.link_button("🔗 Conectar Nova Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
+
+# --- 5. LOGICA DE CONSULTA ---
+st.title("📊 Fluxo de Caixa BPO")
 
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
@@ -106,19 +88,16 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         row = df_db[df_db['empresa'] == emp].iloc[0]
         token = refresh_access_token(row['refresh_token'])
         if token:
+            # Consulta v2 (Recebíveis e Pagáveis)
             for t in ["receivables", "payables"]:
                 slug = 'contas-a-receber' if t=='receivables' else 'contas-a-pagar'
                 url = f"https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/{slug}/buscar"
-                res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, 
-                                   params={"data_vencimento_de": d_ini.strftime('%Y-%m-%d'), 
-                                           "data_vencimento_ate": d_fim.strftime('%Y-%m-%d'),
-                                           "tamanho_pagina": 1000}).json()
+                params = {"data_vencimento_de": d_ini.strftime('%Y-%m-%d'), "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')}
+                res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params).json()
                 
                 for i in res.get("itens", []):
-                    # CAPTURA AGRESSIVA DE VALOR E DATA
-                    val = i.get('value') or i.get('valor') or i.get('valor_total') or i.get('total') or 0
-                    dt = i.get('due_date') or i.get('data_vencimento') or i.get('data')
-                    
+                    val = i.get('value') or i.get('valor') or i.get('valor_total') or 0
+                    dt = i.get('due_date') or i.get('data_vencimento')
                     if dt:
                         data_points.append({
                             'Data': pd.to_datetime(dt).date(),
@@ -129,32 +108,43 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     if data_points:
         df = pd.DataFrame(data_points)
         df_daily = df.groupby(['Data', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
-        
         for col in ['Recebimentos', 'Pagamentos']:
             if col not in df_daily: df_daily[col] = 0
         
         df_daily = df_daily.sort_values('Data')
+        total_rec = df_daily['Recebimentos'].sum()
+        total_pag = df_daily['Pagamentos'].sum()
         df_daily['Saldo_Dia'] = df_daily['Recebimentos'] - df_daily['Pagamentos']
         df_daily['Saldo_Acumulado'] = df_daily['Saldo_Dia'].cumsum()
         df_daily['Data_Grafico'] = df_daily['Data'].apply(lambda x: x.strftime('%d/%m'))
 
-        # --- GRÁFICO ---
+        # --- CARDS DE RESUMO ---
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
+        c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
+        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
+
+        # --- GRÁFICO LADO A LADO ---
         fig = go.Figure()
+        # Barras Lado a Lado
         fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Recebimentos'], name='Recebimentos', marker_color='#00CC96'))
-        fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=-df_daily['Pagamentos'], name='Pagamentos', marker_color='#EF553B'))
-        fig.add_trace(go.Scatter(x=df_daily['Data_Grafico'], y=df_daily['Saldo_Acumulado'], name='Saldo', line=dict(color='#34495e', width=3), mode='lines+markers'))
+        fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Pagamentos'], name='Pagamentos', marker_color='#EF553B'))
+        # Linha de Saldo
+        fig.add_trace(go.Scatter(x=df_daily['Data_Grafico'], y=df_daily['Saldo_Acumulado'], name='Saldo Acumulado', 
+                                 line=dict(color='#34495e', width=4), mode='lines+markers'))
         
         fig.update_layout(
-            barmode='relative', 
+            barmode='group', # Este comando coloca as barras lado a lado
             template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white",
-            xaxis=dict(type='category'), # Força exibição de todas as datas como texto
-            height=500
+            legend=dict(orientation="h", y=-0.2),
+            height=500,
+            margin=dict(l=20, r=20, t=50, b=20)
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Tabela Formatada (Sem horas)
+        # Tabela
         df_tab = df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Saldo_Acumulado']].copy()
         df_tab['Data'] = df_tab['Data'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
-        st.error("Nenhum dado encontrado. Verifique se as empresas estão conectadas corretamente na Área ADM.")
+        st.warning("Nenhum dado encontrado para o período.")
