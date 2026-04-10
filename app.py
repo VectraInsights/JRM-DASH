@@ -23,12 +23,29 @@ st.markdown(f"""
         #MainMenu, footer, header {{visibility: hidden;}}
         .stApp {{ background-color: {bg}; color: {txt}; }}
         [data-testid="stSidebar"] {{ background-color: {side_bg} !important; }}
+        
+        /* Botão de Tema no Topo Direito */
+        .theme-btn-container {{
+            position: absolute; top: 10px; right: 10px; z-index: 999;
+        }}
+        
+        /* Ajuste Sidebar */
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"],
         [data-testid="stSidebar"] .stDateInput div {{ background-color: {input_fill} !important; color: {txt} !important; }}
-        [data-testid="stSidebar"] button {{ border: none !important; background: transparent !important; font-size: 22px !important; }}
-        .stMetric {{ background-color: {side_bg}; padding: 15px; border-radius: 10px; border: 1px solid #444; }}
+        
+        /* Esconder o olho no fim da rolagem */
+        .spacer {{ height: 800px; }}
+        .adm-btn {{ opacity: 0.1; transition: 0.3s; }}
+        .adm-btn:hover {{ opacity: 1.0; }}
     </style>
     """, unsafe_allow_html=True)
+
+# Botão de Tema flutuante
+st.markdown('<div class="theme-btn-container">', unsafe_allow_html=True)
+if st.button("🌓"):
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 2. API & GOOGLE SHEETS ---
 CLIENT_ID = st.secrets["conta_azul"]["client_id"]
@@ -43,10 +60,24 @@ def get_sheet():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
     return gspread.authorize(creds).open_by_url(PLANILHA_URL).sheet1
 
-def refresh_access_token(refresh_token):
+def update_refresh_token_in_sheet(empresa_nome, new_refresh_token):
+    sh = get_sheet()
+    try:
+        cell = sh.find(empresa_nome)
+        sh.update_cell(cell.row, 2, new_refresh_token)
+    except:
+        pass
+
+def get_tokens(refresh_token, empresa_nome):
     url = "https://auth.contaazul.com/oauth2/token"
-    res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, data={"grant_type": "refresh_token", "refresh_token": refresh_token})
-    return res.json().get("access_token") if res.status_code == 200 else None
+    res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, 
+                        data={"grant_type": "refresh_token", "refresh_token": refresh_token})
+    if res.status_code == 200:
+        data = res.json()
+        # Salva o novo refresh_token para não precisar re-autenticar depois de mudar o código
+        update_refresh_token_in_sheet(empresa_nome, data.get("refresh_token"))
+        return data.get("access_token")
+    return None
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
@@ -59,51 +90,64 @@ with st.sidebar:
     d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
-    st.markdown("<br>" * 10, unsafe_allow_html=True)
+    # Empurra o "olho" para baixo (invisível sem rolar)
+    st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
     st.divider()
-    c1, c2, _ = st.columns([0.2, 0.2, 0.6])
-    with c1:
-        if st.button("👁️" if st.session_state.adm_mode else "👁️‍🗨️"):
-            st.session_state.adm_mode = not st.session_state.adm_mode
-            st.rerun()
-    with c2:
-        if st.button("🌓"):
-            st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
-            st.rerun()
+    if st.button("👁️", help="Modo Administrador"):
+        st.session_state.adm_mode = not st.session_state.adm_mode
+        st.rerun()
 
-# --- 4. ÁREA ADM ---
-if st.session_state.adm_mode:
-    with st.expander("🔑 Área ADM", expanded=True):
-        if st.text_input("Senha", type="password") == "8429coconoiaKc#":
-            st.link_button("🔗 Conectar Nova Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
-
-# --- 5. LOGICA DE CONSULTA ---
+# --- 4. ÁREA ADM & LOGIN ---
 st.title("📊 Fluxo de Caixa BPO")
 
+# Captura de retorno da Conta Azul
+params = st.query_params
+if "code" in params:
+    with st.container(border=True):
+        st.warning("⚠️ Nova conexão detectada. Digite o nome exato para salvar.")
+        nome_nova = st.text_input("Nome da Empresa")
+        if st.button("Confirmar Registro"):
+            r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
+                              data={"grant_type": "authorization_code", "code": params["code"], "redirect_uri": REDIRECT_URI})
+            if r.status_code == 200:
+                update_refresh_token_in_sheet(nome_nova, r.json().get("refresh_token"))
+                st.query_params.clear()
+                st.rerun()
+
+if st.session_state.adm_mode:
+    with st.expander("🔑 Configurações", expanded=True):
+        if st.text_input("Acesso", type="password") == "8429coconoiaKc#":
+            st.link_button("🔌 Conectar Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
+
+# --- 5. CONSULTA ---
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
     lista = empresas if selecao == "TODAS" else [selecao]
     
     for emp in lista:
         row = df_db[df_db['empresa'] == emp].iloc[0]
-        token = refresh_access_token(row['refresh_token'])
-        if token:
-            # Consulta v2 (Recebíveis e Pagáveis)
-            for t in ["receivables", "payables"]:
-                slug = 'contas-a-receber' if t=='receivables' else 'contas-a-pagar'
-                url = f"https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/{slug}/buscar"
-                params = {"data_vencimento_de": d_ini.strftime('%Y-%m-%d'), "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')}
-                res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params).json()
+        acc_token = get_tokens(row['refresh_token'], emp)
+        
+        if acc_token:
+            # Consulta via Lançamentos (mais estável que eventos)
+            url = "https://api.contaazul.com/v1/financeiro/lancamentos"
+            params_api = {
+                "data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'),
+                "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z'),
+                "pagos": "false" # Trazer o que está previsto (aberto)
+            }
+            res = requests.get(url, headers={"Authorization": f"Bearer {acc_token}"}, params=params_api).json()
+            
+            for lanc in res:
+                v = lanc.get('valor', 0)
+                tp = lanc.get('tipo') # Pagar ou Receber
+                dt = lanc.get('data_vencimento')
                 
-                for i in res.get("itens", []):
-                    val = i.get('value') or i.get('valor') or i.get('valor_total') or 0
-                    dt = i.get('due_date') or i.get('data_vencimento')
-                    if dt:
-                        data_points.append({
-                            'Data': pd.to_datetime(dt).date(),
-                            'Tipo': 'Recebimentos' if t=='receivables' else 'Pagamentos',
-                            'Valor': float(val)
-                        })
+                data_points.append({
+                    'Data': pd.to_datetime(dt).date(),
+                    'Tipo': 'Recebimentos' if tp == 'RECEBER' else 'Pagamentos',
+                    'Valor': float(v)
+                })
 
     if data_points:
         df = pd.DataFrame(data_points)
@@ -112,34 +156,25 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
             if col not in df_daily: df_daily[col] = 0
         
         df_daily = df_daily.sort_values('Data')
-        total_rec = df_daily['Recebimentos'].sum()
-        total_pag = df_daily['Pagamentos'].sum()
         df_daily['Saldo_Dia'] = df_daily['Recebimentos'] - df_daily['Pagamentos']
         df_daily['Saldo_Acumulado'] = df_daily['Saldo_Dia'].cumsum()
         df_daily['Data_Grafico'] = df_daily['Data'].apply(lambda x: x.strftime('%d/%m'))
 
-        # --- CARDS DE RESUMO ---
+        # Cards
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
+        c1.metric("Total a Receber", f"R$ {df_daily['Recebimentos'].sum():,.2f}")
+        c2.metric("Total a Pagar", f"R$ {df_daily['Pagamentos'].sum():,.2f}")
+        c3.metric("Saldo Líquido", f"R$ {(df_daily['Recebimentos'].sum() - df_daily['Pagamentos'].sum()):,.2f}")
 
-        # --- GRÁFICO LADO A LADO ---
+        # Gráfico
         fig = go.Figure()
-        # Barras Lado a Lado
         fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Recebimentos'], name='Recebimentos', marker_color='#00CC96'))
         fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Pagamentos'], name='Pagamentos', marker_color='#EF553B'))
-        # Linha de Saldo
         fig.add_trace(go.Scatter(x=df_daily['Data_Grafico'], y=df_daily['Saldo_Acumulado'], name='Saldo Acumulado', 
-                                 line=dict(color='#34495e', width=4), mode='lines+markers'))
+                                 line=dict(color='#34495e', width=4)))
         
-        fig.update_layout(
-            barmode='group', # Este comando coloca as barras lado a lado
-            template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white",
-            legend=dict(orientation="h", y=-0.2),
-            height=500,
-            margin=dict(l=20, r=20, t=50, b=20)
-        )
+        fig.update_layout(barmode='group', template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white",
+                          legend=dict(orientation="h", y=-0.2), height=500)
         st.plotly_chart(fig, use_container_width=True)
 
         # Tabela
@@ -147,4 +182,4 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         df_tab['Data'] = df_tab['Data'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum dado encontrado para o período.")
+        st.warning("Nenhum dado encontrado. Verifique se os filtros estão corretos.")
