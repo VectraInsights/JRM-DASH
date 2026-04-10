@@ -13,7 +13,7 @@ st.set_page_config(page_title="BPO Dashboard", layout="wide")
 if 'theme' not in st.session_state: st.session_state.theme = 'dark'
 if 'adm_mode' not in st.session_state: st.session_state.adm_mode = False
 
-# Cores dinâmicas para o CSS
+# Cores dinâmicas para elementos fixos
 bg = "#0e1117" if st.session_state.theme == 'dark' else "#ffffff"
 txt = "#ffffff" if st.session_state.theme == 'dark' else "#31333F"
 
@@ -22,26 +22,31 @@ st.markdown(f"""
         #MainMenu, footer, header {{visibility: hidden;}}
         .stApp {{ background-color: {bg}; color: {txt}; }}
         
-        /* Botão de Tema fixo no topo direito */
+        /* Botão de Tema no Topo Direito */
         .floating-theme {{
             position: fixed;
-            top: 15px;
+            top: 10px;
             right: 15px;
-            z-index: 1000000;
+            z-index: 999999;
         }}
         .floating-theme button {{
-            background-color: transparent !important;
+            background: transparent !important;
             border: 1px solid #888 !important;
-            border-radius: 8px;
-            padding: 5px 10px !important;
+            border-radius: 5px;
+            font-size: 14px !important;
         }}
 
-        /* Ajuste de visibilidade da Sidebar em modo claro */
-        [data-testid="stSidebar"] {{
-            border-right: 1px solid #444;
+        /* Container de Debug com Contorno */
+        .debug-container {{
+            border: 2px solid #ff4b4b;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            background-color: rgba(255, 75, 75, 0.05);
         }}
         
-        .spacer {{ height: 100vh; }} 
+        /* Espaçador para o olho */
+        .spacer {{ height: 80vh; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -72,7 +77,7 @@ def update_token_sheet(empresa, rt):
     except:
         sh.append_row([empresa, rt])
 
-def refresh_token(rt, empresa):
+def refresh_access_token(rt, empresa):
     url = "https://auth.contaazul.com/oauth2/token"
     res = requests.post(url, headers={"Authorization": f"Basic {B64_AUTH}"}, 
                         data={"grant_type": "refresh_token", "refresh_token": rt})
@@ -85,56 +90,54 @@ def refresh_token(rt, empresa):
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("Filtros")
-    try:
-        df_db = pd.DataFrame(get_sheet().get_all_records())
-        empresas_list = df_db['empresa'].unique().tolist()
-    except:
-        empresas_list = []
-        
+    df_db = pd.DataFrame(get_sheet().get_all_records())
+    empresas_list = df_db['empresa'].unique().tolist() if not df_db.empty else []
+    
     selecao = st.selectbox("Empresa", ["TODAS"] + empresas_list)
-    d_ini = st.date_input("Início", datetime.now())
-    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7))
+    d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
+    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
     st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
     if st.button("👁️", key="adm_eye"):
         st.session_state.adm_mode = not st.session_state.adm_mode
         st.rerun()
 
-# --- 4. FLUXO PRINCIPAL ---
+# --- 4. CONEXÃO & ADM ---
 st.title("📊 Fluxo de Caixa BPO")
 
 if "code" in st.query_params:
-    st.info("Conexão detectada! Nomeie a empresa abaixo:")
-    nome_input = st.text_input("Nome da Empresa")
-    if st.button("Salvar"):
-        r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
-                          data={"grant_type": "authorization_code", "code": st.query_params["code"], "redirect_uri": REDIRECT_URI})
-        if r.status_code == 200:
-            update_token_sheet(nome_input, r.json()['refresh_token'])
-            st.query_params.clear()
-            st.rerun()
+    with st.container(border=True):
+        st.subheader("🔗 Nova Conexão")
+        nome_empresa = st.text_input("Nome da Empresa para salvar:")
+        if st.button("Confirmar Cadastro"):
+            r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
+                              data={"grant_type": "authorization_code", "code": st.query_params["code"], "redirect_uri": REDIRECT_URI})
+            if r.status_code == 200:
+                update_token_sheet(nome_empresa, r.json()['refresh_token'])
+                st.query_params.clear()
+                st.rerun()
 
 if st.session_state.adm_mode:
-    with st.expander("Área Administrador"):
+    with st.expander("🔑 Configurações ADM"):
         if st.text_input("Senha", type="password") == "8429coconoiaKc#":
             st.link_button("🔌 Conectar Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
 
+# --- 5. EXECUÇÃO ---
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
-    lista_emp = empresas_list if selecao == "TODAS" else [selecao]
+    lista_alvo = empresas_list if selecao == "TODAS" else [selecao]
     
-    # --- DEPURAÇÃO ---
-    with st.expander("🛠️ Log de Depuração (Debug)", expanded=False):
-        for emp in lista_emp:
-            st.write(f"**Processando:** {emp}")
-            row = df_db[df_db['empresa'] == emp].iloc[0]
-            token = refresh_token(row['refresh_token'], emp)
-            
-            if not token:
-                st.error(f"Erro ao renovar token para {emp}. Verifique as credenciais.")
-                continue
-            
-            # Busca Lançamentos
+    # Início do Bloco de Debug com Contorno
+    st.markdown('<div class="debug-container">', unsafe_allow_html=True)
+    st.subheader("🛠️ Log de Depuração")
+    
+    for emp in lista_alvo:
+        st.write(f"--- **Empresa:** {emp} ---")
+        row = df_db[df_db['empresa'] == emp].iloc[0]
+        token = refresh_access_token(row['refresh_token'], emp)
+        
+        if token:
+            st.write(f"✅ Token renovado (Final: ...{token[-4:]})")
             url = "https://api.contaazul.com/v1/financeiro/lancamentos"
             params = {
                 "data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'),
@@ -142,15 +145,12 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
             }
             res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
             
-            st.write(f"Status API: {res.status_code}")
             if res.status_code == 200:
-                dados = res.json()
-                st.write(f"Itens encontrados: {len(dados)}")
-                for lanc in dados:
+                itens = res.json()
+                st.write(f"📊 Sucesso: {len(itens)} lançamentos encontrados.")
+                for lanc in itens:
                     if isinstance(lanc, dict):
-                        v = lanc.get('valor', 0)
-                        tp = lanc.get('tipo')
-                        dt = lanc.get('data_vencimento')
+                        v, tp, dt = lanc.get('valor', 0), lanc.get('tipo'), lanc.get('data_vencimento')
                         if dt and tp:
                             data_points.append({
                                 'Data': pd.to_datetime(dt).date(),
@@ -158,9 +158,13 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
                                 'Valor': float(v)
                             })
             else:
-                st.error(f"Erro na API: {res.text}")
+                st.error(f"❌ Erro API {res.status_code}: {res.text}")
+        else:
+            st.error(f"❌ Falha crítica ao renovar token de {emp}.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- RESULTADOS ---
+    # --- EXIBIÇÃO ---
     if data_points:
         df = pd.DataFrame(data_points)
         df_daily = df.groupby(['Data', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
@@ -184,7 +188,6 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         fig.update_layout(barmode='group', template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white",
                           legend=dict(orientation="h", y=-0.2), height=500)
         st.plotly_chart(fig, use_container_width=True)
-
-        st.dataframe(df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Saldo_Acumulado']], use_container_width=True, hide_index=True)
+        st.dataframe(df_daily, use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum dado financeiro retornado. Verifique o log de depuração acima para mais detalhes.")
+        st.warning("Nenhum dado encontrado. Verifique o log de depuração acima.")
