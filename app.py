@@ -11,9 +11,9 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="BPO Dashboard - JRM", layout="wide")
 
 # Credenciais e Endpoints atualizados conforme orientação do suporte
-CLIENT_ID = "6s4takgvge1ansrjhsbhhpieor"
-CLIENT_SECRET = "1go5jnhckf3l6tatsv7o1t1jf0257fl4a0q6n7to3591g3vjf60l"
-REDIRECT_URI = "https://dashboard-conta-azul.streamlit.app/"
+CLIENT_ID = st.secrets["conta_azul"]["client_id"]
+CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
+REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
 
 # Novo endpoint de login recomendado
 AUTH_URL = "https://auth.contaazul.com/login"
