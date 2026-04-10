@@ -6,18 +6,17 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# --- 1. CONFIGURAÇÕES ---
+# --- 1. CONFIGURAÇÕES E TEMA ---
 st.set_page_config(page_title="BPO Dashboard", layout="wide")
 
-# CSS para o Botão de Olho no topo direito e remover padding desnecessário
+# CSS para fixar os botões no topo direito e deixá-los pequenos
 st.markdown("""
     <style>
-    .stApp { margin-top: -50px; }
-    .float-adm {
-        position: fixed;
-        top: 10px;
-        right: 80px;
-        z-index: 999;
+    .stApp { margin-top: -60px; }
+    div[data-testid="stColumn"] > div > button {
+        padding: 2px 10px;
+        font-size: 14px;
+        border-radius: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -42,8 +41,7 @@ sheet = init_gspread()
 
 def get_tokens_db():
     try:
-        df = pd.DataFrame(sheet.get_all_records())
-        return df
+        return pd.DataFrame(sheet.get_all_records())
     except:
         return pd.DataFrame()
 
@@ -52,10 +50,8 @@ def update_refresh_token(empresa, novo_token):
     empresa_up = empresa.upper().strip()
     try:
         idx_list = df.index[df['empresa'].str.upper() == empresa_up].tolist()
-        if idx_list:
-            sheet.update_cell(idx_list[0] + 2, 2, novo_token)
-        else:
-            sheet.append_row([empresa_up, novo_token])
+        if idx_list: sheet.update_cell(idx_list[0] + 2, 2, novo_token)
+        else: sheet.append_row([empresa_up, novo_token])
     except: pass
 
 # --- 3. API CONTA AZUL ---
@@ -79,32 +75,38 @@ def fetch_financeiro(token, tipo, d_inicio, d_fim):
         "tamanho_pagina": 1000
     }
     headers = {"Authorization": f"Bearer {token}"}
-    res = requests.get(endpoint, headers=headers, params=params)
-    return res.json() if res.status_code == 200 else []
+    try:
+        res = requests.get(endpoint, headers=headers, params=params, timeout=10)
+        return res.json() if res.status_code == 200 else {}
+    except: return {}
 
-# --- 4. INTERFACE E CONTROLES ---
-if 'adm_mode' not in st.session_state:
-    st.session_state.adm_mode = False
+# --- 4. HEADER COM BOTÕES (ADM E TEMA) ---
+if 'adm_mode' not in st.session_state: st.session_state.adm_mode = False
 
-# Botão Flutuante (Olho)
-col_adm = st.columns([0.95, 0.05])
-with col_adm[1]:
-    icon = "👁️" if st.session_state.adm_mode else "👁️‍🗨️"
-    if st.button(icon, help="Modo Administrativo"):
-        st.session_state.adm_mode = not st.session_state.adm_mode
-        st.rerun()
+# Grid para botões no topo direito
+head_l, head_r = st.columns([0.88, 0.12])
+with head_r:
+    sub_c1, sub_c2 = st.columns(2)
+    with sub_c1:
+        # Ícone do Olho (ADM)
+        icon_adm = "👁️" if st.session_state.adm_mode else "👁️‍🗨️"
+        if st.button(icon_adm):
+            st.session_state.adm_mode = not st.session_state.adm_mode
+            st.rerun()
+    with sub_c2:
+        # Ícone do Tema (Simulado via HTML/JS para ser discreto)
+        if st.button("🌓"):
+            st.toast("Mude o tema nas configurações do navegador ou sistema")
 
-# Modal de Senha se o olho for clicado
+# Conteúdo Administrativo
 if st.session_state.adm_mode:
-    with st.expander("🔒 Autenticação ADM", expanded=True):
+    with st.expander("🔑 Área Administrativa", expanded=True):
         senha = st.text_input("Chave", type="password")
         if senha == "8429coconoiaKc#":
-            st.success("Acesso Liberado")
-            url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-            st.link_button("🔌 Conectar Nova Empresa", url_auth)
-        else:
-            st.stop()
+            st.link_button("🔌 Vincular Nova Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
+        else: st.stop()
 
+# --- 5. DASHBOARD PRINCIPAL ---
 st.title("📈 Fluxo de Caixa BPO")
 
 with st.sidebar:
@@ -117,60 +119,52 @@ with st.sidebar:
     d_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
     d_fim = st.date_input("Fim", hoje + timedelta(days=15), format="DD/MM/YYYY")
 
-# --- 5. PROCESSAMENTO E GRÁFICOS ---
+# --- 6. GERAÇÃO DE FLUXO ---
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
     processar = empresas if selecao == "TODAS" else [selecao]
-
-    for emp in processar:
-        t_ref = df_db.loc[df_db['empresa'] == emp, 'refresh_token'].values[0]
-        t_acc = refresh_access_token(emp, t_ref)
-        
-        if t_acc:
-            for t_tipo in ["receivables", "payables"]:
-                dados = fetch_financeiro(t_acc, t_tipo, d_ini, d_fim)
-                itens = dados if isinstance(dados, list) else dados.get("itens", [])
-                
-                for i in itens:
-                    # Captura de valor multi-campo para evitar o erro de valor 0
-                    v = i.get('valor_total') or i.get('valor') or i.get('valor_parcela') or i.get('value') or 0
-                    mult = 1 if t_tipo == "receivables" else -1
+    
+    progresso = st.progress(0)
+    for idx, emp in enumerate(processar):
+        try:
+            row = df_db[df_db['empresa'] == emp].iloc[0]
+            t_acc = refresh_access_token(emp, row['refresh_token'])
+            
+            if t_acc:
+                for tipo in ["receivables", "payables"]:
+                    res = fetch_financeiro(t_acc, tipo, d_ini, d_fim)
+                    itens = res.get("itens", []) if isinstance(res, dict) else []
                     
-                    data_points.append({
-                        'Data': pd.to_datetime(i.get('data_vencimento') or i.get('due_date')),
-                        'Valor': float(v) * mult,
-                        'Tipo': 'Receita' if mult == 1 else 'Despesa'
-                    })
+                    for i in itens:
+                        # Busca agressiva por valor[cite: 8]
+                        v = i.get('valor_total') or i.get('valor_parcela') or i.get('valor') or i.get('value') or 0
+                        mult = 1 if tipo == "receivables" else -1
+                        data_points.append({
+                            'Data': pd.to_datetime(i.get('data_vencimento') or i.get('due_date')),
+                            'Valor': float(v) * mult,
+                            'Tipo': 'Receita' if mult == 1 else 'Despesa',
+                            'Empresa': emp
+                        })
+        except: continue
+        progresso.progress((idx + 1) / len(processar))
 
     if data_points:
         df = pd.DataFrame(data_points)
         
-        # Dashboard de métricas
-        m1, m2, m3 = st.columns(3)
-        receita = df[df['Valor'] > 0]['Valor'].sum()
-        despesa = abs(df[df['Valor'] < 0]['Valor'].sum())
-        m1.metric("Entradas", f"R$ {receita:,.2f}")
-        m2.metric("Saídas", f"R$ {despesa:,.2f}")
-        m3.metric("Saldo Líquido", f"R$ {(receita - despesa):,.2f}")
+        # Métricas
+        c1, c2, c3 = st.columns(3)
+        rec = df[df['Valor'] > 0]['Valor'].sum()
+        des = abs(df[df['Valor'] < 0]['Valor'].sum())
+        c1.metric("Previsto Entradas", f"R$ {rec:,.2f}")
+        c2.metric("Previsto Saídas", f"R$ {des:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Líquido", f"R$ {(rec - des):,.2f}")
 
-        # Gráfico 1: Evolução do Saldo Diário
-        st.subheader("📊 Saldo Diário Consolidado")
-        df_chart = df.groupby('Data')['Valor'].sum().sort_index()
-        st.bar_chart(df_chart)
+        # Gráfico Diário
+        st.subheader("📊 Saldo Diário do Período")
+        df_diario = df.groupby('Data')['Valor'].sum().sort_index()
+        st.bar_chart(df_diario)
 
-        # Gráfico 2: Comparativo Entradas vs Saídas
-        st.subheader("🌓 Comparativo de Volume")
-        df_comp = df.groupby([df['Data'].dt.date, 'Tipo'])['Valor'].sum().abs().unstack().fillna(0)
-        st.area_chart(df_comp)
-        
-        with st.expander("📝 Detalhes dos Lançamentos"):
+        with st.expander("📄 Detalhes dos Lançamentos"):
             st.dataframe(df.sort_values('Data'), use_container_width=True)
     else:
-        st.warning("Nenhum lançamento com valor encontrado para o período.")
-
-# Callback Oauth
-if "code" in st.query_params and st.session_state.adm_mode:
-    nome_n = st.text_input("Nome da nova empresa:")
-    if st.button("Salvar Conexão"):
-        # Processo de token final
-        pass
+        st.warning("Nenhum lançamento encontrado. Verifique se as empresas estão conectadas.")
