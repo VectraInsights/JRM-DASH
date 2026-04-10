@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import time
 
 # --- 1. CONFIGURAÇÕES INICIAIS ---
+# DEVE SER A PRIMEIRA LINHA
 st.set_page_config(page_title="BPO Dashboard", layout="wide")
 
 # Inicialização de estados
@@ -20,53 +21,63 @@ bg = "#0e1117" if st.session_state.theme == 'dark' else "#ffffff"
 side_bg = "#262730" if st.session_state.theme == 'dark' else "#f0f2f6"
 txt = "#ffffff" if st.session_state.theme == 'dark' else "#31333F"
 input_fill = "#1e1e1e" if st.session_state.theme == 'dark' else "#ffffff"
+border_color = "#444" if st.session_state.theme == 'dark' else "#ccc"
 
-# Injeção de CSS para corrigir Modo Claro, Barra Lateral e Botão de Tema Flutuante
+# --- 2. CSS INJETADO E BOTÃO DE TEMA FLUTUANTE ---
 st.markdown(f"""
     <style>
-        #MainMenu, footer, header {{visibility: hidden;}}
+        /* Esconde header padrão para liberar o canto superior direito */
+        header {{visibility: hidden;}}
+        #MainMenu, footer {{visibility: hidden;}}
         .stApp {{ background-color: {bg}; color: {txt}; }}
         
         /* Força a Barra Lateral a seguir o tema */
-        [data-testid="stSidebar"] {{
+        {{
             background-color: {side_bg} !important;
-            border-right: 1px solid #444;
+            border-right: 1px solid {border_color};
         }}
-        [data-testid="stSidebar"] * {{ color: {txt} !important; }}
+        * {{ color: {txt} !important; }}
         
-        /* Corrige visibilidade dos Inputs (Select, Date) em Modo Claro na Sidebar */
-        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"],
-        [data-testid="stSidebar"] .stDateInput div {{
+        /* Corrige visibilidade dos Inputs (Select, Date) */
+        .stSelectbox div,
+        .stDateInput div {{
             background-color: {input_fill} !important;
             color: {txt} !important;
-            border-radius: 5px;
+            border-color: {border_color} !important;
         }}
-        [data-testid="stSidebar"] label p {{ color: {txt} !important; }}
 
-        /* Botão de Tema Flutuante Minimalista no Canto Superior Direito */
-        .st-emotion-cache-12fmjuu {{ display: none; }} /* Esconde menu original se houver */
-        .floating-theme {{
+        /* FIX: CORRIGE O FUNDO BRANCO DE TODOS OS BOTÕES */
+        div button {{
+            background-color: {input_fill} !important;
+            color: {txt} !important;
+            border: 1px solid {border_color} !important;
+        }}
+        div button:hover {{
+            border-color: {txt} !important;
+        }}
+
+        /* FIX: FIXA O PRIMEIRO BOTÃO (BOTÃO DE TEMA) NO CANTO SUPERIOR DIREITO */
+        section.main div > div:first-child div button {{
             position: fixed;
-            top: 10px;
+            top: 15px;
             right: 15px;
-            z-index: 1000000; /* Garante que fique acima de tudo */
+            z-index: 999999;
+            width: 45px;
+            height: 45px;
+            border-radius: 8px !important;
+            opacity: 0.7;
+            transition: 0.3s;
         }}
-        .floating-theme button {{
-            background: transparent !important;
-            border: 1px solid #888 !important;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px !important;
-            opacity: 0.5;
-            transition: 0.2s;
+        section.main div > div:first-child div button:hover {{
+            opacity: 1;
         }}
-        .floating-theme button:hover {{ opacity: 1; border-color: {txt} !important; }}
 
+        /* FIX: CORRIGE O FUNDO DO CHECKBOX DISCRETO E REMOVE MARGENS */
+        div div {{
+            background-color: {input_fill} !important;
+            border: 1px solid {border_color} !important;
+        }}
+        
         /* Container de Debug */
         .debug-container {{
             border: 2px solid #ff4b4b;
@@ -75,34 +86,26 @@ st.markdown(f"""
             margin-top: 10px;
             background-color: rgba(255, 75, 75, 0.05);
         }}
-        
-        /* Metrics mais bonitas */
-        .stMetric {{ background-color: {side_bg}; padding: 15px; border-radius: 10px; border: 1px solid #444; }}
-
-        /* Espaçador para o olho ficar no fim da sidebar */
-        .sidebar-spacer {{ height: 80vh; }}
+        .stMetric {{ background-color: {side_bg}; padding: 15px; border-radius: 10px; border: 1px solid {border_color}; }}
     </style>
     """, unsafe_allow_html=True)
 
-# Botão de Tema flutuante no canto superior direito
-st.markdown('<div class="floating-theme">', unsafe_allow_html=True)
+# BOTÃO DE TEMA: DEVE SER O PRIMEIRO BOTÃO RENDERIZADO PARA O CSS FUNCIONAR E FIXÁ-LO NO CANTO
 if st.button("🌓", key="theme_toggle"):
     st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
     st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 2. INTEGRAÇÕES (API & GOOGLE SHEETS) ---
-# (Assumindo que CLIENT_ID, CLIENT_SECRET, REDIRECT_URI e credenciais do sheets estão nos Secrets)
-CLIENT_ID = st.secrets["conta_azul"]["client_id"]
-CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
-REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
+# --- 3. INTEGRAÇÕES (API & GOOGLE SHEETS) ---
+CLIENT_ID = st.secrets
+CLIENT_SECRET = st.secrets
+REDIRECT_URI = st.secrets
 PLANILHA_URL = "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
 B64_AUTH = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
 
 @st.cache_resource
 def get_sheet():
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
+    scope =
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets), scope)
     return gspread.authorize(creds).open_by_url(PLANILHA_URL).sheet1
 
 def update_token_sheet(empresa, rt):
@@ -111,10 +114,9 @@ def update_token_sheet(empresa, rt):
         cell = sh.find(empresa)
         sh.update_cell(cell.row, 2, rt)
     except:
-        sh.append_row([empresa, rt])
+        sh.append_row()
 
 def get_new_access_token(empresa):
-    """Busca o refresh_token atual na planilha e gera um novo access_token"""
     sh = get_sheet()
     try:
         cell = sh.find(empresa)
@@ -126,42 +128,37 @@ def get_new_access_token(empresa):
         
         if res.status_code == 200:
             data = res.json()
-            # Salva o novo refresh_token para não precisar re-autenticar depois de mudar o código
             update_token_sheet(empresa, data.get("refresh_token"))
             return data.get("access_token")
         return None
     except:
         return None
 
-# --- 3. BARRA LATERAL (FILTROS E ADM) ---
+# --- 4. BARRA LATERAL (FILTROS E ADM) ---
 with st.sidebar:
     st.title("Filtros")
     try:
         df_db = pd.DataFrame(get_sheet().get_all_records())
-        empresas_list = df_db['empresa'].unique().tolist() if not df_db.empty else []
+        empresas_list = df_db.unique().tolist() if not df_db.empty else []
     except:
         empresas_list = []
         st.error("Erro ao carregar planilha.")
         
-    selecao = st.selectbox("Empresa", ["TODAS"] + empresas_list)
+    selecao = st.selectbox("Empresa", + empresas_list)
     
-    # Data de início deve ser o dia atual (hoje)
     d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
     # Empurra o conteúdo para baixo
     st.markdown('<div style="height: 60vh;"></div>', unsafe_allow_html=True)
-    
     st.divider()
-    # Botão ADM discreto (ícone olho) no fim da barra lateral
-    if st.button("👁️", key="adm_eye_discrete", help="Acessar Área Administrativa"):
-        st.session_state.adm_mode = not st.session_state.adm_mode
-        st.rerun()
+    
+    # CHECKBOX DISCRETO NO LUGAR DO BOTÃO DE OLHO (Sem escrita, gerencia o adm_mode nativamente)
+    st.checkbox(" ", key="adm_mode", label_visibility="collapsed")
 
-# --- 4. ÁREA ADMINISTRATIVA ---
+# --- 5. ÁREA ADMINISTRATIVA ---
 st.title("📊 Fluxo de Caixa BPO")
 
-# Lógica de Captura de Retorno do Login da Conta Azul (Código de autorização)
 q_params = st.query_params
 if "code" in q_params:
     st.info("🎯 Conexão detectada! Finalize o cadastro abaixo:")
@@ -171,7 +168,7 @@ if "code" in q_params:
             if nome_emp:
                 r = requests.post("https://auth.contaazul.com/oauth2/token", 
                                   headers={"Authorization": f"Basic {B64_AUTH}"},
-                                  data={"grant_type": "authorization_code", "code": q_params["code"], "redirect_uri": REDIRECT_URI})
+                                  data={"grant_type": "authorization_code", "code": q_params, "redirect_uri": REDIRECT_URI})
                 if r.status_code == 200:
                     update_token_sheet(nome_emp, r.json().get("refresh_token"))
                     st.success(f"Empresa {nome_emp} conectada com sucesso!")
@@ -183,7 +180,7 @@ if "code" in q_params:
             else:
                 st.error("Por favor, digite um nome.")
 
-# Exibição do Módulo Administrativo
+# Exibição do Módulo Administrativo (Condicionado ao Checkbox discreto)
 if st.session_state.adm_mode:
     with st.container(border=True):
         st.subheader("🔑 Área do Administrador")
@@ -193,12 +190,11 @@ if st.session_state.adm_mode:
             st.link_button("🔌 Conectar Nova Empresa (Conta Azul)", 
                            f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
 
-# --- 5. PROCESSAMENTO DE DADOS (CONSULTA API) ---
+# --- 6. PROCESSAMENTO DE DADOS (CONSULTA API) ---
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
-    lista_alvo = empresas_list if selecao == "TODAS" else [selecao]
+    lista_alvo = empresas_list if selecao == "TODAS" else
     
-    # Início do Bloco de Debug com Contorno
     st.markdown('<div class="debug-container">', unsafe_allow_html=True)
     st.subheader("🛠️ Log de Depuração")
     
@@ -207,12 +203,8 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         token = get_new_access_token(emp)
         
         if token:
-            # Pequena pausa para garantir a sincronização da API da Conta Azul (resolveu erros passados)
             time.sleep(0.5)
-
-            # Usando endpoint v1/lancamentos para robustez (confirmado em interações anteriores)
             url = "https://api.contaazul.com/v1/financeiro/lancamentos"
-            # Formatação de datas para API (sem horas)
             params = {
                 "data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'),
                 "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z')
@@ -227,7 +219,7 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
                 for lanc in itens:
                     if isinstance(lanc, dict):
                         v = lanc.get('valor', 0)
-                        tp = lanc.get('tipo') # Pagar or Receber
+                        tp = lanc.get('tipo')
                         dt = lanc.get('data_vencimento')
                         if dt and tp:
                             data_points.append({
@@ -237,39 +229,35 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
                             })
             else:
                 st.error(f"❌ Erro {res.status_code} na API da Conta Azul para {emp}.")
-                # st.json(res.json()) # Ativar para ver o erro técnico completo
         else:
             st.error(f"❌ Não foi possível obter token válido para {emp}.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 6. DASHBOARD VISUAL (MÉTRICAS, GRÁFICO E TABELA) ---
+    # --- 7. DASHBOARD VISUAL (MÉTRICAS, GRÁFICO E TABELA) ---
     if data_points:
         df = pd.DataFrame(data_points)
-        df_daily = df.groupby(['Data', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
-        for col in ['Recebimentos', 'Pagamentos']:
-            if col not in df_daily: df_daily[col] = 0
+        df_daily = df.groupby().sum().unstack(fill_value=0).reset_index()
+        for col in:
+            if col not in df_daily: df_daily = 0
         
         df_daily = df_daily.sort_values('Data')
         
-        # Cálculo de Saldos
-        total_rec = df_daily['Recebimentos'].sum()
-        total_pag = df_daily['Pagamentos'].sum()
-        df_daily['Saldo Diário'] = df_daily['Recebimentos'] - df_daily['Pagamentos']
-        df_daily['Acumulado'] = df_daily['Saldo Diário'].cumsum()
+        total_rec = df_daily.sum()
+        total_pag = df_daily.sum()
+        df_daily = df_daily - df_daily
+        df_daily = df_daily.cumsum()
         
-        # Dashboard Visual
         st.markdown("---")
         c1, c2, c3 = st.columns(3)
         c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
         c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}")
         c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
 
-        # Gráfico (Plotly híbrido Barras + Linha Saldo)
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=df_daily['Data'], y=df_daily['Recebimentos'], name='Receber', marker_color='#00CC96'))
-        fig.add_trace(go.Bar(x=df_daily['Data'], y=-df_daily['Pagamentos'], name='Pagar', marker_color='#EF553B')) # Mostra negativo no gráfico
-        fig.add_trace(go.Scatter(x=df_daily['Data'], y=df_daily['Acumulado'], name='Saldo Acumulado', line=dict(color='#34495e', width=3)))
+        fig.add_trace(go.Bar(x=df_daily, y=df_daily, name='Receber', marker_color='#00CC96'))
+        fig.add_trace(go.Bar(x=df_daily, y=-df_daily, name='Pagar', marker_color='#EF553B'))
+        fig.add_trace(go.Scatter(x=df_daily, y=df_daily, name='Saldo Acumulado', line=dict(color='#34495e', width=3)))
         
         fig.update_layout(
             barmode='relative', 
@@ -279,11 +267,9 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Tabela Formatada (Sem Horas)
         st.subheader("Detalhamento por Dia")
-        df_tab = df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Acumulado']].copy()
-        # Formata a data para exibir apenas o dia (remove as horas)
-        df_tab['Data'] = df_tab['Data'].dt.strftime('%d/%m/%Y')
+        df_tab = df_daily].copy()
+        df_tab = df_tab.dt.strftime('%d/%m/%Y')
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
