@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURAÇÕES ---
 st.set_page_config(page_title="BPO Dashboard - Fluxo de Caixa", layout="wide")
 
+# Credenciais
 CLIENT_ID = st.secrets["conta_azul"]["client_id"]
 CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
 REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
@@ -32,13 +33,14 @@ def get_tokens_db():
 
 def update_refresh_token(empresa, novo_token):
     df = get_tokens_db()
+    empresa_up = empresa.upper().strip()
     try:
-        idx = df.index[df['empresa'].str.upper() == empresa.upper()].tolist()[0] + 2
+        idx = df.index[df['empresa'].str.upper() == empresa_up].tolist()[0] + 2
         sheet.update_cell(idx, 2, novo_token)
     except:
-        sheet.append_row([empresa.upper(), novo_token])
+        sheet.append_row([empresa_up, novo_token])
 
-# --- 3. API CONTA AZUL (FINANCEIRO) ---
+# --- 3. API CONTA AZUL ---
 def refresh_access_token(empresa, refresh_token_atual):
     url = "https://auth.contaazul.com/oauth2/token"
     headers = {"Authorization": f"Basic {B64_AUTH}", "Content-Type": "application/x-www-form-urlencoded"}
@@ -51,82 +53,98 @@ def refresh_access_token(empresa, refresh_token_atual):
     return None
 
 def fetch_financeiro(token, tipo, d_inicio, d_fim):
-    """tipo: 'receivables' ou 'payables'"""
-    # Formato da data: YYYY-MM-DDTHH:mm:ssZ
+    """Busca lançamentos. Removido filtro de status para trazer tudo do período."""
     url = f"https://api-v2.contaazul.com/v1/{tipo}"
     params = {
         "due_after": f"{d_inicio}T00:00:00Z",
-        "due_before": f"{d_fim}T23:59:59Z",
-        "status": "OPEN" # Buscando apenas o que está aberto para o fluxo futuro
+        "due_before": f"{d_fim}T23:59:59Z"
     }
     headers = {"Authorization": f"Bearer {token}"}
     res = requests.get(url, headers=headers, params=params).json()
     return res if isinstance(res, list) else res.get("itens", [])
 
-# --- 4. UI ---
-st.title("📈 Fluxo de Caixa Consolidado")
+# --- 4. INTERFACE ---
+st.title("📈 Fluxo de Caixa Inteligente")
 
-# Filtros na Sidebar
-st.sidebar.header("Parâmetros")
-df_db = get_tokens_db()
-empresas = df_db['empresa'].unique().tolist() if not df_db.empty else []
-empresa_selecionada = st.sidebar.selectbox("Selecione a Empresa", empresas)
+# --- MODO ADMIN (Proteção de Conexão) ---
+with st.sidebar:
+    st.header("⚙️ Configurações")
+    admin_mode = st.toggle("Modo Administrador")
+    if admin_mode:
+        senha = st.text_input("Senha de acesso", type="password")
+        if senha == "admin123": # Altere sua senha aqui
+            st.success("Acesso liberado")
+            url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=ESTADO&scope=openid+profile+aws.cognito.signin.user.admin"
+            st.link_button("🔗 Conectar Nova Empresa", url_auth)
+        elif senha:
+            st.error("Senha incorreta")
 
-# Seleção de Período
-hoje = datetime.now()
-data_ini = st.sidebar.date_input("Data Início", hoje - timedelta(days=30))
-data_fim = st.sidebar.date_input("Data Fim", hoje + timedelta(days=30))
-
-if empresa_selecionada:
-    token_ref = df_db.loc[df_db['empresa'] == empresa_selecionada, 'refresh_token'].values[0]
+    st.divider()
+    st.header("🔍 Filtros")
+    df_db = get_tokens_db()
+    empresas_list = df_db['empresa'].unique().tolist() if not df_db.empty else []
     
-    if st.button("📊 Gerar Fluxo de Caixa", type="primary"):
-        with st.spinner("Processando lançamentos..."):
-            token_acc = refresh_access_token(empresa_selecionada, token_ref)
+    selecao = st.selectbox("Empresa", ["TODAS (CONSOLIDADO)"] + empresas_list)
+    
+    data_ini = st.date_input("Data Início", datetime.now() - timedelta(days=30), format="DD/MM/YYYY")
+    data_fim = st.date_input("Data Fim", datetime.now() + timedelta(days=30), format="DD/MM/YYYY")
+
+# --- LÓGICA DE PROCESSAMENTO ---
+if st.button("🚀 Gerar Fluxo de Caixa", type="primary"):
+    empresas_para_processar = empresas_list if selecao == "TODAS (CONSOLIDADO)" else [selecao]
+    
+    all_data_in = []
+    all_data_out = []
+    
+    with st.spinner(f"Processando {len(empresas_para_processar)} empresa(s)..."):
+        for emp in empresas_para_processar:
+            token_ref = df_db.loc[df_db['empresa'] == emp, 'refresh_token'].values[0]
+            token_acc = refresh_access_token(emp, token_ref)
             
             if token_acc:
-                # Busca os dois lados da moeda
-                receber = fetch_financeiro(token_acc, "receivables", data_ini, data_fim)
-                pagar = fetch_financeiro(token_acc, "payables", data_ini, data_fim)
+                rec = fetch_financeiro(token_acc, "receivables", data_ini, data_fim)
+                pag = fetch_financeiro(token_acc, "payables", data_ini, data_fim)
                 
-                # Processamento
-                df_rec = pd.DataFrame(receber)
-                df_pag = pd.DataFrame(pagar)
-                
-                # Normalização de dados
-                for df, label, mult in [(df_rec, 'Receber', 1), (df_pag, 'Pagar', -1)]:
-                    if not df.empty:
-                        df['valor'] = df['value'].astype(float) * mult
-                        df['data'] = pd.to_datetime(df['due_date']).dt.date
-                    else:
-                        # Cria DF vazio compatível se não houver dados
-                        df['data'] = []
-                        df['valor'] = []
+                for item in rec:
+                    all_data_in.append({'data': item['due_date'][:10], 'valor': float(item['value']), 'empresa': emp})
+                for item in pag:
+                    all_data_out.append({'data': item['due_date'][:10], 'valor': float(item['value']) * -1, 'empresa': emp})
 
-                # Merge e Gráfico
-                resumo_rec = df_rec.groupby('data')['valor'].sum().reset_index() if not df_rec.empty else pd.DataFrame(columns=['data', 'valor'])
-                resumo_pag = df_pag.groupby('data')['valor'].sum().reset_index() if not df_pag.empty else pd.DataFrame(columns=['data', 'valor'])
-                
-                # Criação do DataFrame de Fluxo
-                fluxo = pd.merge(resumo_rec, resumo_pag, on='data', how='outer', suffixes=('_in', '_out')).fillna(0)
-                fluxo['Saldo Diário'] = fluxo['valor_in'] + fluxo['valor_out']
-                fluxo = fluxo.sort_values('data')
-                
-                # Exibição de Métricas
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Total a Receber", f"R$ {fluxo['valor_in'].sum():,.2f}")
-                c2.metric("Total a Pagar", f"R$ {abs(fluxo['valor_out'].sum()):,.2f}", delta_color="inverse")
-                c3.metric("Saldo do Período", f"R$ {fluxo['Saldo Diário'].sum():,.2f}")
+    if all_data_in or all_data_out:
+        df_in = pd.DataFrame(all_data_in)
+        df_out = pd.DataFrame(all_data_out)
+        
+        # Consolidação para o Gráfico
+        df_total = pd.concat([df_in, df_out])
+        df_total['data'] = pd.to_datetime(df_total['data'])
+        
+        grafico_df = df_total.groupby(df_total['data'].dt.date)['valor'].agg([
+            ('Entradas', lambda x: x[x > 0].sum()),
+            ('Saídas', lambda x: abs(x[x < 0].sum()))
+        ]).fillna(0)
 
-                # Gráfico
-                st.subheader("Evolução do Fluxo de Caixa")
-                chart_data = fluxo.set_index('data')[['valor_in', 'valor_out']]
-                chart_data.columns = ['Entradas', 'Saídas']
-                st.area_chart(chart_data)
+        # Métricas
+        c1, c2, c3 = st.columns(3)
+        total_rec = grafico_df['Entradas'].sum()
+        total_pag = grafico_df['Saídas'].sum()
+        c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
+        c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Líquido", f"R$ {(total_rec - total_pag):,.2f}")
 
-                # Tabela de Detalhes
-                with st.expander("Ver lista detalhada de lançamentos"):
-                    st.write("### Contas a Receber")
-                    st.table(df_rec[['due_date', 'description', 'value']] if not df_rec.empty else [])
-                    st.write("### Contas a Pagar")
-                    st.table(df_pag[['due_date', 'description', 'value']] if not df_pag.empty else [])
+        # Gráfico de Área
+        st.subheader(f"Evolução: {selecao}")
+        st.area_chart(grafico_df)
+
+        # Tabela Detalhada com data BR
+        with st.expander("Ver lançamentos detalhados"):
+            df_table = df_total.copy()
+            df_table['data'] = df_table['data'].dt.strftime('%d/%m/%Y')
+            df_table['valor'] = df_table['valor'].map('R$ {:,.2f}'.format)
+            st.dataframe(df_table, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Nenhum lançamento encontrado para o período/empresa selecionada.")
+
+# --- TRATAMENTO DE RETORNO OAUTH ---
+if "code" in st.query_params:
+    st.info("Nova autorização detectada...")
+    # ... (mesma lógica de vinculação anterior)
