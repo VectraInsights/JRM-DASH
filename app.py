@@ -24,25 +24,33 @@ st.markdown(f"""
         .stApp {{ background-color: {bg}; color: {txt}; }}
         [data-testid="stSidebar"] {{ background-color: {side_bg} !important; }}
         
-        /* Botão de Tema no Topo Direito */
-        .theme-btn-container {{
-            position: absolute; top: 10px; right: 10px; z-index: 999;
+        /* Botão de Tema minimalista no canto superior direito */
+        .st-emotion-cache-12fmjuu {{ display: none; }} /* Esconde menu original se houver */
+        .floating-theme {{
+            position: fixed;
+            top: 12px;
+            right: 15px;
+            z-index: 999999;
         }}
-        
+        .floating-theme button {{
+            background: transparent !important;
+            border: none !important;
+            font-size: 14px !important;
+            opacity: 0.5;
+        }}
+        .floating-theme button:hover {{ opacity: 1; }}
+
         /* Ajuste Sidebar */
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"],
         [data-testid="stSidebar"] .stDateInput div {{ background-color: {input_fill} !important; color: {txt} !important; }}
         
-        /* Esconder o olho no fim da rolagem */
-        .spacer {{ height: 800px; }}
-        .adm-btn {{ opacity: 0.1; transition: 0.3s; }}
-        .adm-btn:hover {{ opacity: 1.0; }}
+        .spacer {{ height: 100vh; }} /* Força rolagem longa para o olho */
     </style>
     """, unsafe_allow_html=True)
 
-# Botão de Tema flutuante
-st.markdown('<div class="theme-btn-container">', unsafe_allow_html=True)
-if st.button("🌓"):
+# Botão de Tema no local solicitado
+st.markdown('<div class="floating-theme">', unsafe_allow_html=True)
+if st.button("🌓", key="theme_toggle"):
     st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
     st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
@@ -66,7 +74,7 @@ def update_refresh_token_in_sheet(empresa_nome, new_refresh_token):
         cell = sh.find(empresa_nome)
         sh.update_cell(cell.row, 2, new_refresh_token)
     except:
-        pass
+        sh.append_row([empresa_nome, new_refresh_token])
 
 def get_tokens(refresh_token, empresa_nome):
     url = "https://auth.contaazul.com/oauth2/token"
@@ -74,8 +82,9 @@ def get_tokens(refresh_token, empresa_nome):
                         data={"grant_type": "refresh_token", "refresh_token": refresh_token})
     if res.status_code == 200:
         data = res.json()
-        # Salva o novo refresh_token para não precisar re-autenticar depois de mudar o código
-        update_refresh_token_in_sheet(empresa_nome, data.get("refresh_token"))
+        new_rt = data.get("refresh_token")
+        if new_rt:
+            update_refresh_token_in_sheet(empresa_nome, new_rt)
         return data.get("access_token")
     return None
 
@@ -86,40 +95,33 @@ with st.sidebar:
     empresas = df_db['empresa'].unique().tolist() if not df_db.empty else []
     selecao = st.selectbox("Empresa", ["TODAS"] + empresas)
     
-    # Período padrão de 7 dias
     d_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     d_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
-    # Empurra o "olho" para baixo (invisível sem rolar)
     st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
-    st.divider()
-    if st.button("👁️", help="Modo Administrador"):
+    if st.button("👁️", key="adm_eye"):
         st.session_state.adm_mode = not st.session_state.adm_mode
         st.rerun()
 
-# --- 4. ÁREA ADM & LOGIN ---
+# --- 4. ÁREA ADM & CONSULTA ---
 st.title("📊 Fluxo de Caixa BPO")
 
-# Captura de retorno da Conta Azul
-params = st.query_params
-if "code" in params:
-    with st.container(border=True):
-        st.warning("⚠️ Nova conexão detectada. Digite o nome exato para salvar.")
-        nome_nova = st.text_input("Nome da Empresa")
-        if st.button("Confirmar Registro"):
-            r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
-                              data={"grant_type": "authorization_code", "code": params["code"], "redirect_uri": REDIRECT_URI})
-            if r.status_code == 200:
-                update_refresh_token_in_sheet(nome_nova, r.json().get("refresh_token"))
-                st.query_params.clear()
-                st.rerun()
+# Captura de código da URL (Login Conta Azul)
+if "code" in st.query_params:
+    with st.status("Registrando nova empresa..."):
+        r = requests.post("https://auth.contaazul.com/oauth2/token", headers={"Authorization": f"Basic {B64_AUTH}"},
+                          data={"grant_type": "authorization_code", "code": st.query_params["code"], "redirect_uri": REDIRECT_URI})
+        if r.status_code == 200:
+            st.success("Conectado! Nomeie a empresa na Área ADM.")
+            # Aqui você pode salvar com um nome genérico e depois renomear na planilha
+            update_refresh_token_in_sheet("NOVA_EMPRESA_PENDENTE", r.json().get("refresh_token"))
+            st.query_params.clear()
 
 if st.session_state.adm_mode:
     with st.expander("🔑 Configurações", expanded=True):
         if st.text_input("Acesso", type="password") == "8429coconoiaKc#":
             st.link_button("🔌 Conectar Empresa", f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}")
 
-# --- 5. CONSULTA ---
 if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
     data_points = []
     lista = empresas if selecao == "TODAS" else [selecao]
@@ -129,25 +131,27 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
         acc_token = get_tokens(row['refresh_token'], emp)
         
         if acc_token:
-            # Consulta via Lançamentos (mais estável que eventos)
             url = "https://api.contaazul.com/v1/financeiro/lancamentos"
             params_api = {
                 "data_inicio": d_ini.strftime('%Y-%m-%dT00:00:00Z'),
-                "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z'),
-                "pagos": "false" # Trazer o que está previsto (aberto)
+                "data_fim": d_fim.strftime('%Y-%m-%dT23:59:59Z')
             }
-            res = requests.get(url, headers={"Authorization": f"Bearer {acc_token}"}, params=params_api).json()
+            res = requests.get(url, headers={"Authorization": f"Bearer {acc_token}"}, params=params_api)
             
-            for lanc in res:
-                v = lanc.get('valor', 0)
-                tp = lanc.get('tipo') # Pagar ou Receber
-                dt = lanc.get('data_vencimento')
-                
-                data_points.append({
-                    'Data': pd.to_datetime(dt).date(),
-                    'Tipo': 'Recebimentos' if tp == 'RECEBER' else 'Pagamentos',
-                    'Valor': float(v)
-                })
+            if res.status_code == 200:
+                for lanc in res.json():
+                    # Proteção contra erros de atributo
+                    if isinstance(lanc, dict):
+                        v = lanc.get('valor', 0)
+                        tp = lanc.get('tipo')
+                        dt = lanc.get('data_vencimento')
+                        
+                        if dt and tp:
+                            data_points.append({
+                                'Data': pd.to_datetime(dt).date(),
+                                'Tipo': 'Recebimentos' if tp == 'RECEBER' else 'Pagamentos',
+                                'Valor': float(v)
+                            })
 
     if data_points:
         df = pd.DataFrame(data_points)
@@ -156,30 +160,25 @@ if st.button("🚀 Consultar e Gerar Fluxo", type="primary"):
             if col not in df_daily: df_daily[col] = 0
         
         df_daily = df_daily.sort_values('Data')
-        df_daily['Saldo_Dia'] = df_daily['Recebimentos'] - df_daily['Pagamentos']
-        df_daily['Saldo_Acumulado'] = df_daily['Saldo_Dia'].cumsum()
+        df_daily['Saldo_Acumulado'] = (df_daily['Recebimentos'] - df_daily['Pagamentos']).cumsum()
         df_daily['Data_Grafico'] = df_daily['Data'].apply(lambda x: x.strftime('%d/%m'))
 
-        # Cards
         c1, c2, c3 = st.columns(3)
         c1.metric("Total a Receber", f"R$ {df_daily['Recebimentos'].sum():,.2f}")
         c2.metric("Total a Pagar", f"R$ {df_daily['Pagamentos'].sum():,.2f}")
         c3.metric("Saldo Líquido", f"R$ {(df_daily['Recebimentos'].sum() - df_daily['Pagamentos'].sum()):,.2f}")
 
-        # Gráfico
         fig = go.Figure()
         fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Recebimentos'], name='Recebimentos', marker_color='#00CC96'))
         fig.add_trace(go.Bar(x=df_daily['Data_Grafico'], y=df_daily['Pagamentos'], name='Pagamentos', marker_color='#EF553B'))
-        fig.add_trace(go.Scatter(x=df_daily['Data_Grafico'], y=df_daily['Saldo_Acumulado'], name='Saldo Acumulado', 
-                                 line=dict(color='#34495e', width=4)))
+        fig.add_trace(go.Scatter(x=df_daily['Data_Grafico'], y=df_daily['Saldo_Acumulado'], name='Saldo Acumulado', line=dict(color='#34495e', width=4)))
         
         fig.update_layout(barmode='group', template="plotly_dark" if st.session_state.theme == 'dark' else "plotly_white",
                           legend=dict(orientation="h", y=-0.2), height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-        # Tabela
         df_tab = df_daily[['Data', 'Recebimentos', 'Pagamentos', 'Saldo_Acumulado']].copy()
         df_tab['Data'] = df_tab['Data'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.dataframe(df_tab, use_container_width=True, hide_index=True)
     else:
-        st.warning("Nenhum dado encontrado. Verifique se os filtros estão corretos.")
+        st.warning("Nenhum dado financeiro encontrado para este período.")
