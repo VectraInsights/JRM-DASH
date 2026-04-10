@@ -122,37 +122,6 @@ with st.sidebar:
     d_inicio = st.date_input("De", datetime.now() - timedelta(days=7))
     d_fim = st.date_input("Até", datetime.now() + timedelta(days=30))
 
-if st.button("🚀 Sincronizar Dados", type="primary"):
-    alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
-    dados = []
-    
-    for emp in alvos:
-        token = get_access_token(emp)
-        if not token: continue
-
-        for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
-            res = requests.get(f"{API_BASE_URL}/v1/financeiro/{endpoint}", 
-                headers={"Authorization": f"Bearer {token}"},
-                params={
-                    "expiration_date_from": d_inicio.strftime('%Y-%m-%dT00:00:00Z'),
-                    "expiration_date_to": d_fim.strftime('%Y-%m-%dT23:59:59Z')
-                })
-            
-            if res.status_code == 200:
-                for i in res.json():
-                    dt = i.get('due_date') or i.get('expiration_date')
-                    dados.append({
-                        'Empresa': emp, 'Data': pd.to_datetime(dt[:10]),
-                        'Tipo': tipo, 'Valor': float(i.get('value', 0)),
-                        'Descrição': i.get('description', 'S/D')
-                    })
-
-    if dados:
-        df = pd.DataFrame(dados)
-        st.dataframe(df.sort_values('Data'), use_container_width=True)
-    else:
-        st.info("Nenhum dado encontrado.")
-
 # --- BLOCO DE DEPURAÇÃO (DEBUG) ---
 if st.button("🚀 Sincronizar Dados", type="primary"):
     alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
