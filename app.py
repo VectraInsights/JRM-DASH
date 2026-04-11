@@ -106,20 +106,39 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                 }
                 res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
 
+                # --- DEPURADOR DE RESPOSTA ---
+                with st.expander(f"🔍 Depurador: {emp} ({tipo})", expanded=False):
+                    st.write(f"URL: {res.url}")
+                    st.write(f"Status: {res.status_code}")
+                    st.json(res.json()) 
+
                 if res.status_code == 200:
-                    for i in res.json().get('itens', []):
-                        dados.append({
-                            'Empresa': emp,
-                            'Data': pd.to_datetime(i.get('data_vencimento')[:10]),
-                            'Tipo': tipo,
-                            'Valor': float(i.get('valor', 0)),
-                            'Descrição': i.get('descricao', 'S/D'),
-                            'Status': 'Pago' if i.get('pago') else 'Pendente'
-                        })
+                    corpo = res.json()
+                    # Garante que 'itens' existe e é uma lista
+                    itens = corpo.get('itens', [])
+                    
+                    for i in itens:
+                        # Fallback de campos: tenta v1 e variações comuns
+                        venc = i.get('data_vencimento') or i.get('due_date')
+                        val = i.get('valor') or i.get('value') or i.get('valor_liquido_total')
+                        desc = i.get('descricao') or i.get('description') or 'S/D'
+                        
+                        if venc and val is not None:
+                            dados.append({
+                                'Empresa': emp,
+                                'Data': pd.to_datetime(venc[:10]),
+                                'Tipo': tipo,
+                                'Valor': float(val),
+                                'Descrição': desc,
+                                'Status': 'Pago' if i.get('pago') or i.get('status') == 'PAID' else 'Pendente'
+                            })
             status.update(label=f"Check: {emp} OK", state="complete")
 
     if dados:
         df = pd.DataFrame(dados)
+    else:
+        st.warning("⚠️ A API retornou 200 (OK), mas a lista de 'itens' veio vazia.")
+        st.info("Verifique no depurador acima se os campos no JSON são realmente 'data_vencimento' e 'valor'.")
         
         # --- CARDS DE RESUMO ---
         rec = df[df['Tipo'] == 'Receber']['Valor'].sum()
