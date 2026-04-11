@@ -162,5 +162,3 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                 "Tipo": st.column_config.TextColumn(help="Receita ou Despesa")
             }
         )
-    else:
-        st.warning("Nenhum dado encontrado para este período.")
