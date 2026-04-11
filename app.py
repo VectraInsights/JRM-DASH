@@ -105,82 +105,69 @@ if "code" in params:
 
 # --- ÁREA PRINCIPAL: PROCESSAMENTO E DASHBOARD ---
 
-if st.button("🚀 Sincronizar Dados", type="primary"):
+if st.button("🚀 Sincronizar Dados (Modo Compatibilidade)", type="primary"):
     alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
     dados = []
     
     for emp in alvos:
-        # st.status mantém a interface limpa enquanto processa várias empresas
-        with st.status(f"Sincronizando: {emp}...", expanded=False) as status:
+        with st.status(f"Conectando com {emp}...", expanded=False) as status:
             token = get_access_token(emp)
-            
             if not token: 
-                st.error(f"❌ Falha ao renovar acesso para {emp}. Refaça o vínculo.")
+                st.error(f"❌ Falha no token para {emp}")
                 continue
 
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
+                # Testamos a URL com e sem o prefixo /v1 se der erro
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
                 
-                # Payload de parâmetros limpo
                 params = {
                     "expiration_date_from": d_inicio.strftime('%Y-%m-%d'),
                     "expiration_date_to": d_fim.strftime('%Y-%m-%d')
                 }
+
+                res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
                 
-                res = requests.get(
-                    url, 
-                    headers={"Authorization": f"Bearer {token}"},
-                    params=params
-                )
-                
+                # SE DER 404, TENTAMOS SEM O /V1 (Fallback comum na V2)
+                if res.status_code == 404:
+                    url_fallback = f"{API_BASE_URL}/financeiro/{endpoint}"
+                    res = requests.get(url_fallback, headers={"Authorization": f"Bearer {token}"}, params=params)
+
                 if res.status_code == 200:
                     corpo = res.json()
+                    # Tenta todas as chaves possíveis de retorno da V2
+                    lista = corpo.get('items') or corpo.get('itens') or (corpo if isinstance(corpo, list) else [])
                     
-                    # Extração segura: a API v2 coloca os dados em 'items' ou 'itens'
-                    # Se não encontrar nenhum, assume que o retorno pode ser a lista direta
-                    lista_items = corpo.get('items') or corpo.get('itens') or (corpo if isinstance(corpo, list) else [])
-                    
-                    for i in lista_items:
-                        # Mapeamento de campos flexível (V1 vs V2)
-                        vencimento = i.get('due_date') or i.get('expiration_date')
-                        valor = i.get('value') or i.get('valor_liquido_total') or 0
+                    for i in lista:
+                        venc = i.get('due_date') or i.get('expiration_date') or i.get('data_vencimento')
+                        valor = i.get('value') or i.get('valor_liquido_total') or i.get('valor', 0)
                         
-                        if vencimento:
+                        if venc:
                             dados.append({
                                 'Empresa': emp, 
-                                'Data': pd.to_datetime(vencimento[:10]),
+                                'Data': pd.to_datetime(venc[:10]),
                                 'Tipo': tipo, 
                                 'Valor': float(valor),
-                                'Descrição': i.get('description') or i.get('memo') or 'S/D'
+                                'Descrição': i.get('description') or i.get('memo') or i.get('descricao', 'S/D')
                             })
                 else:
-                    # Se der 404, mostramos a URL exata para o seu log de auditoria
-                    st.warning(f"Aviso {res.status_code} em {emp} ({tipo})")
-                    st.caption(f"Endpoint: {res.url}")
-            
-            status.update(label=f"Concluído: {emp}", state="complete")
+                    st.warning(f"⚠️ {emp} ({tipo}): Erro {res.status_code}")
+                    st.caption(f"URL tentada: {res.url}")
+
+            status.update(label=f"Processamento de {emp} finalizado", state="complete")
 
     if dados:
         df_final = pd.DataFrame(dados)
-        st.success(f"✅ Sincronização concluída: {len(df_final)} lançamentos.")
-
-        # --- EXIBIÇÃO DO DASHBOARD ---
+        st.success(f"✅ {len(df_final)} lançamentos encontrados!")
+        
+        # Dashboard resumido
         c1, c2, c3 = st.columns(3)
         total_rec = df_final[df_final['Tipo'] == 'Receber']['Valor'].sum()
         total_pag = df_final[df_final['Tipo'] == 'Pagar']['Valor'].sum()
         
-        c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
+        c1.metric("A Receber", f"R$ {total_rec:,.2f}")
+        c2.metric("A Pagar", f"R$ {total_pag:,.2f}")
+        c3.metric("Saldo", f"R$ {(total_rec - total_pag):,.2f}")
         
-        st.divider()
-        st.dataframe(
-            df_final.sort_values('Data'), 
-            use_container_width=True,
-            column_config={
-                "Valor": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Data": st.column_config.DateColumn(format="DD/MM/YYYY")
-            }
-        )
+        st.dataframe(df_final.sort_values('Data'), use_container_width=True)
     else:
-        st.info("Nenhum dado encontrado com os filtros atuais.")
+        st.info("Nenhum dado retornado. Verifique se o período de datas na sidebar contém lançamentos na Conta Azul.")
