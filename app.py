@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 # --- CONFIGURAÇÕES DE AMBIENTE ---
 st.set_page_config(page_title="BPO Dashboard - JRM", layout="wide")
 
-# Configurações de API (Centralizadas)
 CLIENT_ID = st.secrets["conta_azul"]["client_id"]
 CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
 REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
@@ -41,9 +40,15 @@ def update_refresh_token(empresa, novo_rt):
 
 def get_access_token(empresa_nome):
     sh = get_sheet()
-    cell = sh.find(empresa_nome)
-    if not cell: return None
-    rt_salvo = sh.cell(cell.row, 2).value
+    if not sh: return None
+    
+    try:
+        cell = sh.find(empresa_nome)
+        rt_salvo = sh.cell(cell.row, 2).value
+    except:
+        st.error(f"❌ Empresa '{empresa_nome}' não encontrada na planilha.")
+        return None
+
     auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
     
     res = requests.post(TOKEN_URL, 
@@ -52,9 +57,14 @@ def get_access_token(empresa_nome):
 
     if res.status_code == 200:
         data = res.json()
+        # ESSENCIAL: Salva o novo Refresh Token que a API enviou
         update_refresh_token(empresa_nome, data['refresh_token'])
         return data['access_token']
-    return None
+    else:
+        st.error(f"🚨 Falha na renovação do Token (Erro {res.status_code})")
+        with st.expander("Ver detalhes do erro de autenticação"):
+            st.json(res.json())
+        return None
 
 # --- SIDEBAR E OAuth ---
 
@@ -66,7 +76,7 @@ with st.sidebar:
     query_params = st.query_params
     if "code" in query_params:
         with st.expander("✨ Finalizar Vínculo", expanded=True):
-            nome_emp = st.text_input("Nome da Empresa")
+            nome_emp = st.text_input("Nome da Empresa (Ex: Juvenal)")
             if st.button("Salvar Vínculo"):
                 auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
                 res = requests.post(TOKEN_URL, 
@@ -74,12 +84,12 @@ with st.sidebar:
                     data={"grant_type": "authorization_code", "code": query_params["code"], "redirect_uri": REDIRECT_URI})
                 if res.status_code == 200:
                     update_refresh_token(nome_emp, res.json()['refresh_token'])
-                    st.success("Vinculado! Limpando URL...")
+                    st.success("Vinculado com sucesso!")
                     st.query_params.clear()
                     st.rerun()
     
     st.divider()
-    st.header("📊 Filtros de Visualização")
+    st.header("📊 Filtros")
     sh = get_sheet()
     lista_empresas = pd.DataFrame(sh.get_all_records())['empresa'].unique().tolist() if sh else []
     sel_empresa = st.selectbox("Empresa", ["TODAS"] + lista_empresas)
@@ -88,16 +98,14 @@ with st.sidebar:
 
 # --- PROCESSAMENTO DOS DADOS ---
 
-if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_container_width=True):
+if st.button("🚀 Sincronizar Dashboard", type="primary", use_container_width=True):
     alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
     dados = []
     
     for emp in alvos:
-        with st.status(f"Lendo {emp}...", expanded=False) as status:
+        with st.status(f"Conectando a {emp}...", expanded=False) as status:
             token = get_access_token(emp)
-            if not token: 
-                st.error(f"Token não encontrado para {emp}")
-                continue
+            if not token: continue
 
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
@@ -108,21 +116,19 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                 res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
 
                 # --- DEPURADOR DE RESPOSTA ---
-                with st.expander(f"🔍 Depurador: {emp} ({tipo})"):
-                    st.write(f"**URL:** {res.url}")
+                with st.expander(f"🔍 Depurador Técnico: {emp} ({tipo})"):
+                    st.write(f"**Endpoint:** {url}")
                     st.write(f"**Status:** {res.status_code}")
                     if res.status_code == 200:
                         st.json(res.json())
                     else:
-                        st.error(f"Erro na requisição: {res.text}")
+                        st.error(f"Erro na chamada: {res.text}")
 
                 if res.status_code == 200:
-                    corpo = res.json()
-                    itens = corpo.get('itens', [])
-                    
+                    itens = res.json().get('itens', [])
                     for i in itens:
                         venc = i.get('data_vencimento') or i.get('due_date')
-                        val = i.get('valor') or i.get('value') or i.get('valor_liquido_total')
+                        val = i.get('valor') or i.get('value')
                         
                         if venc and val is not None:
                             dados.append({
@@ -130,37 +136,23 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                                 'Data': pd.to_datetime(venc[:10]),
                                 'Tipo': tipo,
                                 'Valor': float(val),
-                                'Descrição': i.get('descricao') or i.get('description') or 'S/D',
-                                'Status': 'Pago' if i.get('pago') or i.get('status') == 'PAID' else 'Pendente'
+                                'Descrição': i.get('descricao') or 'S/D',
+                                'Status': 'Pago' if i.get('pago') else 'Pendente'
                             })
-            status.update(label=f"Check: {emp} OK", state="complete")
+            status.update(label=f"Sincronização {emp} OK", state="complete")
 
-    # --- RENDERIZAÇÃO DO DASHBOARD (FORA DO LOOP DAS EMPRESAS) ---
+    # --- RENDERIZAÇÃO ---
     if dados:
         df = pd.DataFrame(dados)
-        
-        # 1. Cards de Resumo
         rec = df[df['Tipo'] == 'Receber']['Valor'].sum()
         pag = df[df['Tipo'] == 'Pagar']['Valor'].sum()
         
         c1, c2, c3 = st.columns(3)
         c1.metric("A Receber", f"R$ {rec:,.2f}")
         c2.metric("A Pagar", f"R$ {pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Previsto", f"R$ {(rec - pag):,.2f}")
+        c3.metric("Saldo Líquido", f"R$ {(rec - pag):,.2f}")
         
         st.divider()
-        
-        # 2. Tabela de Lançamentos
-        st.subheader("📋 Detalhamento de Títulos")
-        st.dataframe(
-            df.sort_values('Data'),
-            use_container_width=True,
-            column_config={
-                "Valor": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
-                "Tipo": st.column_config.TextColumn(help="Receita ou Despesa")
-            }
-        )
+        st.dataframe(df.sort_values('Data'), use_container_width=True)
     else:
-        st.warning("⚠️ Nenhum dado encontrado para o período e empresa selecionados.")
-        st.info("💡 Dica: Verifique no 'Depurador' acima se o campo 'itens' do JSON está vazio ou se as chaves de data/valor mudaram.")
+        st.warning("Nenhum dado encontrado para o período. Verifique o Depurador acima.")
