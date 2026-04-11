@@ -63,7 +63,6 @@ with st.sidebar:
     url_auth = f"{AUTH_URL}?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope={SCOPE}"
     st.link_button("Vincular Nova Empresa", url_auth, type="primary", use_container_width=True)
     
-    # Captura do Code (Retorno do OAuth)
     query_params = st.query_params
     if "code" in query_params:
         with st.expander("✨ Finalizar Vínculo", expanded=True):
@@ -96,7 +95,9 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
     for emp in alvos:
         with st.status(f"Lendo {emp}...", expanded=False) as status:
             token = get_access_token(emp)
-            if not token: continue
+            if not token: 
+                st.error(f"Token não encontrado para {emp}")
+                continue
 
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
@@ -107,21 +108,21 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                 res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
 
                 # --- DEPURADOR DE RESPOSTA ---
-                with st.expander(f"🔍 Depurador: {emp} ({tipo})", expanded=False):
-                    st.write(f"URL: {res.url}")
-                    st.write(f"Status: {res.status_code}")
-                    st.json(res.json()) 
+                with st.expander(f"🔍 Depurador: {emp} ({tipo})"):
+                    st.write(f"**URL:** {res.url}")
+                    st.write(f"**Status:** {res.status_code}")
+                    if res.status_code == 200:
+                        st.json(res.json())
+                    else:
+                        st.error(f"Erro na requisição: {res.text}")
 
                 if res.status_code == 200:
                     corpo = res.json()
-                    # Garante que 'itens' existe e é uma lista
                     itens = corpo.get('itens', [])
                     
                     for i in itens:
-                        # Fallback de campos: tenta v1 e variações comuns
                         venc = i.get('data_vencimento') or i.get('due_date')
                         val = i.get('valor') or i.get('value') or i.get('valor_liquido_total')
-                        desc = i.get('descricao') or i.get('description') or 'S/D'
                         
                         if venc and val is not None:
                             dados.append({
@@ -129,18 +130,16 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                                 'Data': pd.to_datetime(venc[:10]),
                                 'Tipo': tipo,
                                 'Valor': float(val),
-                                'Descrição': desc,
+                                'Descrição': i.get('descricao') or i.get('description') or 'S/D',
                                 'Status': 'Pago' if i.get('pago') or i.get('status') == 'PAID' else 'Pendente'
                             })
             status.update(label=f"Check: {emp} OK", state="complete")
 
+    # --- RENDERIZAÇÃO DO DASHBOARD (FORA DO LOOP DAS EMPRESAS) ---
     if dados:
         df = pd.DataFrame(dados)
-    else:
-        st.warning("⚠️ A API retornou 200 (OK), mas a lista de 'itens' veio vazia.")
-        st.info("Verifique no depurador acima se os campos no JSON são realmente 'data_vencimento' e 'valor'.")
         
-        # --- CARDS DE RESUMO ---
+        # 1. Cards de Resumo
         rec = df[df['Tipo'] == 'Receber']['Valor'].sum()
         pag = df[df['Tipo'] == 'Pagar']['Valor'].sum()
         
@@ -151,7 +150,7 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
         
         st.divider()
         
-        # --- TABELA DE LANÇAMENTOS ---
+        # 2. Tabela de Lançamentos
         st.subheader("📋 Detalhamento de Títulos")
         st.dataframe(
             df.sort_values('Data'),
@@ -162,3 +161,6 @@ if st.button("🚀 Sincronizar e Atualizar Dashboard", type="primary", use_conta
                 "Tipo": st.column_config.TextColumn(help="Receita ou Despesa")
             }
         )
+    else:
+        st.warning("⚠️ Nenhum dado encontrado para o período e empresa selecionados.")
+        st.info("💡 Dica: Verifique no 'Depurador' acima se o campo 'itens' do JSON está vazio ou se as chaves de data/valor mudaram.")
