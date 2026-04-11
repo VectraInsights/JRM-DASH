@@ -110,66 +110,70 @@ if st.button("🚀 Sincronizar Dados", type="primary"):
     dados = []
     
     for emp in alvos:
-        with st.status(f"Buscando dados de: {emp}...", expanded=False) as status:
+        # st.status mantém a interface limpa enquanto processa várias empresas
+        with st.status(f"Sincronizando: {emp}...", expanded=False) as status:
             token = get_access_token(emp)
             
             if not token: 
-                st.error(f"❌ Erro de Conexão: A empresa '{emp}' precisa de novo vínculo.")
+                st.error(f"❌ Falha ao renovar acesso para {emp}. Refaça o vínculo.")
                 continue
 
-            # Usando EXATAMENTE os endpoints que você forneceu
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
                 
-                # Ajuste de data para o formato simples YYYY-MM-DD
-                # Muitas vezes o erro 404 ocorre quando o parâmetro vai com caracteres inválidos
+                # Payload de parâmetros limpo
+                params = {
+                    "expiration_date_from": d_inicio.strftime('%Y-%m-%d'),
+                    "expiration_date_to": d_fim.strftime('%Y-%m-%d')
+                }
+                
                 res = requests.get(
                     url, 
                     headers={"Authorization": f"Bearer {token}"},
-                    params={
-                        "expiration_date_from": d_inicio.strftime('%Y-%m-%d'),
-                        "expiration_date_to": d_fim.strftime('%Y-%m-%d')
-                    }
+                    params=params
                 )
                 
                 if res.status_code == 200:
-                    lista_retorno = res.json()
-                    # A API costuma retornar uma lista direta ou um dicionário com 'items'
-                    # Se vier como lista:
-                    itens = lista_retorno if isinstance(lista_retorno, list) else lista_retorno.get('items', [])
+                    corpo = res.json()
                     
-                    for i in itens:
-                        dt = i.get('due_date') or i.get('expiration_date')
-                        if dt:
+                    # Extração segura: a API v2 coloca os dados em 'items' ou 'itens'
+                    # Se não encontrar nenhum, assume que o retorno pode ser a lista direta
+                    lista_items = corpo.get('items') or corpo.get('itens') or (corpo if isinstance(corpo, list) else [])
+                    
+                    for i in lista_items:
+                        # Mapeamento de campos flexível (V1 vs V2)
+                        vencimento = i.get('due_date') or i.get('expiration_date')
+                        valor = i.get('value') or i.get('valor_liquido_total') or 0
+                        
+                        if vencimento:
                             dados.append({
                                 'Empresa': emp, 
-                                'Data': pd.to_datetime(dt[:10]),
+                                'Data': pd.to_datetime(vencimento[:10]),
                                 'Tipo': tipo, 
-                                'Valor': float(i.get('value', 0)),
-                                'Descrição': i.get('description', 'S/D')
+                                'Valor': float(valor),
+                                'Descrição': i.get('description') or i.get('memo') or 'S/D'
                             })
                 else:
-                    # Se der 404 aqui, vamos ver a URL completa gerada para debugar
-                    st.error(f"Erro {res.status_code} em {emp} ({tipo})")
-                    st.code(f"URL tentada: {res.url}") 
+                    # Se der 404, mostramos a URL exata para o seu log de auditoria
+                    st.warning(f"Aviso {res.status_code} em {emp} ({tipo})")
+                    st.caption(f"Endpoint: {res.url}")
             
-            status.update(label=f"Dados de {emp} processados!", state="complete")
+            status.update(label=f"Concluído: {emp}", state="complete")
 
     if dados:
         df_final = pd.DataFrame(dados)
-        
-        # Resumo em Cards
+        st.success(f"✅ Sincronização concluída: {len(df_final)} lançamentos.")
+
+        # --- EXIBIÇÃO DO DASHBOARD ---
         c1, c2, c3 = st.columns(3)
-        rec = df_final[df_final['Tipo'] == 'Receber']['Valor'].sum()
-        pag = df_final[df_final['Tipo'] == 'Pagar']['Valor'].sum()
+        total_rec = df_final[df_final['Tipo'] == 'Receber']['Valor'].sum()
+        total_pag = df_final[df_final['Tipo'] == 'Pagar']['Valor'].sum()
         
-        c1.metric("Total a Receber", f"R$ {rec:,.2f}")
-        c2.metric("Total a Pagar", f"R$ {pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Líquido", f"R$ {(rec - pag):,.2f}")
+        c1.metric("Total a Receber", f"R$ {total_rec:,.2f}")
+        c2.metric("Total a Pagar", f"R$ {total_pag:,.2f}", delta_color="inverse")
+        c3.metric("Saldo do Período", f"R$ {(total_rec - total_pag):,.2f}")
         
         st.divider()
-        
-        # Tabela formatada
         st.dataframe(
             df_final.sort_values('Data'), 
             use_container_width=True,
@@ -179,4 +183,4 @@ if st.button("🚀 Sincronizar Dados", type="primary"):
             }
         )
     else:
-        st.info("Nenhum lançamento encontrado para os filtros aplicados.")
+        st.info("Nenhum dado encontrado com os filtros atuais.")
