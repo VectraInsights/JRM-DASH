@@ -9,150 +9,137 @@ from datetime import datetime, timedelta
 # --- CONFIGURAÇÕES DE AMBIENTE ---
 st.set_page_config(page_title="BPO Dashboard - JRM", layout="wide")
 
+# Credenciais (Devem estar no seu .streamlit/secrets.toml)
 CLIENT_ID = st.secrets["conta_azul"]["client_id"]
 CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
 REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
 
-AUTH_URL = "https://auth.contaazul.com/login"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
-API_BASE_URL = "https://api.contaazul.com" 
-SCOPE = "openid+profile+aws.cognito.signin.user.admin"
+API_BASE_URL = "https://api.contaazul.com"
 
-# --- FUNÇÕES DE INFRAESTRUTURA ---
+# --- INFRAESTRUTURA DE DADOS ---
 
 def get_sheet():
+    """Conecta à planilha que armazena os tokens das empresas."""
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
+        # Substitua pela sua URL de planilha real
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro na planilha: {e}")
+        st.error(f"Erro de conexão com Google Sheets: {e}")
         return None
 
-def update_refresh_token(empresa, novo_rt):
+def update_tokens_in_sheet(empresa, novo_rt):
+    """Atualiza o Refresh Token na planilha para evitar o erro 401 no próximo acesso."""
     sh = get_sheet()
     if not sh: return
     try:
         cell = sh.find(empresa)
         sh.update_cell(cell.row, 2, novo_rt)
     except:
+        # Se a empresa não existir, cria uma nova linha
         sh.append_row([empresa, novo_rt])
 
-def get_access_token(empresa_nome):
+def get_valid_access_token(empresa_nome):
+    """Executa o POST de renovação exatamente como você descreveu."""
     sh = get_sheet()
     if not sh: return None
     
     try:
         cell = sh.find(empresa_nome)
-        rt_salvo = sh.cell(cell.row, 2).value
+        rt_atual = sh.cell(cell.row, 2).value
     except:
-        st.error(f"❌ Empresa '{empresa_nome}' não encontrada na planilha.")
+        st.error(f"Empresa '{empresa_nome}' não encontrada na base de dados.")
         return None
 
-    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    # Codificação Base64 das credenciais para o Header Basic
+    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    auth_b64 = base64.b64encode(auth_str.encode()).decode()
     
-    res = requests.post(TOKEN_URL, 
-        headers={"Authorization": f"Basic {auth_header}", "Content-Type": "application/x-www-form-urlencoded"},
-        data={"grant_type": "refresh_token", "refresh_token": rt_salvo})
+    headers = {
+        "Authorization": f"Basic {auth_b64}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": rt_atual
+    }
+    
+    res = requests.post(TOKEN_URL, headers=headers, data=payload)
 
     if res.status_code == 200:
-        data = res.json()
-        # ESSENCIAL: Salva o novo Refresh Token que a API enviou
-        update_refresh_token(empresa_nome, data['refresh_token'])
-        return data['access_token']
+        dados_auth = res.json()
+        # PASSO CRÍTICO: Salvar o NOVO refresh_token imediatamente
+        update_tokens_in_sheet(empresa_nome, dados_auth['refresh_token'])
+        return dados_auth['access_token']
     else:
-        st.error(f"🚨 Falha na renovação do Token (Erro {res.status_code})")
-        with st.expander("Ver detalhes do erro de autenticação"):
-            st.json(res.json())
+        st.error(f"Falha crítica na renovação para {empresa_nome}. Status: {res.status_code}")
+        st.json(res.json())
         return None
 
-# --- SIDEBAR E OAuth ---
+# --- INTERFACE E PROCESSAMENTO ---
 
 with st.sidebar:
-    st.header("🔗 Gestão de Acesso")
-    url_auth = f"{AUTH_URL}?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope={SCOPE}"
-    st.link_button("Vincular Nova Empresa", url_auth, type="primary", use_container_width=True)
-    
-    query_params = st.query_params
-    if "code" in query_params:
-        with st.expander("✨ Finalizar Vínculo", expanded=True):
-            nome_emp = st.text_input("Nome da Empresa (Ex: Juvenal)")
-            if st.button("Salvar Vínculo"):
-                auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-                res = requests.post(TOKEN_URL, 
-                    headers={"Authorization": f"Basic {auth_header}", "Content-Type": "application/x-www-form-urlencoded"},
-                    data={"grant_type": "authorization_code", "code": query_params["code"], "redirect_uri": REDIRECT_URI})
-                if res.status_code == 200:
-                    update_refresh_token(nome_emp, res.json()['refresh_token'])
-                    st.success("Vinculado com sucesso!")
-                    st.query_params.clear()
-                    st.rerun()
-    
-    st.divider()
-    st.header("📊 Filtros")
+    st.header("⚙️ Configurações")
     sh = get_sheet()
     lista_empresas = pd.DataFrame(sh.get_all_records())['empresa'].unique().tolist() if sh else []
-    sel_empresa = st.selectbox("Empresa", ["TODAS"] + lista_empresas)
-    d_inicio = st.date_input("Início", datetime.now() - timedelta(days=7))
-    d_fim = st.date_input("Fim", datetime.now() + timedelta(days=30))
-
-# --- PROCESSAMENTO DOS DADOS ---
+    sel_empresa = st.selectbox("Selecione a Empresa", ["TODAS"] + lista_empresas)
+    
+    d_inicio = st.date_input("Data Início", datetime.now() - timedelta(days=7))
+    d_fim = st.date_input("Data Fim", datetime.now() + timedelta(days=30))
 
 if st.button("🚀 Sincronizar Dashboard", type="primary", use_container_width=True):
     alvos = lista_empresas if sel_empresa == "TODAS" else [sel_empresa]
-    dados = []
+    dados_consolidados = []
     
     for emp in alvos:
-        with st.status(f"Conectando a {emp}...", expanded=False) as status:
-            token = get_access_token(emp)
+        with st.status(f"Autenticando {emp}...", expanded=False) as status:
+            token = get_valid_access_token(emp)
             if not token: continue
-
+            
+            # Busca Receitas e Despesas
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
                 params = {
                     "data_vencimento_de": d_inicio.strftime('%Y-%m-%d'),
                     "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')
                 }
+                
                 res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params)
-
-                # --- DEPURADOR DE RESPOSTA ---
-                with st.expander(f"🔍 Depurador Técnico: {emp} ({tipo})"):
-                    st.write(f"**Endpoint:** {url}")
-                    st.write(f"**Status:** {res.status_code}")
-                    if res.status_code == 200:
-                        st.json(res.json())
-                    else:
-                        st.error(f"Erro na chamada: {res.text}")
+                
+                # Depurador técnico embutido
+                with st.expander(f"Inspecionar {emp} - {tipo}"):
+                    st.write(f"Status: {res.status_code}")
+                    st.json(res.json())
 
                 if res.status_code == 200:
                     itens = res.json().get('itens', [])
                     for i in itens:
-                        venc = i.get('data_vencimento') or i.get('due_date')
-                        val = i.get('valor') or i.get('value')
-                        
-                        if venc and val is not None:
-                            dados.append({
-                                'Empresa': emp,
-                                'Data': pd.to_datetime(venc[:10]),
-                                'Tipo': tipo,
-                                'Valor': float(val),
-                                'Descrição': i.get('descricao') or 'S/D',
-                                'Status': 'Pago' if i.get('pago') else 'Pendente'
-                            })
-            status.update(label=f"Sincronização {emp} OK", state="complete")
+                        dados_consolidados.append({
+                            'Empresa': emp,
+                            'Data': i.get('data_vencimento')[:10],
+                            'Tipo': tipo,
+                            'Valor': float(i.get('valor', 0)),
+                            'Descrição': i.get('descricao', 'S/D'),
+                            'Pago': "Sim" if i.get('pago') else "Não"
+                        })
+            status.update(label=f"Dados de {emp} capturados!", state="complete")
 
-    # --- RENDERIZAÇÃO ---
-    if dados:
-        df = pd.DataFrame(dados)
+    if dados_consolidados:
+        df = pd.DataFrame(dados_consolidados)
+        
+        # Resumo em Cards
+        c1, c2, c3 = st.columns(3)
         rec = df[df['Tipo'] == 'Receber']['Valor'].sum()
         pag = df[df['Tipo'] == 'Pagar']['Valor'].sum()
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("A Receber", f"R$ {rec:,.2f}")
-        c2.metric("A Pagar", f"R$ {pag:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Líquido", f"R$ {(rec - pag):,.2f}")
+        c1.metric("Total a Receber", f"R$ {rec:,.2f}")
+        c2.metric("Total a Pagar", f"R$ {pag:,.2f}", delta_color="inverse")
+        c3.metric("Saldo do Período", f"R$ {(rec - pag):,.2f}")
         
         st.divider()
-        st.dataframe(df.sort_values('Data'), use_container_width=True)
+        st.dataframe(df, use_container_width=True)
     else:
-        st.warning("Nenhum dado encontrado para o período. Verifique o Depurador acima.")
+        st.warning("Nenhum dado financeiro encontrado para os filtros aplicados.")
