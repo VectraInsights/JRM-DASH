@@ -23,24 +23,16 @@ AUTH_URL = "https://auth.contaazul.com/login"
 
 st.set_page_config(page_title="BPO Dashboard JRM", layout="wide")
 
-# --- 2. CSS PARA AJUSTE DE TEMA E ESPAÇAMENTO ---
+# --- 2. CSS PARA COMPACTAÇÃO E TEMA ---
 st.markdown("""
     <style>
-        /* Ajuste de margens globais */
         .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
         h1 {margin-top: -45px; margin-bottom: 10px; font-size: 1.8rem !important;}
-        
-        /* Cards com bordas sutis e fundo adaptável */
         div[data-testid="stMetric"] {
             padding: 15px; 
             background: rgba(128, 128, 128, 0.08); 
             border-radius: 10px;
             border: 1px solid rgba(128, 128, 128, 0.2);
-        }
-        
-        /* Garantir que textos da sidebar fiquem visíveis */
-        section[data-testid="stSidebar"] label {
-            font-weight: 600;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -73,9 +65,9 @@ def obter_novo_access_token(empresa_nome):
 
 def buscar_todos_registros(endpoint, headers, params):
     todos_itens = []
-    params["tamanho_pagina"] = 100
+    params["tamanho_pagina"] = 100 # Puxa 100 por vez
     pagina_atual = 1
-    while True:
+    while True: # Loop até acabar os dados do período
         params["pagina"] = pagina_atual
         res = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params)
         if res.status_code != 200: break
@@ -88,15 +80,14 @@ def buscar_todos_registros(endpoint, headers, params):
 
 # --- 4. BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Painel de Controle")
+    st.header("⚙️ Configurações")
     if "oauth_state" not in st.session_state:
         st.session_state.oauth_state = secrets.token_urlsafe(16)
     
     url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&state={st.session_state.oauth_state}"
-    st.link_button("🔗 Vincular Nova Conta", url_auth, use_container_width=True)
+    st.link_button("🔑 Login Conta Azul", url_auth, use_container_width=True)
     
     st.divider()
-    st.subheader("📅 Período")
     data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     btn_sincronizar = st.button("🔄 Sincronizar dados", use_container_width=True, type="primary")
@@ -109,7 +100,7 @@ with st.sidebar:
 st.title("Painel Financeiro JRM")
 
 if emp_selecionada and btn_sincronizar:
-    with st.spinner(f"Processando {emp_selecionada}..."):
+    with st.spinner(f"Carregando {emp_selecionada}..."):
         token = obter_novo_access_token(emp_selecionada)
         if token:
             headers = {"Authorization": f"Bearer {token}"}
@@ -130,46 +121,45 @@ if emp_selecionada and btn_sincronizar:
             df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("Total a Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
-            c2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
-            c3.metric("Saldo do Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
+            c1.metric("A Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
+            c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
+            c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
 
             # --- GRÁFICO ---
             fig = go.Figure()
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
             fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
-                                     line=dict(color='#5D6D7E', width=3),
-                                     marker=dict(size=10, symbol='circle', line=dict(width=1, color='white'))))
+                                     line=dict(color='#2C3E50', width=3),
+                                     marker=dict(size=10, symbol='circle', line=dict(width=2, color='white'))))
 
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                # Legenda posicionada abaixo do gráfico
                 legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
                 hovermode="x unified",
-                dragmode=False, # Impede o arraste (estático)
-                # Configuração dos eixos para evitar cortes e garantir visibilidade
+                dragmode=False, # Trava o movimento do gráfico
                 xaxis=dict(
                     tickformat='%d/%m', 
                     showgrid=False,
                     automargin=True,
-                    tickangle=0
+                    showspikes=False # Remove a linha vertical pontilhada
                 ),
                 yaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
+                    gridcolor='rgba(128,128,128,0.2)', 
                     zerolinecolor='rgba(128,128,128,0.5)',
-                    automargin=True
+                    automargin=True,
+                    showspikes=False # Remove a linha horizontal pontilhada
                 ),
                 height=500,
-                margin=dict(l=50, r=20, t=20, b=100) # Margem inferior maior para a legenda e datas
+                margin=dict(l=50, r=20, t=20, b=100)
             )
             
-            # theme="streamlit" faz com que as cores das fontes (datas/lateral) mudem conforme o modo
+            # theme="streamlit" garante legibilidade automática em qualquer modo (Claro/Escuro)
             st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={
-                'displayModeBar': False, # Remove a barra de ferramentas
+                'displayModeBar': False, 
                 'scrollZoom': False,
-                'staticPlot': False # Mantém o hover mas trava o movimento
+                'staticPlot': False # Permite hover nas bolinhas mas trava o resto
             })
         else:
-            st.error("Erro ao autenticar. Verifique o acesso à Conta Azul.")
+            st.error("Erro ao autenticar.")
