@@ -21,7 +21,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES DE INTEGRAÇÃO ---
+# --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
 def get_sheet():
     try:
@@ -31,9 +31,7 @@ def get_sheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         # Substitua pela sua URL real da planilha
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
-    except Exception as e:
-        st.error(f"Erro ao conectar ao Google Sheets: {e}")
-        return None
+    except: return None
 
 def obter_token(empresa_nome):
     sh = get_sheet()
@@ -41,125 +39,108 @@ def obter_token(empresa_nome):
     try:
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
-        # Credenciais do secrets
         cid = st.secrets["conta_azul"]["client_id"]
         sec = st.secrets["conta_azul"]["client_secret"]
-        
         auth_b64 = base64.b64encode(f"{cid}:{sec}".encode()).decode()
         res = requests.post("https://auth.contaazul.com/oauth2/token", 
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "refresh_token", "refresh_token": rt})
-            
         if res.status_code == 200:
             dados = res.json()
-            novo_rt = dados.get('refresh_token')
-            if novo_rt:
-                sh.update_cell(cell.row, 2, novo_rt)
+            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
         return None
-    except:
-        return None
+    except: return None
 
-def buscar_contas(endpoint, token, params):
-    todos_itens = []
+def buscar_v2(endpoint, token, params):
+    itens_acumulados = []
     headers = {"Authorization": f"Bearer {token}"}
-    params["status"] = "EM_ABERTO"
-    params["tamanho_pagina"] = 100
+    params.update({"status": "EM_ABERTO", "tamanho_pagina": 100})
     pagina = 1
-    
     while True:
         params["pagina"] = pagina
         res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params)
         if res.status_code != 200: break
         itens = res.json().get('itens', [])
         if not itens: break
-        
         for i in itens:
             saldo = i.get('total', 0) - i.get('pago', 0)
-            if saldo > 0:
-                todos_itens.append({"Vencimento": i.get("data_vencimento"), "Valor": saldo})
+            if saldo > 0: itens_acumulados.append({"Vencimento": i.get("data_vencimento"), "Valor": saldo})
         if len(itens) < 100: break
         pagina += 1
-    return todos_itens
+    return itens_acumulados
 
-# --- 3. BARRA LATERAL COM TRAVA (FORMULÁRIO) ---
+# --- 3. BARRA LATERAL (LÓGICA HÍBRIDA) ---
 sh = get_sheet()
-if sh:
-    clientes_lista = [r[0] for r in sh.get_all_values()[1:]] # Pula o cabeçalho
-else:
-    clientes_lista = []
+clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
-    with st.form("filtro_fluxo"):
-        st.subheader("Parâmetros de Consulta")
+    st.header("Fluxo de Caixa JRM")
+    
+    # 1. SELECTBOX FORA DO FORM: Atualiza o app instantaneamente ao mudar de empresa
+    empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
+    
+    # 2. FORMULÁRIO PARA DATAS: Só atualiza quando clicar no botão "Atualizar Datas"
+    with st.form("datas_form"):
         hoje = datetime.now().date()
-        
-        # O formulário impede que estes campos atualizem o app ao serem clicados
-        data_i = st.date_input("Data Inicial", hoje, format="DD/MM/YYYY")
-        data_f = st.date_input("Data Final", hoje + timedelta(days=7), format="DD/MM/YYYY")
-        
-        opcoes = ["Todos os Clientes"] + clientes_lista
-        selecionado = st.selectbox("Empresa", opcoes)
-        
-        # Botão de gatilho
-        btn_atualizar = st.form_submit_button("Atualizar", type="primary")
+        data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
+        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
+        btn_update_datas = st.form_submit_button("Atualizar Datas", type="primary")
 
-# --- 4. LÓGICA DE EXECUÇÃO ---
+# --- 4. PROCESSAMENTO ---
 st.title("Fluxo de Caixa")
 
-# Só processa se clicar no botão OU se for a primeira vez que o app abre
-if btn_atualizar or "iniciado" not in st.session_state:
-    st.session_state.iniciado = True
+alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
+p_total, r_total = [], []
+
+with st.spinner(f"Sincronizando {empresa_sel}..."):
+    for emp in alvo:
+        tk = obter_token(emp)
+        if tk:
+            p_api = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, p_api))
+            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, p_api))
+
+if p_total or r_total:
+    # Preparação dos dados para o DataFrame
+    datas_periodo = pd.date_range(data_ini, data_fim)
+    df_plot = pd.DataFrame({'data': datas_periodo, 'data_str': datas_periodo.strftime('%Y-%m-%d')})
     
-    alvo = clientes_lista if selecionado == "Todos os Clientes" else [selecionado]
-    p_final, r_final = [], []
+    val_p = pd.DataFrame(p_total).groupby('Vencimento')['Valor'].sum() if p_total else pd.Series()
+    val_r = pd.DataFrame(r_total).groupby('Vencimento')['Valor'].sum() if r_total else pd.Series()
     
-    with st.spinner(f"Processando {selecionado}..."):
-        for emp in alvo:
-            token = obter_token(emp)
-            if token:
-                params = {
-                    "data_vencimento_de": data_i.strftime('%Y-%m-%d'),
-                    "data_vencimento_ate": data_f.strftime('%Y-%m-%d')
-                }
-                p_final.extend(buscar_contas("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, params))
-                r_final.extend(buscar_contas("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, params))
+    df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
+    df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
+    df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    if p_final or r_final:
-        # Criar DataFrame base para o gráfico
-        datas = pd.date_range(data_i, data_f)
-        df = pd.DataFrame({'data': datas, 'data_str': datas.strftime('%Y-%m-%d')})
-        
-        # Agrupar valores por data
-        s_p = pd.DataFrame(p_final).groupby('Vencimento')['Valor'].sum() if p_final else pd.Series()
-        s_r = pd.DataFrame(r_final).groupby('Vencimento')['Valor'].sum() if r_final else pd.Series()
-        
-        df['Pagar'] = df['data_str'].map(s_p).fillna(0)
-        df['Receber'] = df['data_str'].map(s_r).fillna(0)
-        df['Saldo'] = df['Receber'] - df['Pagar']
+    # Métricas Superiores
+    c1, c2, c3 = st.columns(3)
+    fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    c1.metric("Total a Receber", fmt_br(df_plot['Receber'].sum()))
+    c2.metric("Total a Pagar", fmt_br(df_plot['Pagar'].sum()))
+    c3.metric("Saldo Líquido", fmt_br(df_plot['Saldo'].sum()))
 
-        # Cards de Resumo
-        c1, c2, c3 = st.columns(3)
-        moeda = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-        c1.metric("Total a Receber", moeda(df['Receber'].sum()))
-        c2.metric("Total a Pagar", moeda(df['Pagar'].sum()))
-        c3.metric("Saldo do Período", moeda(df['Saldo'].sum()))
+    # Gráfico com Eixo X corrigido (Mostra todos os dias)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
+    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+    fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3)))
 
-        # Gráfico Consolidado
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=df['data'], y=df['Receber'], name='Receitas', marker_color='#2ecc71'))
-        fig.add_trace(go.Bar(x=df['data'], y=df['Pagar'], name='Despesas', marker_color='#e74c3c'))
-        fig.add_trace(go.Scatter(x=df['data'], y=df['Saldo'], name='Saldo Líquido', line=dict(color='#2C3E50', width=3)))
-        
-        fig.update_layout(
-            hovermode="x unified",
-            xaxis=dict(tickformat='%d/%m', showgrid=False),
-            yaxis=dict(tickformat=',.2f', gridcolor='rgba(0,0,0,0.05)'),
-            legend=dict(orientation="h", y=-0.2),
-            margin=dict(l=20, r=20, t=20, b=20),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Nenhum dado encontrado para os critérios selecionados.")
+    fig.update_layout(
+        hovermode="x unified",
+        xaxis=dict(
+            type='date',
+            tickformat='%d/%m',
+            dtick=86400000.0, # Força o intervalo de 1 dia (em ms)
+            tickangle=-45,
+            showgrid=False
+        ),
+        yaxis=dict(tickformat=',.2f', gridcolor='rgba(128,128,128,0.1)'),
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
+        margin=dict(l=40, r=20, t=20, b=100),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Nenhum dado encontrado para o período ou empresa selecionada.")
