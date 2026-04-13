@@ -165,17 +165,33 @@ if emp_selecionada and btn_sincronizar:
                                          line=dict(color='#34495e', width=3),
                                          marker=dict(size=8, symbol='circle', line=dict(width=1, color='white'))))
 
-                fig.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    hovermode="x unified",
-                    xaxis=dict(showgrid=False, tickformat='%d/%m', showspikes=False),
-                    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', showspikes=False),
-                    height=380, # Altura otimizada
-                    margin=dict(l=10, r=10, t=10, b=10)
-                )
+               fig.update_layout(
+    template="plotly_dark", # Mantém a base escura, mas vamos sobrescrever as fontes
+    paper_bgcolor='rgba(0,0,0,0)',
+    plot_bgcolor='rgba(0,0,0,0)',
+    font=dict(color="#31333F"), # Cor padrão de texto do Streamlit (Cinza escuro/Preto)
+    legend=dict(
+        orientation="h", 
+        yanchor="bottom", 
+        y=1.02, 
+        xanchor="right", 
+        x=1,
+        font=dict(color="default") # Segue o tema automaticamente
+    ),
+    hovermode="x unified",
+    xaxis=dict(
+        showgrid=False, 
+        tickformat='%d/%m', 
+        tickfont=dict(color="#31333F", size=12) # Força cor legível nos dias
+    ),
+    yaxis=dict(
+        showgrid=True, 
+        gridcolor='rgba(128,128,128,0.2)', 
+        tickfont=dict(color="#31333F", size=12) # Força cor legível nos valores
+    ),
+    height=380,
+    margin=dict(l=10, r=10, t=10, b=10)
+)
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
                 st.error("Erro na API da Conta Azul.")
