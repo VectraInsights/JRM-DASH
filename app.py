@@ -7,8 +7,19 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. CONFIGURAÇÕES ---
+# --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="BPO Dashboard JRM", layout="wide", initial_sidebar_state="collapsed")
+
+st.markdown("""
+    <style>
+        .block-container {padding-top: 1rem !important;}
+        div[data-testid="stMetric"] {
+            background: rgba(128, 128, 128, 0.05); 
+            border: 1px solid rgba(128, 128, 128, 0.2);
+            padding: 15px; border-radius: 10px;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- 2. INTEGRAÇÃO ---
 try:
@@ -128,8 +139,17 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
 
         fig.update_layout(
             separators=',.', hovermode="x unified",
-            xaxis=dict(tickformat='%d/%m', showgrid=False),
-            yaxis=dict(tickformat=',.2f', gridcolor='rgba(128,128,128,0.1)'),
+            xaxis=dict(
+                tickformat='%d/%m',
+                showgrid=False,
+                showspikes=False, # --- CORREÇÃO: Remove a linha vertical branca ao passar o mouse ---
+                spikemode='none' # --- Reforça a remoção ---
+            ),
+            yaxis=dict(
+                tickformat=',.2f',
+                gridcolor='rgba(128,128,128,0.1)',
+                showspikes=False # --- CORREÇÃO: Garante que não apareça no eixo Y também ---
+            ),
             legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
             margin=dict(l=60, r=20, t=20, b=80),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
