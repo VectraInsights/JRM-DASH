@@ -11,16 +11,32 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
-    <style>
-        [data-testid="stHeader"], #MainMenu { display: none !important; }
-        .main .block-container { padding-top: 1rem !important; }
+<style>
+/* REMOVE MENU / HEADER / FOOTER */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+[data-testid="stHeader"] {display: none;}
+[data-testid="stToolbar"] {display: none;}
 
-        div[data-testid="stMetric"] {
-            background: rgba(128, 128, 128, 0.05); 
-            border: 1px solid rgba(128, 128, 128, 0.2);
-            padding: 15px; border-radius: 10px;
-        }
-    </style>
+/* REMOVE SPIKELINE (HACK DEFINITIVO) */
+g.hoverlayer line {
+    display: none !important;
+}
+
+/* ESTILO DOS CARDS */
+div[data-testid="stMetric"] {
+    background: rgba(128, 128, 128, 0.05); 
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    padding: 15px;
+    border-radius: 10px;
+}
+
+/* ESPAÇAMENTO */
+.main .block-container {
+    padding-top: 1rem;
+}
+</style>
 """, unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES ---
@@ -157,7 +173,7 @@ if p_total or r_total:
     c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
 
-    # --- 6. GRÁFICO (CORRIGIDO) ---
+    # --- 6. GRÁFICO ---
     fig = go.Figure()
 
     fig.add_trace(go.Bar(
@@ -178,11 +194,12 @@ if p_total or r_total:
         x=df_plot['data'],
         y=df_plot['Saldo'],
         name='Saldo',
+        mode='lines+markers',
         line=dict(color='#2C3E50', width=3)
     ))
 
     fig.update_layout(
-        hovermode="closest",  # 🔥 REMOVE DEFINITIVAMENTE A SPIKELINE
+        hovermode=False,  # 🔥 REMOVE A SPIKELINE
         separators=",.",
         xaxis=dict(
             type='date',
@@ -191,13 +208,15 @@ if p_total or r_total:
             tickangle=-45,
             showgrid=False,
             showline=False,
-            zeroline=False
+            zeroline=False,
+            showspikes=False
         ),
         yaxis=dict(
             tickformat=',.2f',
             showgrid=False,
             showline=False,
-            zeroline=False
+            zeroline=False,
+            showspikes=False
         ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=20, r=20, t=20, b=80),
