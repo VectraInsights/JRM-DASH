@@ -21,14 +21,13 @@ API_BASE_URL = "https://api-v2.contaazul.com"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 AUTH_URL = "https://auth.contaazul.com/login"
 
-# CONFIGURAÇÃO DA PÁGINA COM SIDEBAR ESCONDIDA POR PADRÃO
 st.set_page_config(
     page_title="BPO Dashboard JRM", 
     layout="wide",
     initial_sidebar_state="collapsed" 
 )
 
-# --- 2. CSS PARA COMPACTAÇÃO E TEMA ---
+# --- 2. CSS PARA COMPACTAÇÃO ---
 st.markdown("""
     <style>
         .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
@@ -43,6 +42,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. FUNÇÕES DE SUPORTE ---
+@st.cache_resource
 def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -83,30 +83,40 @@ def buscar_todos_registros(endpoint, headers, params):
         pagina_atual += 1
     return todos_itens
 
-# --- 4. BARRA LATERAL (INICIA RECOLHIDA) ---
+# --- 4. LÓGICA DE PERSISTÊNCIA ---
+sh = get_sheet()
+clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
+
+# Define o padrão como o primeiro cliente da lista se nada estiver selecionado
+if "empresa_ativa" not in st.session_state:
+    st.session_state.empresa_ativa = clientes[0] if clientes else None
+    st.session_state.auto_sync = True # Gatilho para carregar no primeiro run
+else:
+    st.session_state.auto_sync = False
+
+# --- 5. BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configurações")
-    if "oauth_state" not in st.session_state:
-        st.session_state.oauth_state = secrets.token_urlsafe(16)
     
-    url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&state={st.session_state.oauth_state}"
+    url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&state={secrets.token_urlsafe(16)}"
     st.link_button("🔑 Login Conta Azul", url_auth, use_container_width=True)
     
     st.divider()
     data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
-    btn_sincronizar = st.button("🔄 Sincronizar dados", use_container_width=True, type="primary")
     
-    sh = get_sheet()
-    clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
-    emp_selecionada = st.selectbox("Cliente Ativo", clientes)
+    # Selectbox atualiza o session_state
+    emp_selecionada = st.selectbox("Cliente Ativo", clientes, index=clientes.index(st.session_state.empresa_ativa) if st.session_state.empresa_ativa in clientes else 0)
+    st.session_state.empresa_ativa = emp_selecionada
+    
+    btn_sincronizar = st.button("🔄 Sincronizar agora", use_container_width=True, type="primary")
 
-# --- 5. DASHBOARD PRINCIPAL ---
+# --- 6. EXECUÇÃO AUTOMÁTICA OU POR BOTÃO ---
 st.title("Painel Financeiro JRM")
 
-if emp_selecionada and btn_sincronizar:
-    with st.spinner(f"Carregando {emp_selecionada}..."):
-        token = obter_novo_access_token(emp_selecionada)
+if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_sync):
+    with st.spinner(f"Sincronizando {st.session_state.empresa_ativa}..."):
+        token = obter_novo_access_token(st.session_state.empresa_ativa)
         if token:
             headers = {"Authorization": f"Bearer {token}"}
             p = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
@@ -130,7 +140,6 @@ if emp_selecionada and btn_sincronizar:
             c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
             c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
 
-            # --- GRÁFICO ---
             fig = go.Figure()
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
@@ -139,31 +148,17 @@ if emp_selecionada and btn_sincronizar:
                                      marker=dict(size=10, symbol='circle', line=dict(width=2, color='white'))))
 
             fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-                hovermode="x unified",
-                dragmode=False, 
-                xaxis=dict(
-                    tickformat='%d/%m', 
-                    showgrid=False,
-                    automargin=True,
-                    showspikes=False 
-                ),
-                yaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)', 
-                    zerolinecolor='rgba(128,128,128,0.5)',
-                    automargin=True,
-                    showspikes=False 
-                ),
-                height=500,
+                hovermode="x unified", dragmode=False, height=500,
+                xaxis=dict(tickformat='%d/%m', showgrid=False),
+                yaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
                 margin=dict(l=50, r=20, t=20, b=100)
             )
             
-            st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={
-                'displayModeBar': False, 
-                'scrollZoom': False,
-                'staticPlot': False 
-            })
+            st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={'displayModeBar': False})
+            st.session_state.auto_sync = False # Desliga o auto-sync após a primeira carga
         else:
-            st.error("Erro ao autenticar.")
+            st.error("Não foi possível carregar os dados automaticamente. Tente sincronizar manualmente.")
+elif not st.session_state.empresa_ativa:
+    st.info("Selecione uma empresa na barra lateral para começar.")
