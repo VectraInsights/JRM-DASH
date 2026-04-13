@@ -10,21 +10,19 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS "NUCLEAR" - Seletor direto no SVG do Plotly para matar a linha branca
+# CSS REFORÇADO - Bloqueia a renderização de linhas de hover no SVG
 st.markdown("""
     <style>
-        /* Remove Header, Menu e Toolbar do Streamlit */
-        [data-testid="stHeader"], #MainMenu, footer { display: none !important; visibility: hidden; }
+        [data-testid="stHeader"], #MainMenu, footer { display: none !important; }
         .main .block-container { padding-top: 0rem !important; }
 
-        /* Mata a Spikeline no nível do SVG (a linha vertical tracejada) */
-        .spikeline, .cursor-crosshair, .hoverlayer line, .axislines {
-            stroke-width: 0px !important;
+        /* MATA QUALQUER LINHA DE HOVER NO SVG */
+        .hoverlayer line, .spikeline, .axislines {
             display: none !important;
+            stroke-width: 0px !important;
             opacity: 0 !important;
         }
-
-        /* Estilo dos Cards */
+        
         div[data-testid="stMetric"] {
             background: rgba(128, 128, 128, 0.05); 
             border: 1px solid rgba(128, 128, 128, 0.2);
@@ -45,7 +43,6 @@ def get_sheet():
     except: return None
 
 def format_br(valor):
-    """Garante o padrão R$ 1.234,56"""
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 def obter_token(empresa_nome):
@@ -100,7 +97,7 @@ st.title("Fluxo de Caixa")
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
 
-with st.spinner("Sincronizando dados..."):
+with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
@@ -119,32 +116,44 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # Métricas superiores
     c1, c2, c3 = st.columns(3)
     c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
     c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
 
-    # --- 4. GRÁFICO (REMOÇÃO TOTAL DE SPIKELINES) ---
+    # --- 4. GRÁFICO (TRAVAS ADICIONAIS) ---
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
-    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
-    fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
+    
+    # Trava em cada TRACE individualmente
+    fig.add_trace(go.Bar(
+        x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
+        marker_color='#2ecc71', showlegend=True
+    ))
+    fig.add_trace(go.Bar(
+        x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
+        marker_color='#e74c3c'
+    ))
+    fig.add_trace(go.Scatter(
+        x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
+        line=dict(color='#34495e', width=3), mode='lines+markers'
+    ))
 
     fig.update_layout(
-        separators=",.", # Garante Ponto para Milhar e Vírgula para Decimal
+        separators=",.",
         hovermode="x",
-        hoverdistance=0, 
-        spikedistance=0,
+        hoverdistance=0,
+        spikedistance=0, # Garante que o spike não seja detectado
         xaxis=dict(
-            showgrid=False, showspikes=False, # Desativa explicitamente a linha vertical
-            tickformat='%d/%m', tickangle=-45, dtick=86400000.0,
-            fixedrange=True # Evita zoom acidental que ativa linhas
+            showgrid=False, 
+            showspikes=False, # Desativa no eixo X
+            fixedrange=True,
+            tickformat='%d/%m', tickangle=-45
         ),
         yaxis=dict(
-            showgrid=False, showspikes=False, 
-            tickformat=',.2f', # Usa o separador definido (.,)
-            fixedrange=True
+            showgrid=False, 
+            showspikes=False, # Desativa no eixo Y
+            fixedrange=True,
+            tickformat=',.2f'
         ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
@@ -152,10 +161,11 @@ if p_total or r_total:
         plot_bgcolor='rgba(0,0,0,0)'
     )
     
-    # config={'staticPlot': False} + desativação de ferramentas de seleção
+    # CONFIG REFORÇADA: Desativa explicitamente os spikes na renderização
     st.plotly_chart(fig, use_container_width=True, config={
         'displayModeBar': False,
-        'showSpikes': False
+        'showSpikes': False,
+        'responsive': True
     })
 else:
-    st.info("Nenhum dado encontrado para os filtros selecionados.")
+    st.info("Nenhum dado encontrado.")
