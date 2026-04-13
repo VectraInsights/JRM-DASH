@@ -132,33 +132,40 @@ if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_
             df_plot['Receber'] = df_plot['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
             df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
+            # Formatação dos cards superiores para padrão BR
             c1, c2, c3 = st.columns(3)
-            c1.metric("A Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
-            c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
-            c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
+            c1.metric("A Receber", f"R$ {df_plot['Receber'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
-            # --- GRÁFICO ---
+            # --- GRÁFICO ATUALIZADO (PADRÃO BR) ---
             fig = go.Figure()
+            
+            # Formato do tooltip: R$ 1.234,56
+            hovertemp = 'R$ %{y:,.2f}<extra></extra>'
+
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
-                                 marker_color='#2ecc71', hovertemplate='Receitas: R$ %{y:,.2f}<extra></extra>'))
+                                 marker_color='#2ecc71', hovertemplate='Receitas: ' + hovertemp))
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
-                                 marker_color='#e74c3c', hovertemplate='Despesas: R$ %{y:,.2f}<extra></extra>'))
+                                 marker_color='#e74c3c', hovertemplate='Despesas: ' + hovertemp))
             fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
                                      line=dict(color='#2C3E50', width=3),
                                      marker=dict(size=10, symbol='circle', line=dict(width=2, color='white')),
-                                     hovertemplate='Saldo: R$ %{y:,.2f}<extra></extra>'))
+                                     hovertemplate='Saldo: ' + hovertemp))
 
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
                 hovermode="x unified", dragmode=False, height=500,
-                margin=dict(l=60, r=20, t=20, b=100),
+                margin=dict(l=70, r=20, t=20, b=100),
+                # Configuração de separadores brasileiros (Milhar: . / Decimal: ,)
+                separators=',.',
                 xaxis=dict(tickformat='%d/%m', showgrid=False, showspikes=False),
                 yaxis=dict(
                     gridcolor='rgba(128,128,128,0.2)', 
                     zerolinecolor='rgba(128,128,128,0.5)',
-                    tickformat=',.2f', # Exibe valor cheio sem 'k'
-                    showspikes=False
+                    tickformat=',.2f', # Força exibição numérica completa
+                    showspikes=False   # Remove a linha vertical
                 )
             )
             
