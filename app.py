@@ -10,18 +10,19 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS focado em remover o cabeçalho do Streamlit e o menu flutuante do gráfico
+# CSS AGRESSIVO para remover o cabeçalho do Streamlit e o menu flutuante do gráfico
 st.markdown("""
     <style>
         /* Oculta completamente o cabeçalho do Streamlit (Share, GitHub, etc) */
-        header[data-testid="stHeader"] {
-            visibility: hidden;
+        [data-testid="stHeader"] {
+            display: none !important;
+            visibility: hidden !important;
             height: 0% !important;
         }
         
         /* Remove o padding do topo que sobra após esconder o header */
         .main .block-container {
-            padding-top: 2rem !important;
+            padding-top: 1rem !important;
         }
 
         /* Estilo dos Cards de Métricas */
@@ -137,6 +138,7 @@ if p_total or r_total:
     fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3)))
 
     fig.update_layout(
+        # CORREÇÃO: Mudei para 'x' simples, removendo a linha vertical mestre
         hovermode="x",
         separators=",.",
         xaxis=dict(
@@ -147,6 +149,7 @@ if p_total or r_total:
             showgrid=False,
             showline=False,
             zeroline=False,
+            # CORREÇÃO: Garante remoção total das linhas ao passar o mouse
             showspikes=False,
             range=[data_ini, data_fim] 
         ),
