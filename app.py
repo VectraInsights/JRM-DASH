@@ -59,7 +59,7 @@ def obter_token(empresa_nome):
 # --- 3. BUSCA DE DADOS COM FILTRO ESTRITO ---
 def buscar_dados_abertos(endpoint, headers, params):
     todos_itens = []
-    params["situacao"] = "ABERTO" # Filtro de API
+    params["situacao"] = "ABERTO"
     params["tamanho_pagina"] = 100
     pagina = 1
     
@@ -70,18 +70,23 @@ def buscar_dados_abertos(endpoint, headers, params):
         itens = res.json().get('itens', [])
         if not itens: break
         
-        # Filtro de Segurança Manual
         for item in itens:
             status = str(item.get('status', '')).upper()
             v_pago = item.get('valor_pago', 0)
+            # Critério estrito: Status não pago e sem valor liquidado
             if status not in ['LIQUIDADO', 'BAIXADO', 'PAGO'] and v_pago == 0:
-                todos_itens.append(item)
+                todos_itens.append({
+                    "Vencimento": item.get("data_vencimento"),
+                    "Descrição": item.get("descricao") or item.get("cliente", {}).get("nome") or "Sem descrição",
+                    "Valor (R$)": item.get("total", 0),
+                    "Tipo": "Receita" if "receber" in endpoint else "Despesa"
+                })
                 
         if len(itens) < 100: break
         pagina += 1
     return todos_itens
 
-# --- 4. INTERFACE E LOGICA ---
+# --- 4. INTERFACE E LÓGICA ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
@@ -100,45 +105,65 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         headers = {"Authorization": f"Bearer {token}"}
         p = {"data_vencimento_de": data_ini, "data_vencimento_ate": data_fim}
         
-        # Coleta estrita
+        # Coleta de dados
         pagar = buscar_dados_abertos("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers, p)
         receber = buscar_dados_abertos("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers, p)
         
+        # Consolidação para o Gráfico
+        df_p_raw = pd.DataFrame(pagar)
+        df_r_raw = pd.DataFrame(receber)
+        
         df_base = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
-        df_p = pd.DataFrame(pagar)
-        df_r = pd.DataFrame(receber)
-
-        val_p = df_p.groupby('data_vencimento')['total'].sum() if not df_p.empty else pd.Series()
-        val_r = df_r.groupby('data_vencimento')['total'].sum() if not df_r.empty else pd.Series()
+        val_p = df_p_raw.groupby('Vencimento')['Valor (R$)'].sum() if not df_p_raw.empty else pd.Series()
+        val_r = df_r_raw.groupby('Vencimento')['Valor (R$)'].sum() if not df_r_raw.empty else pd.Series()
         
         df_base['Pagar'] = df_base['data'].dt.strftime('%Y-%m-%d').map(val_p).fillna(0)
         df_base['Receber'] = df_base['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
         df_base['Saldo'] = df_base['Receber'] - df_base['Pagar']
 
-        # Cards com formatação BR
+        # Cards
         c1, c2, c3 = st.columns(3)
-        fmt = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-        c1.metric("A Receber", fmt(df_base['Receber'].sum()))
-        c2.metric("A Pagar", fmt(df_base['Pagar'].sum()))
-        c3.metric("Saldo Período", fmt(df_base['Saldo'].sum()))
+        fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        c1.metric("A Receber", fmt_br(df_base['Receber'].sum()))
+        c2.metric("A Pagar", fmt_br(df_base['Pagar'].sum()))
+        c3.metric("Saldo Período", fmt_br(df_base['Saldo'].sum()))
 
         # Gráfico Plotly
         fig = go.Figure()
         ttip = 'R$ %{y:,.2f}<extra></extra>'
-
         fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Receber'], name='Receitas', marker_color='#2ecc71', hovertemplate=ttip))
         fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Pagar'], name='Despesas', marker_color='#e74c3c', hovertemplate=ttip))
         fig.add_trace(go.Scatter(x=df_base['data'], y=df_base['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3), hovertemplate=ttip))
 
         fig.update_layout(
-            separators=',.', # Formatação BR
-            hovermode="x unified",
+            separators=',.', hovermode="x unified",
             xaxis=dict(tickformat='%d/%m', showgrid=False, showspikes=False),
             yaxis=dict(tickformat=',.2f', gridcolor='rgba(128,128,128,0.1)', showspikes=False),
             legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
             margin=dict(l=60, r=20, t=20, b=80),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
         )
-        
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        # --- NOVA SEÇÃO: CONFERÊNCIA DE TÍTULOS ---
+        st.divider()
+        st.subheader("📋 Conferência de Títulos em Aberto")
+        
+        df_full = pd.concat([df_r_raw, df_p_raw], ignore_index=True)
+        if not df_full.empty:
+            # Ordenar por data
+            df_full['Vencimento'] = pd.to_datetime(df_full['Vencimento']).dt.strftime('%d/%m/%Y')
+            
+            st.dataframe(
+                df_full,
+                column_config={
+                    "Valor (R$)": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                    "Tipo": st.column_config.TextColumn("Tipo"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("Nenhum título em aberto encontrado para o período selecionado.")
+            
         st.session_state.sync_done = True
