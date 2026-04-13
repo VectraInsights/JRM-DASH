@@ -18,6 +18,8 @@ st.markdown("""
             border: 1px solid rgba(128, 128, 128, 0.2);
             padding: 15px; border-radius: 10px;
         }
+        /* Remove bordas extras do Streamlit */
+        .stPlotlyChart {border: none !important;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -29,7 +31,6 @@ def get_sheet():
         creds_info = dict(st.secrets["google_sheets"])
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-        # Substitua pela sua URL real da planilha
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except: return None
 
@@ -70,21 +71,20 @@ def buscar_v2(endpoint, token, params):
         pagina += 1
     return itens_acumulados
 
-# --- 3. BARRA LATERAL (LÓGICA HÍBRIDA) ---
+# --- 3. BARRA LATERAL (HÍBRIDA) ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
     st.header("Fluxo de Caixa JRM")
-    
-    # 1. SELECTBOX FORA DO FORM: Atualiza o app instantaneamente ao mudar de empresa
+    # ATUALIZA AUTOMÁTICO NA MUDANÇA DE EMPRESA
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
     
-    # 2. FORMULÁRIO PARA DATAS: Só atualiza quando clicar no botão "Atualizar Datas"
+    # SÓ ATUALIZA NA DATA SE CLICAR NO BOTÃO
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
-        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
+        data_fim = st.date_input("Fim", hoje + timedelta(days=17), format="DD/MM/YYYY")
         btn_update_datas = st.form_submit_button("Atualizar Datas", type="primary")
 
 # --- 4. PROCESSAMENTO ---
@@ -102,7 +102,6 @@ with st.spinner(f"Sincronizando {empresa_sel}..."):
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, p_api))
 
 if p_total or r_total:
-    # Preparação dos dados para o DataFrame
     datas_periodo = pd.date_range(data_ini, data_fim)
     df_plot = pd.DataFrame({'data': datas_periodo, 'data_str': datas_periodo.strftime('%Y-%m-%d')})
     
@@ -113,14 +112,14 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # Métricas Superiores
+    # Métricas
     c1, c2, c3 = st.columns(3)
     fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     c1.metric("Total a Receber", fmt_br(df_plot['Receber'].sum()))
     c2.metric("Total a Pagar", fmt_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", fmt_br(df_plot['Saldo'].sum()))
 
-    # Gráfico com Eixo X corrigido (Mostra todos os dias)
+    # Gráfico Corrigido
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
@@ -131,11 +130,18 @@ if p_total or r_total:
         xaxis=dict(
             type='date',
             tickformat='%d/%m',
-            dtick=86400000.0, # Força o intervalo de 1 dia (em ms)
+            dtick=86400000.0,
             tickangle=-45,
-            showgrid=False
+            showgrid=False,
+            showline=False, # Remove a linha branca lateral/base
+            range=[data_ini, data_fim] # Trava o gráfico no período exato
         ),
-        yaxis=dict(tickformat=',.2f', gridcolor='rgba(128,128,128,0.1)'),
+        yaxis=dict(
+            tickformat=',.2f', 
+            gridcolor='rgba(128,128,128,0.1)',
+            showgrid=False, # Remove as linhas horizontais brancas
+            showline=False   # Remove a linha branca vertical lateral
+        ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=40, r=20, t=20, b=100),
         paper_bgcolor='rgba(0,0,0,0)',
