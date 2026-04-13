@@ -3,7 +3,6 @@ import requests
 import base64
 import pandas as pd
 import gspread
-import secrets
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -24,6 +23,27 @@ def get_sheet():
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except: return None
 
+def salvar_refresh_token(empresa, refresh_token):
+    sh = get_sheet()
+    if not sh: return
+    try:
+        # Resolve duplicatas: procura a empresa na primeira coluna
+        col_empresas = sh.col_values(1)
+        nome_busca = empresa.strip().lower()
+        linha_index = -1
+        for i, valor in enumerate(col_empresas):
+            if valor.strip().lower() == nome_busca:
+                linha_index = i + 1
+                break
+        
+        if linha_index > 0:
+            sh.update_cell(linha_index, 2, refresh_token)
+            st.toast(f"🔄 Token de '{empresa}' atualizado!")
+        else:
+            sh.append_row([empresa, refresh_token])
+            st.toast(f"✨ Nova empresa '{empresa}' cadastrada!")
+    except: pass
+
 def obter_novo_access_token(empresa_nome):
     sh = get_sheet()
     if not sh: return None
@@ -40,13 +60,8 @@ def obter_novo_access_token(empresa_nome):
 # --- 3. INTERFACE LATERAL ---
 with st.sidebar:
     st.header("⚙️ Filtros")
-    
-    # Seleção de Datas - Padrão: Hoje até Hoje + 7
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        data_inicio = st.date_input("Início", datetime.now())
-    with col_d2:
-        data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7))
+    data_inicio = st.date_input("Início", datetime.now())
+    data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7))
     
     st.divider()
     sh = get_sheet()
@@ -65,7 +80,6 @@ st.title("Painel Financeiro JRM")
 
 if emp_selecionada:
     token = obter_novo_access_token(emp_selecionada)
-    
     if token:
         headers = {"Authorization": f"Bearer {token}"}
         params_api = {
@@ -74,44 +88,38 @@ if emp_selecionada:
             "tamanho_pagina": 100
         }
         
-        url_busca = f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar"
-        res = requests.get(url_busca, headers=headers, params=params_api)
+        res = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", 
+                           headers=headers, params=params_api)
         
         if res.status_code == 200:
             dados_api = res.json().get('itens', [])
             if dados_api:
                 df = pd.DataFrame(dados_api)
-                
-                # Tratamento de Dados
                 df['data_vencimento'] = pd.to_datetime(df['data_vencimento'])
                 df['total'] = pd.to_numeric(df['total'], errors='coerce')
                 
-                # --- GRÁFICOS (PRINCIPAL) ---
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.subheader("Tendência de Gastos por Dia")
-                    df_chart = df.groupby('data_vencimento')['total'].sum().reset_index()
-                    st.line_chart(df_chart.set_index('data_vencimento'))
+                # Agrupamento para Gráficos
+                df_resumo = df.groupby('data_vencimento')['total'].sum().reset_index()
+                # Formatação da data para o gráfico: DD/MM (sem hora)
+                df_resumo['Data'] = df_resumo['data_vencimento'].dt.strftime('%d/%m')
+                df_resumo = df_resumo.set_index('Data')
 
-                with col2:
-                    st.metric("Total no Período", f"R$ {df['total'].sum():,.2f}")
-                    # Mini gráfico de barras para composição
-                    st.bar_chart(df_chart.set_index('data_vencimento'))
+                # --- GRÁFICOS JUNTOS ---
+                st.subheader(f"Resumo de Vencimentos: {data_inicio.strftime('%d/%m')} a {data_fim.strftime('%d/%m')}")
+                col_m1, col_m2 = st.columns([3, 1])
+                with col_m1:
+                    # Gráfico de Linha e Barras sobrepostos
+                    st.line_chart(df_resumo['total'])
+                    st.bar_chart(df_resumo['total'])
+                with col_m2:
+                    st.metric("Total Geral", f"R$ {df['total'].sum():,.2f}")
+                    st.info("Valores agrupados por data de vencimento.")
 
-                # --- TABELA FORMATADA ---
+                # --- TABELA DETALHADA ---
                 st.divider()
-                st.subheader("Detalhamento de Contas")
-                
-                # Filtro de colunas e renomeação
                 df_view = df[['descricao', 'total', 'data_vencimento']].copy()
                 df_view.columns = ['Descrição', 'Valor (R$)', 'Vencimento']
-                
-                # Formatação BR: dd/mm/aaaa
                 df_view['Vencimento'] = df_view['Vencimento'].dt.strftime('%d/%m/%Y')
-                
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhum lançamento para o período selecionado.")
-        else:
-            st.error(f"Erro {res.status_code}: {res.text}")
