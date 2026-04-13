@@ -21,7 +21,12 @@ API_BASE_URL = "https://api-v2.contaazul.com"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 AUTH_URL = "https://auth.contaazul.com/login"
 
-st.set_page_config(page_title="BPO Dashboard JRM", layout="wide")
+# CONFIGURAÇÃO DA PÁGINA COM SIDEBAR ESCONDIDA POR PADRÃO
+st.set_page_config(
+    page_title="BPO Dashboard JRM", 
+    layout="wide",
+    initial_sidebar_state="collapsed" 
+)
 
 # --- 2. CSS PARA COMPACTAÇÃO E TEMA ---
 st.markdown("""
@@ -65,9 +70,9 @@ def obter_novo_access_token(empresa_nome):
 
 def buscar_todos_registros(endpoint, headers, params):
     todos_itens = []
-    params["tamanho_pagina"] = 100 # Puxa 100 por vez
+    params["tamanho_pagina"] = 100 
     pagina_atual = 1
-    while True: # Loop até acabar os dados do período
+    while True: 
         params["pagina"] = pagina_atual
         res = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params)
         if res.status_code != 200: break
@@ -78,7 +83,7 @@ def buscar_todos_registros(endpoint, headers, params):
         pagina_atual += 1
     return todos_itens
 
-# --- 4. BARRA LATERAL ---
+# --- 4. BARRA LATERAL (INICIA RECOLHIDA) ---
 with st.sidebar:
     st.header("⚙️ Configurações")
     if "oauth_state" not in st.session_state:
@@ -138,28 +143,27 @@ if emp_selecionada and btn_sincronizar:
                 plot_bgcolor='rgba(0,0,0,0)',
                 legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
                 hovermode="x unified",
-                dragmode=False, # Trava o movimento do gráfico
+                dragmode=False, 
                 xaxis=dict(
                     tickformat='%d/%m', 
                     showgrid=False,
                     automargin=True,
-                    showspikes=False # Remove a linha vertical pontilhada
+                    showspikes=False 
                 ),
                 yaxis=dict(
                     gridcolor='rgba(128,128,128,0.2)', 
                     zerolinecolor='rgba(128,128,128,0.5)',
                     automargin=True,
-                    showspikes=False # Remove a linha horizontal pontilhada
+                    showspikes=False 
                 ),
                 height=500,
                 margin=dict(l=50, r=20, t=20, b=100)
             )
             
-            # theme="streamlit" garante legibilidade automática em qualquer modo (Claro/Escuro)
             st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={
                 'displayModeBar': False, 
                 'scrollZoom': False,
-                'staticPlot': False # Permite hover nas bolinhas mas trava o resto
+                'staticPlot': False 
             })
         else:
             st.error("Erro ao autenticar.")
