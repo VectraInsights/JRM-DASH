@@ -10,19 +10,28 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
+# CSS focado em remover o cabeçalho do Streamlit e o menu flutuante do gráfico
 st.markdown("""
     <style>
-        /* Remove o menu superior do Streamlit (Share, GitHub, etc) */
-        [data-testid="stHeader"] {display: none !important;}
-        .viewerBadge_container__1QSob {display: none !important;}
+        /* Oculta completamente o cabeçalho do Streamlit (Share, GitHub, etc) */
+        header[data-testid="stHeader"] {
+            visibility: hidden;
+            height: 0% !important;
+        }
         
-        .block-container {padding-top: 1rem !important;}
-        
+        /* Remove o padding do topo que sobra após esconder o header */
+        .main .block-container {
+            padding-top: 2rem !important;
+        }
+
+        /* Estilo dos Cards de Métricas */
         div[data-testid="stMetric"] {
             background: rgba(128, 128, 128, 0.05); 
             border: 1px solid rgba(128, 128, 128, 0.2);
             padding: 15px; border-radius: 10px;
         }
+        
+        /* Remove bordas extras do gráfico */
         .stPlotlyChart {border: none !important;}
     </style>
 """, unsafe_allow_html=True)
@@ -114,21 +123,21 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # Métricas
+    # Métricas formatadas BR
     c1, c2, c3 = st.columns(3)
     fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     c1.metric("Total a Receber", fmt_br(df_plot['Receber'].sum()))
     c2.metric("Total a Pagar", fmt_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", fmt_br(df_plot['Saldo'].sum()))
 
-    # Gráfico sem Linhas de Projeção (Spikelines)
+    # Gráfico sem Spikelines, sem Linhas Brancas e sem ModeBar
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
     fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3)))
 
     fig.update_layout(
-        hovermode="x", # Alterado de 'x unified' para 'x' para evitar a linha vertical mestre
+        hovermode="x",
         separators=",.",
         xaxis=dict(
             type='date',
@@ -138,7 +147,7 @@ if p_total or r_total:
             showgrid=False,
             showline=False,
             zeroline=False,
-            showspikes=False, # REMOVE A LINHA VERTICAL AO PASSAR O MOUSE
+            showspikes=False,
             range=[data_ini, data_fim] 
         ),
         yaxis=dict(
@@ -146,13 +155,14 @@ if p_total or r_total:
             showgrid=False,
             showline=False,
             zeroline=False,
-            showspikes=False  # REMOVE A LINHA HORIZONTAL AO PASSAR O MOUSE
+            showspikes=False
         ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=20, r=20, t=20, b=80),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
+    # config={'displayModeBar': False} remove o menu de zoom/câmera do gráfico
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
     st.info("Nenhum dado encontrado para os filtros selecionados.")
