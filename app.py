@@ -24,12 +24,27 @@ SCOPE = "openid+profile+aws.cognito.signin.user.admin"
 
 st.set_page_config(page_title="BPO Dashboard JRM", layout="wide")
 
-# --- 2. GESTÃO DA PLANILHA (FLUXO DE CAIXA) ---
+# --- 2. CSS PARA COMPACTAÇÃO VISUAL (EVITAR SCROLL) ---
+st.markdown("""
+    <style>
+        .block-container {padding-top: 1rem; padding-bottom: 0rem;}
+        h1 {margin-top: -45px; margin-bottom: 10px; font-size: 1.8rem !important;}
+        div[data-testid="stMetric"] {
+            padding: 10px; 
+            background: rgba(255,255,255,0.05); 
+            border-radius: 8px;
+        }
+        /* Remove o espaço excessivo entre os elementos do Streamlit */
+        .element-container { margin-bottom: 0.5rem; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 3. GESTÃO DA PLANILHA (FLUXO DE CAIXA) ---
 def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
-        # Conecta à planilha principal pelo link fornecido
+        # Abre a planilha pelo link e seleciona a primeira aba
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
         st.error(f"Erro de conexão com a planilha 'Fluxo de Caixa': {e}")
@@ -41,16 +56,12 @@ def salvar_refresh_token(empresa, refresh_token):
     try:
         col_empresas = sh.col_values(1)
         nome_busca = empresa.strip().lower()
-        # Busca se o cliente já existe para atualizar ou criar novo
         linha_index = next((i + 1 for i, v in enumerate(col_empresas) if v.strip().lower() == nome_busca), -1)
-        
         if linha_index > 0:
             sh.update_cell(linha_index, 2, refresh_token)
         else:
             sh.append_row([empresa, refresh_token])
-        st.toast(f"✅ Token de '{empresa}' salvo com sucesso!")
-    except Exception as e:
-        st.error(f"Erro ao salvar token: {e}")
+    except: pass
 
 def obter_novo_access_token(empresa_nome):
     sh = get_sheet()
@@ -58,28 +69,21 @@ def obter_novo_access_token(empresa_nome):
     try:
         cell = sh.find(empresa_nome)
         rt_atual = sh.cell(cell.row, 2).value
-        
         auth_b64 = base64.b64encode(f"{CA_ID}:{CA_SECRET}".encode()).decode()
-        
         res = requests.post(TOKEN_URL, 
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "refresh_token", "refresh_token": rt_atual, "client_id": CA_ID, "client_secret": CA_SECRET})
-        
         if res.status_code == 200:
             dados = res.json()
-            # Se a API rotacionar o refresh_token, atualizamos a planilha
             if dados.get('refresh_token') and dados['refresh_token'] != rt_atual:
                 salvar_refresh_token(empresa_nome, dados['refresh_token'])
             return dados['access_token']
         return None
-    except:
-        return None
+    except: return None
 
-# --- 3. BARRA LATERAL (CONFIGURAÇÕES E FILTROS) ---
+# --- 4. BARRA LATERAL (PAINEL DE CONTROLE) ---
 with st.sidebar:
     st.header("⚙️ Painel de Controle")
-    
-    # OAuth State para segurança
     if "oauth_state" not in st.session_state:
         st.session_state.oauth_state = secrets.token_urlsafe(16)
     
@@ -87,34 +91,27 @@ with st.sidebar:
     st.link_button("🔑 Vincular Nova Conta", url_auth, use_container_width=True)
     
     st.divider()
-    st.subheader("📅 Período do Fluxo")
-    # Filtro de data no padrão brasileiro
-    data_inicio = st.date_input("Data Inicial", datetime.now(), format="DD/MM/YYYY")
-    data_fim = st.date_input("Data Final", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
+    st.subheader("📅 Período")
+    data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
+    data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
-    # Botão de Sincronizar movido para a barra lateral conforme solicitado
+    # Botão de Sincronizar na lateral
     btn_sincronizar = st.button("🔄 Sincronizar dados", use_container_width=True, type="primary")
     
     st.divider()
-    
-    # Seleção de Cliente da Planilha "Fluxo de Caixa"
     sh = get_sheet()
     emp_selecionada = None
     if sh:
         try:
-            dados_pl = sh.get_all_values()
-            if len(dados_pl) > 1:
-                df_pl = pd.DataFrame(dados_pl[1:], columns=dados_pl[0])
-                lista_clientes = df_pl.iloc[:, 0].unique().tolist()
-                emp_selecionada = st.selectbox("Selecione o Cliente Ativo", lista_clientes)
-        except:
-            pass
+            clientes = [r[0] for r in sh.get_all_values()[1:] if r]
+            emp_selecionada = st.selectbox("Selecione o Cliente Ativo", clientes)
+        except: pass
 
-# --- 4. ÁREA PRINCIPAL (DASHBOARD) ---
+# --- 5. ÁREA PRINCIPAL (DASHBOARD) ---
 st.title("Painel Financeiro JRM")
 
 if emp_selecionada and btn_sincronizar:
-    with st.spinner(f"Buscando dados de {emp_selecionada}..."):
+    with st.spinner(f"Processando {emp_selecionada}..."):
         token = obter_novo_access_token(emp_selecionada)
         
         if token:
@@ -125,86 +122,64 @@ if emp_selecionada and btn_sincronizar:
                 "tamanho_pagina": 100
             }
             
-            # Chamadas para API Conta Azul
+            # Chamadas API
             res_p = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers=headers, params=params)
             res_r = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers=headers, params=params)
             
             if res_p.status_code == 200 and res_r.status_code == 200:
-                # Processamento dos DataFrames
+                # Tratamento de dados
                 df_p_raw = pd.DataFrame(res_p.json().get('itens', []))
                 df_r_raw = pd.DataFrame(res_r.json().get('itens', []))
-                
                 df_plot = pd.DataFrame({'data': pd.date_range(data_inicio, data_fim)})
                 
-                # Agrupar Pagamentos
+                # Consolidar Pagar
                 if not df_p_raw.empty:
                     df_p_raw['data'] = pd.to_datetime(df_p_raw['data_vencimento'])
                     df_p_raw['valor'] = pd.to_numeric(df_p_raw['total'])
-                    df_plot = df_plot.merge(df_p_raw.groupby('data')['valor'].sum().reset_index(), on='data', how='left').rename(columns={'valor': 'Pagar'})
+                    resumo_p = df_p_raw.groupby('data')['valor'].sum().reset_index()
+                    df_plot = df_plot.merge(resumo_p, on='data', how='left').rename(columns={'valor': 'Pagar'})
                 else: df_plot['Pagar'] = 0
                 
-                # Agrupar Recebimentos
+                # Consolidar Receber
                 if not df_r_raw.empty:
                     df_r_raw['data'] = pd.to_datetime(df_r_raw['data_vencimento'])
                     df_r_raw['valor'] = pd.to_numeric(df_r_raw['total'])
-                    df_plot = df_plot.merge(df_r_raw.groupby('data')['valor'].sum().reset_index(), on='data', how='left').rename(columns={'valor': 'Receber'})
+                    resumo_r = df_r_raw.groupby('data')['valor'].sum().reset_index()
+                    df_plot = df_plot.merge(resumo_r, on='data', how='left').rename(columns={'valor': 'Receber'})
                 else: df_plot['Receber'] = 0
                 
                 df_plot = df_plot.fillna(0)
                 df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-                # --- 5. EXIBIÇÃO: CARDS DE TOTAIS NO TOPO ---
-                st.divider()
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Total a Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
-                m2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
-                m3.metric("Saldo do Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
+                # --- CARDS DE MÉTRICAS ---
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total a Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
+                c2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
+                c3.metric("Saldo do Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
                 
-                st.write("") # Espaçamento visual
-
-                # --- 6. GRÁFICO PERSONALIZADO (FLUXO DE CAIXA) ---
+                # --- GRÁFICO (ALTURA REDUZIDA PARA EVITAR SCROLL) ---
                 fig = go.Figure()
-
-                # Receitas
-                fig.add_trace(go.Bar(
-                    x=df_plot['data'], y=df_plot['Receber'],
-                    name='Receitas', marker_color='#2ecc71',
-                    hovertemplate='Receitas: R$ %{y:,.2f}<extra></extra>'
-                ))
-
-                # Despesas
-                fig.add_trace(go.Bar(
-                    x=df_plot['data'], y=df_plot['Pagar'],
-                    name='Despesas', marker_color='#e74c3c',
-                    hovertemplate='Despesas: R$ %{y:,.2f}<extra></extra>'
-                ))
-
-                # Saldo (Linha com Bolinha)
-                fig.add_trace(go.Scatter(
-                    x=df_plot['data'], y=df_plot['Saldo'],
-                    name='Saldo', line=dict(color='#34495e', width=4),
-                    marker=dict(size=12, symbol='circle', line=dict(width=2, color='white')),
-                    hovertemplate='Saldo: R$ %{y:,.2f}<extra></extra>'
-                ))
+                fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
+                fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+                fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
+                                         line=dict(color='#34495e', width=3),
+                                         marker=dict(size=8, symbol='circle', line=dict(width=1, color='white'))))
 
                 fig.update_layout(
                     template="plotly_dark",
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-                    # HOVERMODE UNIFIED: O card flutuante que resume o dia
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     hovermode="x unified",
-                    # Remover spikelines (linhas cruzadas)
                     xaxis=dict(showgrid=False, tickformat='%d/%m', showspikes=False),
                     yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', showspikes=False),
-                    height=550,
-                    margin=dict(l=10, r=10, t=20, b=10)
+                    height=380, # Altura otimizada
+                    margin=dict(l=10, r=10, t=10, b=10)
                 )
-
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
-                st.error("Erro ao obter dados da API. Verifique a conexão com a Conta Azul.")
+                st.error("Erro na API da Conta Azul.")
         else:
-            st.error("Não foi possível autenticar. Verifique o cadastro do cliente na planilha.")
+            st.error("Falha na autenticação.")
 elif not btn_sincronizar:
-    st.info("👈 Ajuste o período e clique em 'Sincronizar dados' na barra lateral.")
+    st.info("👈 Configure o período e clique em 'Sincronizar dados' na barra lateral.")
