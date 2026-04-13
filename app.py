@@ -71,6 +71,9 @@ def obter_novo_access_token(empresa_nome):
 def buscar_todos_registros(endpoint, headers, params):
     todos_itens = []
     params["tamanho_pagina"] = 100 
+    # ADICIONADO: Filtro para trazer apenas títulos em aberto
+    params["situacao"] = "ABERTO" 
+    
     pagina_atual = 1
     while True: 
         params["pagina"] = pagina_atual
@@ -138,10 +141,8 @@ if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_
             c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
             c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
-            # --- GRÁFICO ATUALIZADO (PADRÃO BR) ---
+            # --- GRÁFICO (PADRÃO BR + FILTRO ABERTO) ---
             fig = go.Figure()
-            
-            # Formato do tooltip: R$ 1.234,56
             hovertemp = 'R$ %{y:,.2f}<extra></extra>'
 
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
@@ -158,14 +159,13 @@ if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_
                 legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
                 hovermode="x unified", dragmode=False, height=500,
                 margin=dict(l=70, r=20, t=20, b=100),
-                # Configuração de separadores brasileiros (Milhar: . / Decimal: ,)
-                separators=',.',
+                separators=',.', # Define Milhar como ponto e Decimal como vírgula
                 xaxis=dict(tickformat='%d/%m', showgrid=False, showspikes=False),
                 yaxis=dict(
                     gridcolor='rgba(128,128,128,0.2)', 
                     zerolinecolor='rgba(128,128,128,0.5)',
-                    tickformat=',.2f', # Força exibição numérica completa
-                    showspikes=False   # Remove a linha vertical
+                    tickformat=',.2f', # Valor cheio sem 'k'
+                    showspikes=False   # Remove linha vertical
                 )
             )
             
