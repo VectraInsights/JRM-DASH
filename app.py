@@ -4,7 +4,7 @@ import base64
 import pandas as pd
 import gspread
 import secrets
-from datetime import datetime, timedelta  # Necessário para os filtros de data
+from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- 1. CONFIGURAÇÕES (VIA SECRETS) ---
@@ -12,7 +12,7 @@ CA_ID = st.secrets["conta_azul"]["client_id"]
 CA_SECRET = st.secrets["conta_azul"]["client_secret"]
 CA_REDIRECT = st.secrets["conta_azul"]["redirect_uri"]
 
-# Endpoints Oficiais (Nova API v2) - SEM barra no final
+# ENDPOINT CORRIGIDO: Sem "/api" e sem barra no final
 AUTH_URL = "https://auth.contaazul.com/login"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 API_BASE_URL = "https://api-v2.contaazul.com" 
@@ -117,13 +117,16 @@ with st.sidebar:
     sh = get_sheet()
     emp_selecionada = None
     if sh:
-        dados_pl = sh.get_all_values()
-        if len(dados_pl) > 1:
-            df_pl = pd.DataFrame(dados_pl[1:], columns=dados_pl[0])
-            df_pl.columns = [c.strip().lower() for c in df_pl.columns]
-            if 'empresa' in df_pl.columns:
-                lista = df_pl['empresa'].unique().tolist()
-                emp_selecionada = st.selectbox("Cliente Ativo", lista)
+        try:
+            dados_pl = sh.get_all_values()
+            if len(dados_pl) > 1:
+                df_pl = pd.DataFrame(dados_pl[1:], columns=dados_pl[0])
+                df_pl.columns = [c.strip().lower() for c in df_pl.columns]
+                if 'empresa' in df_pl.columns:
+                    lista = df_pl['empresa'].unique().tolist()
+                    emp_selecionada = st.selectbox("Cliente Ativo", lista)
+        except:
+            pass
 
 # --- 5. DASHBOARD ---
 
@@ -135,16 +138,18 @@ if emp_selecionada and st.button("🔄 Sincronizar Dados", use_container_width=T
     if token:
         headers = {"Authorization": f"Bearer {token}"}
         
-        # Filtros de data OBRIGATÓRIOS na v2
+        # DEFINA AS DATAS (obrigatórias na API v2)
+        # Exemplo: busca os últimos 30 dias e os próximos 30
         data_ini = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         data_fim = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
         
         params_api = {
             "data_vencimento_de": data_ini,
-            "data_vencimento_ate": data_fim
+            "data_vencimento_ate": data_fim,
+            "tamanho_pagina": 100
         }
         
-        # Chamada corrigida com params
+        # CHAMADA CORRETA: Sem o prefixo /api e com params
         res = requests.get(
             f"{API_BASE_URL}/v1/financeiro/contas-a-pagar", 
             headers=headers, 
@@ -152,18 +157,17 @@ if emp_selecionada and st.button("🔄 Sincronizar Dados", use_container_width=T
         )
         
         if res.status_code == 200:
-            dados_itens = res.json().get('itens', [])
-            if dados_itens:
-                df_final = pd.DataFrame(dados_itens)
-                
-                # Na v2 o campo mudou para valor_liquido_total
-                col_valor = 'valor_liquido_total' if 'valor_liquido_total' in df_final.columns else 'valor'
-                
-                st.metric("Total a Pagar (Período)", f"R$ {df_final[col_valor].sum():,.2f}")
+            dados_api = res.json().get('itens', [])
+            df_final = pd.DataFrame(dados_api)
+            
+            if not df_final.empty:
+                # Na v2, o campo valor líquido é 'valor_liquido_total'
+                col_soma = 'valor_liquido_total' if 'valor_liquido_total' in df_final.columns else 'valor'
+                st.metric("Total a Pagar (Período)", f"R$ {df_final[col_soma].sum():,.2f}")
                 st.dataframe(df_final, use_container_width=True)
             else:
-                st.info(f"Nenhum lançamento entre {data_ini} e {data_fim}.")
+                st.info(f"Nenhum dado encontrado entre {data_ini} e {data_fim}.")
         else:
-            st.error(f"Erro {res.status_code}: {res.text}")
+            st.error(f"Erro na API ({res.status_code}): {res.text}")
     else:
-        st.error("Falha na autenticação. Tente o login novamente.")
+        st.error("Falha na renovação do token. Verifique o login.")
