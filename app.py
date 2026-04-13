@@ -23,13 +23,11 @@ AUTH_URL = "https://auth.contaazul.com/login"
 
 st.set_page_config(page_title="BPO Dashboard JRM", layout="wide")
 
-# --- 2. CSS PARA COMPACTAÇÃO E ADAPTAÇÃO ---
+# --- 2. CSS PARA COMPACTAÇÃO ---
 st.markdown("""
     <style>
         .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
         h1 {margin-top: -45px; margin-bottom: 10px; font-size: 1.8rem !important;}
-        
-        /* Cards com fundo adaptável */
         div[data-testid="stMetric"] {
             padding: 15px; 
             background: rgba(128, 128, 128, 0.1); 
@@ -66,7 +64,6 @@ def obter_novo_access_token(empresa_nome):
     except: return None
 
 def buscar_todos_registros(endpoint, headers, params):
-    """Garante que todos os valores sejam puxados via paginação"""
     todos_itens = []
     params["tamanho_pagina"] = 100
     pagina_atual = 1
@@ -91,7 +88,6 @@ with st.sidebar:
     st.link_button("🔗 Vincular Nova Conta", url_auth, use_container_width=True)
     
     st.divider()
-    st.subheader("📅 Período do Fluxo")
     data_inicio = st.date_input("Data Inicial", datetime.now(), format="DD/MM/YYYY")
     data_fim = st.date_input("Data Final", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     btn_sincronizar = st.button("🔄 Sincronizar dados", use_container_width=True, type="primary")
@@ -104,7 +100,7 @@ with st.sidebar:
 st.title("Painel Financeiro JRM")
 
 if emp_selecionada and btn_sincronizar:
-    with st.spinner(f"Atualizando dados de {emp_selecionada}..."):
+    with st.spinner(f"Atualizando {emp_selecionada}..."):
         token = obter_novo_access_token(emp_selecionada)
         if token:
             headers = {"Authorization": f"Bearer {token}"}
@@ -124,33 +120,47 @@ if emp_selecionada and btn_sincronizar:
             df_plot['Receber'] = df_plot['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
             df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-            # Exibição dos Totais
             c1, c2, c3 = st.columns(3)
             c1.metric("Total a Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
             c2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
             c3.metric("Saldo do Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
 
-            # --- CONFIGURAÇÃO DO GRÁFICO ---
+            # --- GRÁFICO FIXO E DE ALTO CONTRASTE ---
             fig = go.Figure()
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
             fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
-                                     line=dict(color='#5D6D7E', width=3),
-                                     marker=dict(size=8, symbol='circle', line=dict(width=1, color='white'))))
+                                     line=dict(color='#2C3E50', width=3),
+                                     marker=dict(size=10, symbol='circle', line=dict(width=2, color='white'))))
 
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                # Sem cores fixas de fonte: o tema 'streamlit' resolve o contraste
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                font=dict(color="#262730"), # Força texto escuro (mais nítido)
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#262730")),
                 hovermode="x unified",
-                xaxis=dict(tickformat='%d/%m', showgrid=False),
-                yaxis=dict(gridcolor='rgba(128,128,128,0.1)'),
+                dragmode=False, # TRAVA O GRÁFICO (IMPEDE MOVER/ARRASTAR)
+                xaxis=dict(
+                    tickformat='%d/%m', 
+                    showgrid=False,
+                    tickfont=dict(color="#262730", size=12),
+                    linecolor='#ABB2B9' # Linha de base visível
+                ),
+                yaxis=dict(
+                    gridcolor='rgba(0,0,0,0.1)', 
+                    zerolinecolor='#2C3E50', # Linha do zero bem marcada
+                    tickfont=dict(color="#262730", size=12)
+                ),
                 height=450,
                 margin=dict(l=10, r=10, t=10, b=10)
             )
             
-            # O parâmetro theme="streamlit" é a chave para as letras acompanharem o modo dark/light
-            st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+            # config={'staticPlot': False, 'scrollZoom': False} remove as ferramentas de zoom/arraste
+            st.plotly_chart(fig, use_container_width=True, theme=None, config={
+                'displayModeBar': False, 
+                'staticPlot': False, 
+                'scrollZoom': False,
+                'doubleClick': False
+            })
         else:
-            st.error("Erro ao renovar acesso. Por favor, vincule a conta novamente.")
+            st.error("Erro de autenticação.")
