@@ -130,7 +130,7 @@ if p_total or r_total:
     fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3)))
 
     fig.update_layout(
-        hovermode="x",
+        hovermode="closest",
         separators=",.", # Ponto milhar, Vírgula decimal
         spikedistance=0, # Desativa detecção de spikeline
         hoverdistance=100,
