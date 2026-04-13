@@ -6,11 +6,13 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# --- 1. CONFIGURAÇÕES OFICIAIS ---
-CLIENT_ID = "6s4takgvge1ansrjhsbhhpieor"
-CLIENT_SECRET = "1go5jnhckf3l6tatsv7o1t1jf0257fl4a0q6n7to3591g3vjf60l"
-REDIRECT_URI = "https://dashboard-conta-azul.streamlit.app/"
+# --- 1. CONFIGURAÇÕES VIA STREAMLIT SECRETS ---
+# Puxando os dados da seção [conta_azul] do seu secrets
+CLIENT_ID = st.secrets["conta_azul"]["client_id"]
+CLIENT_SECRET = st.secrets["conta_azul"]["client_secret"]
+REDIRECT_URI = st.secrets["conta_azul"]["redirect_uri"]
 
+# Endpoints Oficiais AWS Cognito
 AUTH_URL = "https://auth.contaazul.com/login"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 API_BASE_URL = "https://api.contaazul.com"
@@ -18,15 +20,18 @@ SCOPE = "openid+profile+aws.cognito.signin.user.admin"
 
 st.set_page_config(page_title="BPO Dashboard - JRM", layout="wide")
 
-# --- 2. BANCO DE DADOS (GOOGLE SHEETS) ---
+# --- 2. INTEGRAÇÃO GOOGLE SHEETS ---
 
 def get_sheet():
+    """Conecta à planilha usando a seção [google_sheets] do secrets"""
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["google_sheets"]), scope)
+        # Converte a seção do secrets em um dicionário compatível com a biblioteca
+        google_creds = dict(st.secrets["google_sheets"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro na planilha: {e}")
+        st.error(f"Erro na conexão com Google Sheets: {e}")
         return None
 
 def salvar_refresh_token(empresa, refresh_token):
@@ -34,109 +39,122 @@ def salvar_refresh_token(empresa, refresh_token):
     if not sh: return
     try:
         col_empresas = sh.col_values(1)
+        nome_busca = empresa.strip().upper()
+        
         idx = -1
         for i, nome in enumerate(col_empresas):
-            if nome.strip().upper() == empresa.strip().upper():
+            if nome.strip().upper() == nome_busca:
                 idx = i + 1
                 break
+        
         if idx > 0:
             sh.update_cell(idx, 2, refresh_token)
         else:
             sh.append_row([empresa, refresh_token])
-        st.toast(f"✅ {empresa} vinculada com sucesso!")
+        st.toast(f"✅ Token de {empresa} salvo com sucesso!")
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+        st.error(f"Erro ao salvar token na planilha: {e}")
 
-# --- 3. LÓGICA DE AUTENTICAÇÃO (AJUSTADA CONFORME SUPORTE) ---
+# --- 3. LÓGICA DE AUTENTICAÇÃO (OAUTH2 COGNITO) ---
 
 def obter_novo_access_token(empresa_nome):
+    """Realiza o Refresh do token com credenciais no Header e no Body"""
     sh = get_sheet()
     if not sh: return None
     try:
         cell = sh.find(empresa_nome)
         rt_atual = sh.cell(cell.row, 2).value
     except:
+        st.error(f"Empresa {empresa_nome} não encontrada.")
         return None
 
-    auth_b64 = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    auth_pass = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    auth_b64 = base64.b64encode(auth_pass.encode()).decode()
     
-    # REGRAS DA CONTA AZUL: Credenciais no Header E no Body
     headers = {
         "Authorization": f"Basic {auth_b64}",
         "Content-Type": "application/x-www-form-urlencoded"
     }
     
+    # Adicionando client_id e client_secret no corpo conforme exigência da Conta Azul
     data = {
         "grant_type": "refresh_token",
         "refresh_token": rt_atual,
-        "client_id": CLIENT_ID,      # Adicionado conforme orientação
-        "client_secret": CLIENT_SECRET # Adicionado conforme orientação
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET
     }
     
     res = requests.post(TOKEN_URL, headers=headers, data=data)
     
     if res.status_code == 200:
-        dados = res.json()
-        return dados['access_token']
+        return res.json()['access_token']
     else:
-        st.error(f"Falha no Refresh: {res.text}")
+        st.error(f"Erro no Refresh: {res.text}")
         return None
 
 # --- 4. INTERFACE ---
 
 with st.sidebar:
-    st.header("🔗 Conectar Cliente")
-    url_auth = f"{AUTH_URL}?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope={SCOPE}"
-    st.link_button("🔑 Login Conta Azul", url_auth, type="primary", use_container_width=True)
+    st.header("🔗 Conexão")
+    url_login = f"{AUTH_URL}?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope={SCOPE}"
+    st.link_button("🔑 Vincular Nova Empresa", url_login, type="primary", use_container_width=True)
     
+    # Callback de retorno do login
     if "code" in st.query_params:
         st.divider()
-        nome_cli = st.text_input("Nome da Empresa", placeholder="Ex: JRM")
-        if st.button("Gravar Acesso"):
-            auth_b64 = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+        nome_empresa = st.text_input("Identificação da Empresa", placeholder="Ex: JRM")
+        if st.button("Confirmar Acesso"):
+            auth_pass = f"{CLIENT_ID}:{CLIENT_SECRET}"
+            auth_b64 = base64.b64encode(auth_pass.encode()).decode()
             
-            # REGRAS DA CONTA AZUL: Credenciais no Body para troca do code
+            # Troca do Code por Token (Credenciais no Header e Body)
             res = requests.post(TOKEN_URL, 
                 headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
                 data={
                     "grant_type": "authorization_code",
                     "code": st.query_params["code"],
                     "redirect_uri": REDIRECT_URI,
-                    "client_id": CLIENT_ID,      # Adicionado conforme orientação
-                    "client_secret": CLIENT_SECRET # Adicionado conforme orientação
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_SECRET
                 })
             
             if res.status_code == 200:
-                salvar_refresh_token(nome_cli, res.json()['refresh_token'])
+                salvar_refresh_token(nome_empresa, res.json()['refresh_token'])
                 st.query_params.clear()
                 st.rerun()
             else:
-                st.error(f"Erro no Vínculo: {res.text}")
+                st.error(f"Erro na troca do código: {res.text}")
 
     st.divider()
+    # Listagem de clientes
     sh = get_sheet()
-    lista = pd.DataFrame(sh.get_all_records())['empresa'].tolist() if sh else []
-    emp_ativa = st.selectbox("Empresa Selecionada", lista)
+    if sh:
+        lista_empresas = pd.DataFrame(sh.get_all_records())['empresa'].tolist()
+        emp_selecionada = st.selectbox("Selecione o Cliente", lista_empresas)
+    else:
+        emp_selecionada = None
 
-# --- 5. VISUALIZAÇÃO ---
+# --- 5. DASHBOARD PRINCIPAL ---
 
-st.title("BPO Financeiro JRM")
+st.title("Painel de Controle BPO Financeiro")
 
-if emp_ativa and st.button("📥 Sincronizar Agora", use_container_width=True):
-    token = obter_novo_access_token(emp_ativa)
+if emp_selecionada and st.button("🔄 Sincronizar Dados", use_container_width=True):
+    token = obter_novo_access_token(emp_selecionada)
     
     if token:
         headers = {"Authorization": f"Bearer {token}"}
-        # Exemplo: Contas a Receber
-        res = requests.get(f"{API_BASE_URL}/v1/financeiro/contas-a-receber", headers=headers)
+        # Buscando Contas a Pagar como exemplo
+        res = requests.get(f"{API_BASE_URL}/v1/financeiro/contas-a-pagar", headers=headers)
         
         if res.status_code == 200:
-            df = pd.DataFrame(res.json().get('itens', []))
-            if not df.empty:
-                st.metric("Total a Receber", f"R$ {df['valor'].sum():,.2f}")
+            itens = res.json().get('itens', [])
+            if itens:
+                df = pd.DataFrame(itens)
+                st.metric("Total de Contas a Pagar", f"R$ {df['valor'].sum():,.2f}")
                 st.dataframe(df, use_container_width=True)
             else:
-                st.info("Nenhum dado encontrado.")
+                st.info("Nenhum lançamento encontrado.")
         else:
-            st.error(f"Erro API: {res.status_code}")
-            st.json(res.json())
+            st.error(f"Erro na API ({res.status_code}): {res.text}")
+    else:
+        st.error("Falha ao gerar Token. Tente realizar o login novamente pelo botão lateral.")
