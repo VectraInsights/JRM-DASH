@@ -23,21 +23,23 @@ AUTH_URL = "https://auth.contaazul.com/login"
 
 st.set_page_config(page_title="BPO Dashboard JRM", layout="wide")
 
-# --- 2. CSS PARA COMPACTAÇÃO ---
+# --- 2. CSS PARA COMPACTAÇÃO E ADAPTAÇÃO ---
 st.markdown("""
     <style>
         .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
         h1 {margin-top: -45px; margin-bottom: 10px; font-size: 1.8rem !important;}
+        
+        /* Cards com fundo adaptável */
         div[data-testid="stMetric"] {
-            padding: 10px; 
-            background: rgba(128, 128, 128, 0.08); 
-            border-radius: 8px;
+            padding: 15px; 
+            background: rgba(128, 128, 128, 0.1); 
+            border-radius: 10px;
             border: 1px solid rgba(128, 128, 128, 0.2);
         }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. FUNÇÕES DE SUPORTE (API E PLANILHA) ---
+# --- 3. FUNÇÕES DE SUPORTE ---
 def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -64,6 +66,7 @@ def obter_novo_access_token(empresa_nome):
     except: return None
 
 def buscar_todos_registros(endpoint, headers, params):
+    """Garante que todos os valores sejam puxados via paginação"""
     todos_itens = []
     params["tamanho_pagina"] = 100
     pagina_atual = 1
@@ -80,27 +83,28 @@ def buscar_todos_registros(endpoint, headers, params):
 
 # --- 4. BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Configurações")
+    st.header("⚙️ Painel de Controle")
     if "oauth_state" not in st.session_state:
         st.session_state.oauth_state = secrets.token_urlsafe(16)
     
     url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&state={st.session_state.oauth_state}"
-    st.link_button("🔑 Login Conta Azul", url_auth, use_container_width=True)
+    st.link_button("🔗 Vincular Nova Conta", url_auth, use_container_width=True)
     
     st.divider()
-    data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
-    data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
+    st.subheader("📅 Período do Fluxo")
+    data_inicio = st.date_input("Data Inicial", datetime.now(), format="DD/MM/YYYY")
+    data_fim = st.date_input("Data Final", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     btn_sincronizar = st.button("🔄 Sincronizar dados", use_container_width=True, type="primary")
     
     sh = get_sheet()
     clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
-    emp_selecionada = st.selectbox("Cliente Ativo", clientes)
+    emp_selecionada = st.selectbox("Selecione o Cliente Ativo", clientes)
 
-# --- 5. ÁREA PRINCIPAL ---
+# --- 5. DASHBOARD PRINCIPAL ---
 st.title("Painel Financeiro JRM")
 
 if emp_selecionada and btn_sincronizar:
-    with st.spinner("Puxando todos os lançamentos..."):
+    with st.spinner(f"Atualizando dados de {emp_selecionada}..."):
         token = obter_novo_access_token(emp_selecionada)
         if token:
             headers = {"Authorization": f"Bearer {token}"}
@@ -120,26 +124,33 @@ if emp_selecionada and btn_sincronizar:
             df_plot['Receber'] = df_plot['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
             df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
+            # Exibição dos Totais
             c1, c2, c3 = st.columns(3)
-            c1.metric("A Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
-            c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
-            c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
+            c1.metric("Total a Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
+            c2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
+            c3.metric("Saldo do Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
 
-            # --- GRÁFICO COM CORES ADAPTÁVEIS ---
+            # --- CONFIGURAÇÃO DO GRÁFICO ---
             fig = go.Figure()
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
-            fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
+            fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
+                                     line=dict(color='#5D6D7E', width=3),
+                                     marker=dict(size=8, symbol='circle', line=dict(width=1, color='white'))))
 
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
+                # Sem cores fixas de fonte: o tema 'streamlit' resolve o contraste
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                hovermode="x unified",
                 xaxis=dict(tickformat='%d/%m', showgrid=False),
-                yaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
-                height=400,
+                yaxis=dict(gridcolor='rgba(128,128,128,0.1)'),
+                height=450,
                 margin=dict(l=10, r=10, t=10, b=10)
             )
-            st.plotly_chart(fig, use_container_width=True)
+            
+            # O parâmetro theme="streamlit" é a chave para as letras acompanharem o modo dark/light
+            st.plotly_chart(fig, use_container_width=True, theme="streamlit")
         else:
-            st.error("Erro na autenticação.")
+            st.error("Erro ao renovar acesso. Por favor, vincule a conta novamente.")
