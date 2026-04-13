@@ -87,17 +87,15 @@ def buscar_todos_registros(endpoint, headers, params):
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
-# Define o padrão como o primeiro cliente da lista se nada estiver selecionado
 if "empresa_ativa" not in st.session_state:
     st.session_state.empresa_ativa = clientes[0] if clientes else None
-    st.session_state.auto_sync = True # Gatilho para carregar no primeiro run
+    st.session_state.auto_sync = True 
 else:
     st.session_state.auto_sync = False
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configurações")
-    
     url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&state={secrets.token_urlsafe(16)}"
     st.link_button("🔑 Login Conta Azul", url_auth, use_container_width=True)
     
@@ -105,13 +103,12 @@ with st.sidebar:
     data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     
-    # Selectbox atualiza o session_state
     emp_selecionada = st.selectbox("Cliente Ativo", clientes, index=clientes.index(st.session_state.empresa_ativa) if st.session_state.empresa_ativa in clientes else 0)
     st.session_state.empresa_ativa = emp_selecionada
     
     btn_sincronizar = st.button("🔄 Sincronizar agora", use_container_width=True, type="primary")
 
-# --- 6. EXECUÇÃO AUTOMÁTICA OU POR BOTÃO ---
+# --- 6. EXECUÇÃO ---
 st.title("Painel Financeiro JRM")
 
 if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_sync):
@@ -140,25 +137,32 @@ if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_
             c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
             c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
 
+            # --- GRÁFICO ---
             fig = go.Figure()
-            fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
-            fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+            fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
+                                 marker_color='#2ecc71', hovertemplate='Receitas: R$ %{y:,.2f}<extra></extra>'))
+            fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
+                                 marker_color='#e74c3c', hovertemplate='Despesas: R$ %{y:,.2f}<extra></extra>'))
             fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
                                      line=dict(color='#2C3E50', width=3),
-                                     marker=dict(size=10, symbol='circle', line=dict(width=2, color='white'))))
+                                     marker=dict(size=10, symbol='circle', line=dict(width=2, color='white')),
+                                     hovertemplate='Saldo: R$ %{y:,.2f}<extra></extra>'))
 
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
                 hovermode="x unified", dragmode=False, height=500,
-                xaxis=dict(tickformat='%d/%m', showgrid=False),
-                yaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
-                margin=dict(l=50, r=20, t=20, b=100)
+                margin=dict(l=60, r=20, t=20, b=100),
+                xaxis=dict(tickformat='%d/%m', showgrid=False, showspikes=False),
+                yaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)', 
+                    zerolinecolor='rgba(128,128,128,0.5)',
+                    tickformat=',.2f', # Exibe valor cheio sem 'k'
+                    showspikes=False
+                )
             )
             
             st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={'displayModeBar': False})
-            st.session_state.auto_sync = False # Desliga o auto-sync após a primeira carga
+            st.session_state.auto_sync = False
         else:
-            st.error("Não foi possível carregar os dados automaticamente. Tente sincronizar manualmente.")
-elif not st.session_state.empresa_ativa:
-    st.info("Selecione uma empresa na barra lateral para começar.")
+            st.error("Erro na autenticação automática.")
