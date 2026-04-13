@@ -4,6 +4,7 @@ import base64
 import pandas as pd
 import gspread
 import secrets
+from datetime import datetime, timedelta  # Necessário para os filtros de data
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- 1. CONFIGURAÇÕES (VIA SECRETS) ---
@@ -11,7 +12,7 @@ CA_ID = st.secrets["conta_azul"]["client_id"]
 CA_SECRET = st.secrets["conta_azul"]["client_secret"]
 CA_REDIRECT = st.secrets["conta_azul"]["redirect_uri"]
 
-# Endpoints Oficiais (Nova API v2)
+# Endpoints Oficiais (Nova API v2) - SEM barra no final
 AUTH_URL = "https://auth.contaazul.com/login"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 API_BASE_URL = "https://api-v2.contaazul.com" 
@@ -31,35 +32,27 @@ def get_sheet():
         return None
 
 def salvar_refresh_token(empresa, refresh_token):
-    """Busca a empresa na planilha. Se existir, atualiza. Se não, cria nova linha."""
     sh = get_sheet()
     if not sh: return
-    
     try:
-        # Pega todos os valores da coluna A (Empresa)
         col_empresas = sh.col_values(1)
         nome_busca = empresa.strip().lower()
-        
         linha_index = -1
-        # Procura o nome (ignora maiúsculas/minúsculas)
         for i, valor in enumerate(col_empresas):
             if valor.strip().lower() == nome_busca:
                 linha_index = i + 1
                 break
         
         if linha_index > 0:
-            # ATUALIZA a linha existente (Coluna 2 = refresh_token)
             sh.update_cell(linha_index, 2, refresh_token)
             st.toast(f"🔄 Token de '{empresa}' atualizado!")
         else:
-            # ADICIONA nova linha se não encontrar
             sh.append_row([empresa, refresh_token])
-            st.toast(f"✨ '{empresa}' cadastrada com sucesso!")
-            
+            st.toast(f"✨ '{empresa}' cadastrada!")
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- 3. LOGICA DE AUTENTICAÇÃO ---
+# --- 3. LÓGICA DE AUTENTICAÇÃO ---
 
 def obter_novo_access_token(empresa_nome):
     sh = get_sheet()
@@ -67,7 +60,6 @@ def obter_novo_access_token(empresa_nome):
     try:
         cell = sh.find(empresa_nome)
         rt_atual = sh.cell(cell.row, 2).value
-        
         auth_b64 = base64.b64encode(f"{CA_ID}:{CA_SECRET}".encode()).decode()
         
         res = requests.post(TOKEN_URL, 
@@ -81,7 +73,6 @@ def obter_novo_access_token(empresa_nome):
         
         if res.status_code == 200:
             dados = res.json()
-            # ROTAÇÃO: Se a API mandou um novo RT, atualizamos a planilha
             novo_rt = dados.get('refresh_token')
             if novo_rt and novo_rt != rt_atual:
                 salvar_refresh_token(empresa_nome, novo_rt)
@@ -90,7 +81,7 @@ def obter_novo_access_token(empresa_nome):
     except:
         return None
 
-# --- 4. INTERFACE ---
+# --- 4. INTERFACE LATERAL ---
 
 with st.sidebar:
     st.header("⚙️ Configurações")
@@ -101,17 +92,17 @@ with st.sidebar:
     url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&scope={SCOPE}&state={st.session_state.oauth_state}"
     st.link_button("🔑 Login Conta Azul", url_auth, type="primary", use_container_width=True)
     
-    params = st.query_params
-    if "code" in params:
+    params_url = st.query_params
+    if "code" in params_url:
         st.divider()
-        nome_input = st.text_input("Identificação do Cliente (ex: JTL)", placeholder="Digite aqui")
+        nome_input = st.text_input("Identificação do Cliente", placeholder="Ex: JTL")
         if st.button("Finalizar Vínculo"):
             auth_b64 = base64.b64encode(f"{CA_ID}:{CA_SECRET}".encode()).decode()
             res = requests.post(TOKEN_URL, 
                 headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
                 data={
                     "grant_type": "authorization_code",
-                    "code": params["code"],
+                    "code": params_url["code"],
                     "redirect_uri": CA_REDIRECT,
                     "client_id": CA_ID,
                     "client_secret": CA_SECRET
@@ -123,42 +114,56 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-    
-    # Listagem de clientes
     sh = get_sheet()
     emp_selecionada = None
     if sh:
-        try:
-            dados = sh.get_all_values()
-            if len(dados) > 1:
-                df = pd.DataFrame(dados[1:], columns=dados[0])
-                # Limpa nomes das colunas e busca 'empresa'
-                df.columns = [c.strip().lower() for c in df.columns]
-                if 'empresa' in df.columns:
-                    lista = df['empresa'].unique().tolist()
-                    emp_selecionada = st.selectbox("Cliente Ativo", lista)
-        except:
-            pass
+        dados_pl = sh.get_all_values()
+        if len(dados_pl) > 1:
+            df_pl = pd.DataFrame(dados_pl[1:], columns=dados_pl[0])
+            df_pl.columns = [c.strip().lower() for c in df_pl.columns]
+            if 'empresa' in df_pl.columns:
+                lista = df_pl['empresa'].unique().tolist()
+                emp_selecionada = st.selectbox("Cliente Ativo", lista)
 
 # --- 5. DASHBOARD ---
 
-st.title("BPO Financeiro JRM")
+st.title("Painel BPO Financeiro - JRM")
 
 if emp_selecionada and st.button("🔄 Sincronizar Dados", use_container_width=True):
     token = obter_novo_access_token(emp_selecionada)
+    
     if token:
         headers = {"Authorization": f"Bearer {token}"}
-        # Chamada na API V2
-        res = requests.get(f"{API_BASE_URL}/v1/financeiro/contas-a-pagar", headers=headers)
+        
+        # Filtros de data OBRIGATÓRIOS na v2
+        data_ini = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        data_fim = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        params_api = {
+            "data_vencimento_de": data_ini,
+            "data_vencimento_ate": data_fim
+        }
+        
+        # Chamada corrigida com params
+        res = requests.get(
+            f"{API_BASE_URL}/v1/financeiro/contas-a-pagar", 
+            headers=headers, 
+            params=params_api
+        )
         
         if res.status_code == 200:
-            df_final = pd.DataFrame(res.json().get('itens', []))
-            if not df_final.empty:
-                st.metric("Total a Pagar", f"R$ {df_final['valor'].sum():,.2f}")
+            dados_itens = res.json().get('itens', [])
+            if dados_itens:
+                df_final = pd.DataFrame(dados_itens)
+                
+                # Na v2 o campo mudou para valor_liquido_total
+                col_valor = 'valor_liquido_total' if 'valor_liquido_total' in df_final.columns else 'valor'
+                
+                st.metric("Total a Pagar (Período)", f"R$ {df_final[col_valor].sum():,.2f}")
                 st.dataframe(df_final, use_container_width=True)
             else:
-                st.info("Nenhum dado encontrado.")
+                st.info(f"Nenhum lançamento entre {data_ini} e {data_fim}.")
         else:
-            st.error(f"Erro na API ({res.status_code})")
+            st.error(f"Erro {res.status_code}: {res.text}")
     else:
-        st.error("Erro ao autenticar. Tente o login novamente.")
+        st.error("Falha na autenticação. Tente o login novamente.")
