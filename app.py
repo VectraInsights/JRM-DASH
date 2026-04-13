@@ -27,16 +27,11 @@ def get_sheet():
         return None
 
 def update_tokens_in_sheet(empresa, novo_rt):
-    """Atualiza se existir, ou cria se for nova. Evita duplicados."""
     sh = get_sheet()
     if not sh: return
-    
-    # Normaliza o nome para busca
     empresa_busca = empresa.strip().upper()
     try:
-        # Busca todas as empresas na coluna A
         col_empresas = sh.col_values(1) 
-        # Tenta achar o índice (ignora case e espaços)
         idx = -1
         for i, nome in enumerate(col_empresas):
             if nome.strip().upper() == empresa_busca:
@@ -45,7 +40,7 @@ def update_tokens_in_sheet(empresa, novo_rt):
         
         if idx > 0:
             sh.update_cell(idx, 2, novo_rt)
-            st.toast(f"✅ Token de '{empresa}' atualizado!")
+            st.toast(f"✅ Token de '{empresa}' atualizado na planilha!")
         else:
             sh.append_row([empresa, novo_rt])
             st.toast(f"✨ '{empresa}' cadastrada com sucesso!")
@@ -53,6 +48,7 @@ def update_tokens_in_sheet(empresa, novo_rt):
         st.error(f"Erro ao salvar na planilha: {e}")
 
 def get_valid_access_token(empresa_nome):
+    """Renova o token e já atualiza a planilha."""
     sh = get_sheet()
     if not sh: return None
     try:
@@ -77,16 +73,14 @@ def get_valid_access_token(empresa_nome):
 with st.sidebar:
     st.header("🔗 Conexão Conta Azul")
     
-    # O botão de vincular agora fica SEMPRE aqui em cima
     url_auth = f"https://auth.contaazul.com/login?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid+profile+aws.cognito.signin.user.admin"
     st.link_button("🔑 Vincular Nova Empresa", url_auth, type="primary", use_container_width=True)
     
-    # Bloco que aparece APÓS o redirecionamento (quando o 'code' está na URL)
     params = st.query_params
     if "code" in params:
         st.divider()
-        st.info("🔄 Quase lá! Finalize o registro:")
-        nome_vinc = st.text_input("Nome exato da Empresa", placeholder="Ex: Juvenal Transportes")
+        st.info("🔄 Finalize o registro:")
+        nome_vinc = st.text_input("Nome exato da Empresa", placeholder="Ex: JTL")
         if st.button("Confirmar e Salvar"):
             auth_b64 = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
             res = requests.post(TOKEN_URL, 
@@ -99,7 +93,7 @@ with st.sidebar:
                 st.query_params.clear()
                 st.rerun()
             else:
-                st.error("Erro na autorização. Tente vincular novamente.")
+                st.error("Erro na autorização.")
 
     st.divider()
     st.header("📊 Filtros")
@@ -117,20 +111,24 @@ if st.button("🚀 Sincronizar Dashboard", type="primary", use_container_width=T
     
     for emp in alvos:
         with st.status(f"Sincronizando {emp}...", expanded=False) as status:
+            # PASSO 1: Pega um token novo uma única vez para esta empresa
             token = get_valid_access_token(emp)
+            
             if not token:
-                st.warning(f"⚠️ Token inválido para {emp}. Refaça o vínculo na barra lateral.")
+                st.warning(f"⚠️ Token inválido para {emp}. Refaça o vínculo.")
                 continue
             
+            # PASSO 2: Usa o mesmo token para ambas as requisições
             for tipo, endpoint in [("Receber", "contas-a-receber"), ("Pagar", "contas-a-pagar")]:
                 url = f"{API_BASE_URL}/v1/financeiro/{endpoint}"
                 params_api = {
                     "data_vencimento_de": d_inicio.strftime('%Y-%m-%d'),
                     "data_vencimento_ate": d_fim.strftime('%Y-%m-%d')
                 }
+                
                 res = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params_api)
                 
-                with st.expander(f"Inspecionar {emp} - {tipo}"):
+                with st.expander(f"🔍 Debug: {emp} - {tipo}"):
                     st.write(f"Status: {res.status_code}")
                     st.json(res.json())
 
@@ -143,7 +141,8 @@ if st.button("🚀 Sincronizar Dashboard", type="primary", use_container_width=T
                             'Valor': float(i.get('valor', 0)),
                             'Descrição': i.get('descricao', 'S/D')
                         })
-            status.update(label=f"{emp} Sincronizado!", state="complete")
+            
+            status.update(label=f"{emp} Concluído!", state="complete")
 
     if dados_fin:
         df = pd.DataFrame(dados_fin)
@@ -158,4 +157,4 @@ if st.button("🚀 Sincronizar Dashboard", type="primary", use_container_width=T
         st.divider()
         st.dataframe(df.sort_values('Data'), use_container_width=True)
     else:
-        st.info("Nenhum dado encontrado para o período.")
+        st.info("Nenhum dado encontrado.")
