@@ -4,6 +4,7 @@ import base64
 import pandas as pd
 import gspread
 import secrets
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -32,11 +33,7 @@ def salvar_refresh_token(empresa, refresh_token):
     try:
         col_empresas = sh.col_values(1)
         nome_busca = empresa.strip().lower()
-        linha_index = -1
-        for i, valor in enumerate(col_empresas):
-            if valor.strip().lower() == nome_busca:
-                linha_index = i + 1
-                break
+        linha_index = next((i + 1 for i, v in enumerate(col_empresas) if v.strip().lower() == nome_busca), -1)
         
         if linha_index > 0:
             sh.update_cell(linha_index, 2, refresh_token)
@@ -59,44 +56,20 @@ def obter_novo_access_token(empresa_nome):
         
         if res.status_code == 200:
             dados = res.json()
-            novo_rt = dados.get('refresh_token')
-            if novo_rt and novo_rt != rt_atual:
-                salvar_refresh_token(empresa_nome, novo_rt)
+            if dados.get('refresh_token') and dados['refresh_token'] != rt_atual:
+                salvar_refresh_token(empresa_nome, dados['refresh_token'])
             return dados['access_token']
         return None
     except: return None
 
-# --- 3. INTERFACE LATERAL (FILTROS E LOGIN) ---
+# --- 3. INTERFACE LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configurações")
-    
-    # Seção de Login (Vincular Nova Conta)
     if "oauth_state" not in st.session_state:
         st.session_state.oauth_state = secrets.token_urlsafe(16)
     url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&scope={SCOPE}&state={st.session_state.oauth_state}"
     st.link_button("🔑 Vincular Nova Conta", url_auth, type="primary", use_container_width=True)
     
-    # Lógica para capturar o retorno do OAuth
-    params_url = st.query_params
-    if "code" in params_url:
-        st.divider()
-        nome_input = st.text_input("Identificação do Novo Cliente", placeholder="Ex: JTL")
-        if st.button("Confirmar Vínculo"):
-            auth_b64 = base64.b64encode(f"{CA_ID}:{CA_SECRET}".encode()).decode()
-            res = requests.post(TOKEN_URL, 
-                headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
-                data={
-                    "grant_type": "authorization_code",
-                    "code": params_url["code"],
-                    "redirect_uri": CA_REDIRECT,
-                    "client_id": CA_ID,
-                    "client_secret": CA_SECRET
-                })
-            if res.status_code == 200:
-                salvar_refresh_token(nome_input, res.json()['refresh_token'])
-                st.query_params.clear()
-                st.rerun()
-
     st.divider()
     st.subheader("📅 Filtros de Busca")
     data_inicio = st.date_input("Data Inicial", datetime.now())
@@ -118,50 +91,72 @@ with st.sidebar:
 st.title("Painel Financeiro JRM")
 
 if emp_selecionada:
-    # Botão de Sincronização para evitar tela preta inicial
     if st.button(f"🔄 Sincronizar dados de {emp_selecionada}", use_container_width=True):
         token = obter_novo_access_token(emp_selecionada)
         
         if token:
             headers = {"Authorization": f"Bearer {token}"}
-            params_api = {
+            params = {
                 "data_vencimento_de": data_inicio.strftime('%Y-%m-%d'),
                 "data_vencimento_ate": data_fim.strftime('%Y-%m-%d'),
                 "tamanho_pagina": 100
             }
             
-            url_busca = f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar"
-            res = requests.get(url_busca, headers=headers, params=params_api)
+            # Busca Pagar e Receber
+            res_pagar = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers=headers, params=params)
+            res_receber = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers=headers, params=params)
             
-            if res.status_code == 200:
-                dados_api = res.json().get('itens', [])
-                if dados_api:
-                    df = pd.DataFrame(dados_api)
-                    df['data_vencimento'] = pd.to_datetime(df['data_vencimento'])
-                    df['total'] = pd.to_numeric(df['total'], errors='coerce')
-                    
-                    # Gráficos e Métricas
-                    df_resumo = df.groupby('data_vencimento')['total'].sum().reset_index()
-                    df_resumo['Data'] = df_resumo['data_vencimento'].dt.strftime('%d/%m')
-                    
-                    col_m1, col_m2 = st.columns([3, 1])
-                    with col_m1:
-                        st.subheader("Volume de Vencimentos Diários")
-                        st.bar_chart(df_resumo.set_index('Data')['total'])
-                    with col_m2:
-                        st.metric("Total no Período", f"R$ {df['total'].sum():,.2f}")
+            if res_pagar.status_code == 200 and res_receber.status_code == 200:
+                df_p = pd.DataFrame(res_pagar.json().get('itens', []))
+                df_r = pd.DataFrame(res_receber.json().get('itens', []))
+                
+                # Processamento Pagar
+                if not df_p.empty:
+                    df_p['data'] = pd.to_datetime(df_p['data_vencimento'])
+                    df_p['valor'] = pd.to_numeric(df_p['total'])
+                    gp_p = df_p.groupby('data')['valor'].sum().reset_index()
+                else: gp_p = pd.DataFrame(columns=['data', 'valor'])
 
-                    # Tabela Formatada
-                    st.divider()
-                    df_view = df[['descricao', 'total', 'data_vencimento']].copy()
-                    df_view.columns = ['Descrição', 'Valor (R$)', 'Vencimento']
-                    df_view['Vencimento'] = df_view['Vencimento'].dt.strftime('%d/%m/%Y')
-                    st.dataframe(df_view, use_container_width=True, hide_index=True)
-                else:
-                    st.info(f"Nenhum lançamento encontrado para {emp_selecionada} neste período.")
+                # Processamento Receber
+                if not df_r.empty:
+                    df_r['data'] = pd.to_datetime(df_r['data_vencimento'])
+                    df_r['valor'] = pd.to_numeric(df_r['total'])
+                    gp_r = df_r.groupby('data')['valor'].sum().reset_index()
+                else: gp_r = pd.DataFrame(columns=['data', 'valor'])
+
+                # Merging para gráfico unificado
+                datas = pd.date_range(data_inicio, data_fim)
+                df_final = pd.DataFrame({'data': datas})
+                df_final = df_final.merge(gp_p, on='data', how='left').rename(columns={'valor': 'Pagar'})
+                df_final = df_final.merge(gp_r, on='data', how='left').rename(columns={'valor': 'Receber'})
+                df_final = df_final.fillna(0)
+                df_final['Data_BR'] = df_final['data'].dt.strftime('%d/%m')
+
+                # --- GRÁFICO MATPLOTLIB (ESTÁTICO) ---
+                fig, ax = plt.subplots(figsize=(12, 6))
+                plt.style.use('dark_background') # Combina com o tema do app
+                
+                # Barras
+                width = 0.35
+                x = range(len(df_final))
+                ax.bar([i - width/2 for i in x], df_final['Receber'], width, label='A Receber', color='#2ecc71') # Verde
+                ax.bar([i + width/2 for i in x], df_final['Pagar'], width, label='A Pagar', color='#e74c3c') # Vermelho
+                
+                # Linha de Tendência (Média Móvel do Saldo Diário)
+                df_final['Saldo'] = df_final['Receber'] - df_final['Pagar']
+                ax.plot(x, df_final['Saldo'], color='#f1c40f', marker='o', label='Tendência (Saldo)', linewidth=2)
+
+                ax.set_xticks(x)
+                ax.set_xticklabels(df_final['Data_BR'], rotation=45)
+                ax.legend()
+                ax.set_title(f"Fluxo de Caixa: {emp_selecionada}", fontsize=14)
+                
+                st.pyplot(fig) # Renderiza como imagem estática
+
+                # Métricas Rápidas
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total a Receber", f"R$ {df_final['Receber'].sum():,.2f}")
+                c2.metric("Total a Pagar", f"R$ {df_final['Pagar'].sum():,.2f}")
+                c3.metric("Saldo do Período", f"R$ {df_final['Saldo'].sum():,.2f}")
             else:
-                st.error(f"Erro na API ({res.status_code}): {res.text}")
-        else:
-            st.error("Erro ao autenticar. Verifique o token na planilha.")
-else:
-    st.info("Selecione um cliente na barra lateral para começar.")
+                st.error("Erro ao buscar dados das APIs de Receber/Pagar.")
