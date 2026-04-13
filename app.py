@@ -102,61 +102,56 @@ if emp_selecionada:
                 "tamanho_pagina": 100
             }
             
-            # Busca Pagar e Receber
-            res_pagar = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers=headers, params=params)
-            res_receber = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers=headers, params=params)
+            res_p = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers=headers, params=params)
+            res_r = requests.get(f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers=headers, params=params)
             
-            if res_pagar.status_code == 200 and res_receber.status_code == 200:
-                df_p = pd.DataFrame(res_pagar.json().get('itens', []))
-                df_r = pd.DataFrame(res_receber.json().get('itens', []))
+            if res_p.status_code == 200 and res_r.status_code == 200:
+                # Processamento de Dados
+                df_p = pd.DataFrame(res_p.json().get('itens', []))
+                df_r = pd.DataFrame(res_r.json().get('itens', []))
                 
-                # Processamento Pagar
+                datas = pd.date_range(data_inicio, data_fim)
+                df_plot = pd.DataFrame({'data': datas})
+                
                 if not df_p.empty:
                     df_p['data'] = pd.to_datetime(df_p['data_vencimento'])
                     df_p['valor'] = pd.to_numeric(df_p['total'])
-                    gp_p = df_p.groupby('data')['valor'].sum().reset_index()
-                else: gp_p = pd.DataFrame(columns=['data', 'valor'])
-
-                # Processamento Receber
+                    df_plot = df_plot.merge(df_p.groupby('data')['valor'].sum(), on='data', how='left').rename(columns={'valor': 'Pagar'})
+                else: df_plot['Pagar'] = 0
+                
                 if not df_r.empty:
                     df_r['data'] = pd.to_datetime(df_r['data_vencimento'])
                     df_r['valor'] = pd.to_numeric(df_r['total'])
-                    gp_r = df_r.groupby('data')['valor'].sum().reset_index()
-                else: gp_r = pd.DataFrame(columns=['data', 'valor'])
+                    df_plot = df_plot.merge(df_r.groupby('data')['valor'].sum(), on='data', how='left').rename(columns={'valor': 'Receber'})
+                else: df_plot['Receber'] = 0
+                
+                df_plot = df_plot.fillna(0)
+                df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
+                df_plot['Data_BR'] = df_plot['data'].dt.strftime('%d/%m')
 
-                # Merging para gráfico unificado
-                datas = pd.date_range(data_inicio, data_fim)
-                df_final = pd.DataFrame({'data': datas})
-                df_final = df_final.merge(gp_p, on='data', how='left').rename(columns={'valor': 'Pagar'})
-                df_final = df_final.merge(gp_r, on='data', how='left').rename(columns={'valor': 'Receber'})
-                df_final = df_final.fillna(0)
-                df_final['Data_BR'] = df_final['data'].dt.strftime('%d/%m')
-
-                # --- GRÁFICO MATPLOTLIB (ESTÁTICO) ---
+                # --- GRÁFICO (MODO ESCURO E TRANSPARENTE) ---
+                plt.style.use('dark_background')
                 fig, ax = plt.subplots(figsize=(12, 6))
-                plt.style.use('dark_background') # Combina com o tema do app
                 
-                # Barras
+                # Configurações de transparência
+                fig.patch.set_alpha(0.0)
+                ax.patch.set_alpha(0.0)
+                
                 width = 0.35
-                x = range(len(df_final))
-                ax.bar([i - width/2 for i in x], df_final['Receber'], width, label='A Receber', color='#2ecc71') # Verde
-                ax.bar([i + width/2 for i in x], df_final['Pagar'], width, label='A Pagar', color='#e74c3c') # Vermelho
-                
-                # Linha de Tendência (Média Móvel do Saldo Diário)
-                df_final['Saldo'] = df_final['Receber'] - df_final['Pagar']
-                ax.plot(x, df_final['Saldo'], color='#f1c40f', marker='o', label='Tendência (Saldo)', linewidth=2)
+                x = range(len(df_plot))
+                ax.bar([i - width/2 for i in x], df_plot['Receber'], width, label='A Receber', color='#2ecc71')
+                ax.bar([i + width/2 for i in x], df_plot['Pagar'], width, label='A Pagar', color='#e74c3c')
+                ax.plot(x, df_plot['Saldo'], color='#f1c40f', marker='o', label='Tendência (Saldo)', linewidth=2)
 
                 ax.set_xticks(x)
-                ax.set_xticklabels(df_final['Data_BR'], rotation=45)
-                ax.legend()
-                ax.set_title(f"Fluxo de Caixa: {emp_selecionada}", fontsize=14)
+                ax.set_xticklabels(df_plot['Data_BR'], rotation=45, color='white')
+                ax.tick_params(colors='white')
+                ax.legend(facecolor='#262730', edgecolor='white')
                 
-                st.pyplot(fig) # Renderiza como imagem estática
+                st.pyplot(fig, clear_figure=True)
 
-                # Métricas Rápidas
+                # Métricas
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Total a Receber", f"R$ {df_final['Receber'].sum():,.2f}")
-                c2.metric("Total a Pagar", f"R$ {df_final['Pagar'].sum():,.2f}")
-                c3.metric("Saldo do Período", f"R$ {df_final['Saldo'].sum():,.2f}")
-            else:
-                st.error("Erro ao buscar dados das APIs de Receber/Pagar.")
+                c1.metric("Total a Receber", f"R$ {df_plot['Receber'].sum():,.2f}")
+                c2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
+                c3.metric("Saldo Líquido", f"R$ {df_plot['Saldo'].sum():,.2f}")
