@@ -48,25 +48,37 @@ def update_tokens_in_sheet(empresa, novo_rt):
         st.error(f"Erro ao salvar na planilha: {e}")
 
 def get_valid_access_token(empresa_nome):
-    """Renova o token e já atualiza a planilha."""
     sh = get_sheet()
     if not sh: return None
     try:
         cell = sh.find(empresa_nome)
         rt_atual = sh.cell(cell.row, 2).value
     except:
+        st.error(f"❌ Empresa '{empresa_nome}' não encontrada na planilha.")
         return None
 
     auth_b64 = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    
+    # DEBUG: Vamos ver o que estamos enviando (apenas os primeiros caracteres por segurança)
+    # st.write(f"Tentando refresh com: {rt_atual[:10]}...")
+
     res = requests.post(TOKEN_URL, 
-        headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
+        headers={
+            "Authorization": f"Basic {auth_b64}", 
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
         data={"grant_type": "refresh_token", "refresh_token": rt_atual})
 
     if res.status_code == 200:
         dados = res.json()
         update_tokens_in_sheet(empresa_nome, dados['refresh_token'])
         return dados['access_token']
-    return None
+    else:
+        # AQUI ESTÁ O SEGREDO: O que a API diz quando nega o acesso?
+        st.error(f"🚨 Erro na Renovação (Empresa: {empresa_nome})")
+        st.write(f"Status: {res.status_code}")
+        st.json(res.json()) # Isso vai mostrar se é 'invalid_grant', 'invalid_client', etc.
+        return None
 
 # --- INTERFACE (SIDEBAR) ---
 
