@@ -26,7 +26,7 @@ try:
     CA_ID = st.secrets["conta_azul"]["client_id"]
     CA_SECRET = st.secrets["conta_azul"]["client_secret"]
 except:
-    st.error("Erro: Credenciais ausentes.")
+    st.error("Erro: Credenciais ausentes no secrets.toml.")
     st.stop()
 
 @st.cache_resource
@@ -54,10 +54,10 @@ def obter_token(empresa_nome):
         return None
     except: return None
 
-# --- 3. BUSCA DE DADOS (FILTRO RESTRITO) ---
+# --- 3. BUSCA DE DADOS (FILTRO RESTRITO V2) ---
 def buscar_dados_v2(endpoint, headers, params):
     todos_itens = []
-    # FIXO: Apenas EM_ABERTO conforme solicitado (removemos ATRASADO)
+    # Puxa apenas o que está em aberto (sem atrasados)
     params["status"] = "EM_ABERTO" 
     params["tamanho_pagina"] = 100
     pagina = 1
@@ -70,12 +70,11 @@ def buscar_dados_v2(endpoint, headers, params):
         if not itens: break
         
         for item in itens:
-            # Captura apenas o saldo devedor real
             total = item.get('total', 0)
-            pago = item.get('pago', 0)
+            pago = item.get('pago', 0) # Campo correto na V2
             saldo = total - pago
             
-            # Validação dupla: status_traduzido e valor residual
+            # Validação: só entra se houver saldo e o status traduzido não for 'RECEBIDO'
             if saldo > 0 and str(item.get('status_traduzido', '')).upper() != 'RECEBIDO':
                 todos_itens.append({
                     "Vencimento": item.get("data_vencimento"),
@@ -92,7 +91,6 @@ clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
     st.header("Configurações")
-    # Forçamos o intervalo para hoje + 7 dias
     hoje = datetime.now().date()
     semana_que_vem = hoje + timedelta(days=7)
     
@@ -116,7 +114,7 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         df_p = pd.DataFrame(pagar_list)
         df_r = pd.DataFrame(receber_list)
         
-        # Gráfico e Cards
+        # Processamento para o gráfico
         df_base = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
         val_p = df_p.groupby('Vencimento')['Valor'].sum() if not df_p.empty else pd.Series()
         val_r = df_r.groupby('Vencimento')['Valor'].sum() if not df_r.empty else pd.Series()
@@ -125,12 +123,14 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         df_base['Receber'] = df_base['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
         df_base['Saldo'] = df_base['Receber'] - df_base['Pagar']
 
+        # Métricas (Cards)
         c1, c2, c3 = st.columns(3)
         fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
         c1.metric("A Receber", fmt_br(df_base['Receber'].sum()))
         c2.metric("A Pagar", fmt_br(df_base['Pagar'].sum()))
         c3.metric("Saldo Período", fmt_br(df_base['Saldo'].sum()))
 
+        # Gráfico Plotly
         fig = go.Figure()
         ttip = 'R$ %{y:,.2f}<extra></extra>'
         fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Receber'], name='Receitas', marker_color='#2ecc71', hovertemplate=ttip))
@@ -138,21 +138,22 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         fig.add_trace(go.Scatter(x=df_base['data'], y=df_base['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3), hovertemplate=ttip))
 
         fig.update_layout(
-            separators=',.', hovermode="x unified",
+            separators=',.', 
+            hovermode="x unified",
             xaxis=dict(
                 tickformat='%d/%m',
                 showgrid=False,
-                showspikes=False, # --- CORREÇÃO: Remove a linha vertical branca ao passar o mouse ---
-                spikemode='none' # --- Reforça a remoção ---
+                showspikes=False # Remove a linha vertical branca
             ),
             yaxis=dict(
                 tickformat=',.2f',
                 gridcolor='rgba(128,128,128,0.1)',
-                showspikes=False # --- CORREÇÃO: Garante que não apareça no eixo Y também ---
+                showspikes=False # Remove a linha horizontal branca
             ),
             legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
             margin=dict(l=60, r=20, t=20, b=80),
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+            paper_bgcolor='rgba(0,0,0,0)', 
+            plot_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         st.session_state.sync_done = True
