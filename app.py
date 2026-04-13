@@ -100,7 +100,7 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         headers = {"Authorization": f"Bearer {token}"}
         p = {"data_vencimento_de": data_ini, "data_vencimento_ate": data_fim}
         
-        # Coleta de dados
+        # Coleta de dados com filtro corrigido para evitar títulos pagos
         pagar_list = buscar_dados_abertos("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers, p)
         receber_list = buscar_dados_abertos("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers, p)
         
@@ -116,14 +116,14 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         df_base['Receber'] = df_base['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
         df_base['Saldo'] = df_base['Receber'] - df_base['Pagar']
 
-        # Cards
+        # Cards Informativos atualizados sem os títulos pagos
         c1, c2, c3 = st.columns(3)
         fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
         c1.metric("A Receber", fmt_br(df_base['Receber'].sum()))
         c2.metric("A Pagar", fmt_br(df_base['Pagar'].sum()))
         c3.metric("Saldo Período", fmt_br(df_base['Saldo'].sum()))
 
-        # Gráfico Plotly
+        # Gráfico Plotly ajustado
         fig = go.Figure()
         ttip = 'R$ %{y:,.2f}<extra></extra>'
         fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Receber'], name='Receitas', marker_color='#2ecc71', hovertemplate=ttip))
