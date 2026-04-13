@@ -18,7 +18,6 @@ st.markdown("""
             border: 1px solid rgba(128, 128, 128, 0.2);
             padding: 15px; border-radius: 10px;
         }
-        /* Remove bordas extras do Streamlit */
         .stPlotlyChart {border: none !important;}
     </style>
 """, unsafe_allow_html=True)
@@ -71,16 +70,16 @@ def buscar_v2(endpoint, token, params):
         pagina += 1
     return itens_acumulados
 
-# --- 3. BARRA LATERAL (HÍBRIDA) ---
+# --- 3. BARRA LATERAL ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
     st.header("Fluxo de Caixa JRM")
-    # ATUALIZA AUTOMÁTICO NA MUDANÇA DE EMPRESA
+    # Atualiza automático ao trocar empresa
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
     
-    # SÓ ATUALIZA NA DATA SE CLICAR NO BOTÃO
+    # Só atualiza datas ao clicar no botão
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
@@ -112,14 +111,14 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # Métricas
+    # Métricas formatadas (Padrão BR: 1.000,00)
     c1, c2, c3 = st.columns(3)
     fmt_br = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     c1.metric("Total a Receber", fmt_br(df_plot['Receber'].sum()))
     c2.metric("Total a Pagar", fmt_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", fmt_br(df_plot['Saldo'].sum()))
 
-    # Gráfico Corrigido
+    # Gráfico sem Linhas Brancas e Numeração BR
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
@@ -127,26 +126,29 @@ if p_total or r_total:
 
     fig.update_layout(
         hovermode="x unified",
+        separators=",.", # Ponto para milhar, vírgula para decimal
         xaxis=dict(
             type='date',
             tickformat='%d/%m',
             dtick=86400000.0,
             tickangle=-45,
             showgrid=False,
-            showline=False, # Remove a linha branca lateral/base
-            range=[data_ini, data_fim] # Trava o gráfico no período exato
+            showline=False,
+            zeroline=False,
+            range=[data_ini, data_fim] # Trava o gráfico no período selecionado
         ),
         yaxis=dict(
             tickformat=',.2f', 
-            gridcolor='rgba(128,128,128,0.1)',
-            showgrid=False, # Remove as linhas horizontais brancas
-            showline=False   # Remove a linha branca vertical lateral
+            showgrid=False,
+            showline=False,
+            zeroline=True,
+            zerolinecolor='rgba(255,255,255,0.1)' 
         ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
-        margin=dict(l=40, r=20, t=20, b=100),
+        margin=dict(l=20, r=20, t=20, b=80),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.info("Nenhum dado encontrado para o período ou empresa selecionada.")
+    st.info("Nenhum dado encontrado para os filtros selecionados.")
