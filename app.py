@@ -21,7 +21,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. INTEGRAÇÃO ---
+# --- 2. INTEGRAÇÃO CONTA AZUL & GOOGLE SHEETS ---
 try:
     CA_ID = st.secrets["conta_azul"]["client_id"]
     CA_SECRET = st.secrets["conta_azul"]["client_secret"]
@@ -54,12 +54,11 @@ def obter_token(empresa_nome):
         return None
     except: return None
 
-# --- 3. LOGICA DE EXCLUSÃO DE LIQUIDADOS ---
+# --- 3. BUSCA DE DADOS COM CORREÇÃO API V2 ---
 def buscar_dados_filtrados(endpoint, headers, params):
     todos_itens = []
-    # Puxamos TUDO do período para garantir que nada escape, 
-    # e filtramos manualmente para excluir os liquidados.
-    params["situacao"] = "EM_ABERTO" 
+    # Correção 1: Uso do parâmetro 'status' e valores da V2
+    params["status"] = ["EM_ABERTO", "ATRASADO"] 
     params["tamanho_pagina"] = 100
     pagina = 1
     
@@ -71,12 +70,12 @@ def buscar_dados_filtrados(endpoint, headers, params):
         if not itens: break
         
         for item in itens:
-            # CRITÉRIO DE EXCLUSÃO: 
-            # Se tiver valor pago > 0 OU status indicar liquidação, IGNORAMOS.
-            valor_pago = item.get('valor_pago', 0)
-            status = str(item.get('status', '')).upper()
+            # Correção 2: Campo 'pago' (valor já baixado) e 'status_traduzido'
+            pago = item.get('pago', 0)
+            status_txt = str(item.get('status_traduzido', '')).upper()
             
-            if valor_pago == 0 and status not in ['LIQUIDADO', 'BAIXADO', 'PAGO']:
+            # Filtro de segurança para garantir que títulos 'RECEBIDOS' não entrem
+            if pago == 0 and status_txt != 'RECEBIDO':
                 todos_itens.append({
                     "Vencimento": item.get("data_vencimento"),
                     "Valor": item.get("total", 0)
@@ -86,7 +85,7 @@ def buscar_dados_filtrados(endpoint, headers, params):
         pagina += 1
     return todos_itens
 
-# --- 4. INTERFACE ---
+# --- 4. INTERFACE E LÓGICA ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
@@ -103,16 +102,17 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
     token = obter_token(empresa)
     if token:
         headers = {"Authorization": f"Bearer {token}"}
+        # Parâmetros de data conforme especificação da busca
         p = {"data_vencimento_de": data_ini, "data_vencimento_ate": data_fim}
         
-        # Coleta com dupla checagem
+        # Chamadas com os filtros corrigidos
         pagar_list = buscar_dados_filtrados("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers, p)
         receber_list = buscar_dados_filtrados("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers, p)
         
         df_p = pd.DataFrame(pagar_list)
         df_r = pd.DataFrame(receber_list)
         
-        # Gráfico
+        # Montagem do Gráfico
         df_base = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
         val_p = df_p.groupby('Vencimento')['Valor'].sum() if not df_p.empty else pd.Series()
         val_r = df_r.groupby('Vencimento')['Valor'].sum() if not df_r.empty else pd.Series()
@@ -128,6 +128,7 @@ if empresa and (btn_sync or "sync_done" not in st.session_state):
         c2.metric("A Pagar", fmt_br(df_base['Pagar'].sum()))
         c3.metric("Saldo Período", fmt_br(df_base['Saldo'].sum()))
 
+        # Visualização
         fig = go.Figure()
         ttip = 'R$ %{y:,.2f}<extra></extra>'
         fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Receber'], name='Receitas', marker_color='#2ecc71', hovertemplate=ttip))
