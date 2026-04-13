@@ -10,22 +10,26 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS AGRESSIVO para remover o menu e esconder a spikeline via estilo
+# CSS "NUCLEAR" - Seletor direto no SVG do Plotly para matar a linha branca
 st.markdown("""
     <style>
-        /* Remove o Header e o Menu do Streamlit */
-        [data-testid="stHeader"], #MainMenu { display: none !important; }
-        .main .block-container { padding-top: 1rem !important; }
+        /* Remove Header, Menu e Toolbar do Streamlit */
+        [data-testid="stHeader"], #MainMenu, footer { display: none !important; visibility: hidden; }
+        .main .block-container { padding-top: 0rem !important; }
 
-        /* Estilo dos Cards de Métricas */
+        /* Mata a Spikeline no nível do SVG (a linha vertical tracejada) */
+        .spikeline, .cursor-crosshair, .hoverlayer line, .axislines {
+            stroke-width: 0px !important;
+            display: none !important;
+            opacity: 0 !important;
+        }
+
+        /* Estilo dos Cards */
         div[data-testid="stMetric"] {
             background: rgba(128, 128, 128, 0.05); 
             border: 1px solid rgba(128, 128, 128, 0.2);
             padding: 15px; border-radius: 10px;
         }
-
-        /* FORÇA O OCULTAMENTO DA SPIKELINE (LINHA VERTICAL) */
-        .spikeline { stroke-width: 0 !important; display: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -41,7 +45,7 @@ def get_sheet():
     except: return None
 
 def format_br(valor):
-    """Formata para R$ 1.234,56"""
+    """Garante o padrão R$ 1.234,56"""
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 def obter_token(empresa_nome):
@@ -59,8 +63,8 @@ def obter_token(empresa_nome):
             dados = res.json()
             if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
-        return None
-    except: return None
+    except: pass
+    return None
 
 def buscar_v2(endpoint, token, params):
     itens_acumulados = []
@@ -78,27 +82,25 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. BARRA LATERAL ---
+# --- 3. INTERFACE ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
     st.header("Fluxo de Caixa JRM")
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
-    
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
         data_fim = st.date_input("Fim", hoje + timedelta(days=17), format="DD/MM/YYYY")
         st.form_submit_button("Atualizar Datas", type="primary")
 
-# --- 4. PROCESSAMENTO ---
 st.title("Fluxo de Caixa")
 
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
 
-with st.spinner(f"Sincronizando {empresa_sel}..."):
+with st.spinner("Sincronizando dados..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
@@ -117,42 +119,43 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # Métricas
+    # Métricas superiores
     c1, c2, c3 = st.columns(3)
     c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
     c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
 
-    # --- 5. GRÁFICO (REMOÇÃO TOTAL DA SPIKELINE) ---
+    # --- 4. GRÁFICO (REMOÇÃO TOTAL DE SPIKELINES) ---
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
-    fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3)))
+    fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
 
     fig.update_layout(
-        hovermode="closest",
-        separators=",.", # Ponto milhar, Vírgula decimal
-        spikedistance=0, # Desativa detecção de spikeline
-        hoverdistance=100,
+        separators=",.", # Garante Ponto para Milhar e Vírgula para Decimal
+        hovermode="x",
+        hoverdistance=0, 
+        spikedistance=0,
         xaxis=dict(
-            type='date', tickformat='%d/%m', dtick=86400000.0, tickangle=-45,
-            showgrid=False, showline=False, zeroline=False,
-            showspikes=False, # Desativa no eixo
-            spikemode="toaxis", # Força comportamento nulo
-            spikethickness=0    # Espessura zero
+            showgrid=False, showspikes=False, # Desativa explicitamente a linha vertical
+            tickformat='%d/%m', tickangle=-45, dtick=86400000.0,
+            fixedrange=True # Evita zoom acidental que ativa linhas
         ),
         yaxis=dict(
-            tickformat=',.2f', 
-            showgrid=False, showline=False, zeroline=False,
-            showspikes=False,
-            spikethickness=0
+            showgrid=False, showspikes=False, 
+            tickformat=',.2f', # Usa o separador definido (.,)
+            fixedrange=True
         ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
-        margin=dict(l=20, r=20, t=20, b=80),
+        margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    # config={'staticPlot': False} + desativação de ferramentas de seleção
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': False,
+        'showSpikes': False
+    })
 else:
-    st.info("Nenhum dado encontrado.")
+    st.info("Nenhum dado encontrado para os filtros selecionados.")
