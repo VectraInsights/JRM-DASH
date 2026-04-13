@@ -8,40 +8,29 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. CONFIGURAÇÕES E SEGURANÇA ---
+# --- 1. CONFIGURAÇÕES E ESTILO ---
+st.set_page_config(page_title="BPO Dashboard JRM", layout="wide", initial_sidebar_state="collapsed")
+
+st.markdown("""
+    <style>
+        .block-container {padding-top: 1rem !important;}
+        div[data-testid="stMetric"] {
+            background: rgba(128, 128, 128, 0.05); 
+            border: 1px solid rgba(128, 128, 128, 0.2);
+            padding: 15px; border-radius: 10px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. INTEGRAÇÃO CONTA AZUL & GOOGLE SHEETS ---
 try:
     CA_ID = st.secrets["conta_azul"]["client_id"]
     CA_SECRET = st.secrets["conta_azul"]["client_secret"]
     CA_REDIRECT = st.secrets["conta_azul"]["redirect_uri"]
 except:
-    st.error("Erro: Verifique as credenciais no secrets.toml.")
+    st.error("Erro: Credenciais ausentes no secrets.toml.")
     st.stop()
 
-API_BASE_URL = "https://api-v2.contaazul.com" 
-TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
-AUTH_URL = "https://auth.contaazul.com/login"
-
-st.set_page_config(
-    page_title="BPO Dashboard JRM", 
-    layout="wide",
-    initial_sidebar_state="collapsed" 
-)
-
-# --- 2. CSS PARA COMPACTAÇÃO ---
-st.markdown("""
-    <style>
-        .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
-        h1 {margin-top: -45px; margin-bottom: 10px; font-size: 1.8rem !important;}
-        div[data-testid="stMetric"] {
-            padding: 15px; 
-            background: rgba(128, 128, 128, 0.08); 
-            border-radius: 10px;
-            border: 1px solid rgba(128, 128, 128, 0.2);
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- 3. FUNÇÕES DE SUPORTE ---
 @st.cache_resource
 def get_sheet():
     try:
@@ -50,126 +39,106 @@ def get_sheet():
         return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except: return None
 
-def obter_novo_access_token(empresa_nome):
+def obter_token(empresa_nome):
     sh = get_sheet()
     if not sh: return None
     try:
         cell = sh.find(empresa_nome)
-        rt_atual = sh.cell(cell.row, 2).value
+        rt = sh.cell(cell.row, 2).value
         auth_b64 = base64.b64encode(f"{CA_ID}:{CA_SECRET}".encode()).decode()
-        res = requests.post(TOKEN_URL, 
+        res = requests.post("https://auth.contaazul.com/oauth2/token", 
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "refresh_token", "refresh_token": rt_atual})
+            data={"grant_type": "refresh_token", "refresh_token": rt})
         if res.status_code == 200:
             dados = res.json()
-            if dados.get('refresh_token'):
-                sh.update_cell(cell.row, 2, dados['refresh_token'])
+            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
         return None
     except: return None
 
-def buscar_todos_registros(endpoint, headers, params):
+# --- 3. BUSCA DE DADOS COM FILTRO ESTRITO ---
+def buscar_dados_abertos(endpoint, headers, params):
     todos_itens = []
-    params["tamanho_pagina"] = 100 
-    # ADICIONADO: Filtro para trazer apenas títulos em aberto
-    params["situacao"] = "ABERTO" 
+    params["situacao"] = "ABERTO" # Filtro de API
+    params["tamanho_pagina"] = 100
+    pagina = 1
     
-    pagina_atual = 1
-    while True: 
-        params["pagina"] = pagina_atual
-        res = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params)
+    while True:
+        params["pagina"] = pagina
+        res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params)
         if res.status_code != 200: break
         itens = res.json().get('itens', [])
         if not itens: break
-        todos_itens.extend(itens)
-        if len(itens) < 100: break 
-        pagina_atual += 1
+        
+        # Filtro de Segurança Manual
+        for item in itens:
+            status = str(item.get('status', '')).upper()
+            v_pago = item.get('valor_pago', 0)
+            if status not in ['LIQUIDADO', 'BAIXADO', 'PAGO'] and v_pago == 0:
+                todos_itens.append(item)
+                
+        if len(itens) < 100: break
+        pagina += 1
     return todos_itens
 
-# --- 4. LÓGICA DE PERSISTÊNCIA ---
+# --- 4. INTERFACE E LOGICA ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
-if "empresa_ativa" not in st.session_state:
-    st.session_state.empresa_ativa = clientes[0] if clientes else None
-    st.session_state.auto_sync = True 
-else:
-    st.session_state.auto_sync = False
-
-# --- 5. BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Configurações")
-    url_auth = f"{AUTH_URL}?response_type=code&client_id={CA_ID}&redirect_uri={CA_REDIRECT}&state={secrets.token_urlsafe(16)}"
-    st.link_button("🔑 Login Conta Azul", url_auth, use_container_width=True)
-    
-    st.divider()
-    data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
+    st.header("Configurações")
+    data_ini = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
     data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
-    
-    emp_selecionada = st.selectbox("Cliente Ativo", clientes, index=clientes.index(st.session_state.empresa_ativa) if st.session_state.empresa_ativa in clientes else 0)
-    st.session_state.empresa_ativa = emp_selecionada
-    
-    btn_sincronizar = st.button("🔄 Sincronizar agora", use_container_width=True, type="primary")
+    empresa = st.selectbox("Cliente Ativo", clientes)
+    btn_sync = st.button("Sincronizar", type="primary")
 
-# --- 6. EXECUÇÃO ---
 st.title("Painel Financeiro JRM")
 
-if st.session_state.empresa_ativa and (btn_sincronizar or st.session_state.auto_sync):
-    with st.spinner(f"Sincronizando {st.session_state.empresa_ativa}..."):
-        token = obter_novo_access_token(st.session_state.empresa_ativa)
-        if token:
-            headers = {"Authorization": f"Bearer {token}"}
-            p = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
-            
-            itens_p = buscar_todos_registros("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers, p)
-            itens_r = buscar_todos_registros("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers, p)
-            
-            df_plot = pd.DataFrame({'data': pd.date_range(data_inicio, data_fim)})
-            df_p = pd.DataFrame(itens_p)
-            df_r = pd.DataFrame(itens_r)
+if empresa and (btn_sync or "sync_done" not in st.session_state):
+    token = obter_token(empresa)
+    if token:
+        headers = {"Authorization": f"Bearer {token}"}
+        p = {"data_vencimento_de": data_ini, "data_vencimento_ate": data_fim}
+        
+        # Coleta estrita
+        pagar = buscar_dados_abertos("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", headers, p)
+        receber = buscar_dados_abertos("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", headers, p)
+        
+        df_base = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
+        df_p = pd.DataFrame(pagar)
+        df_r = pd.DataFrame(receber)
 
-            val_p = df_p.groupby('data_vencimento')['total'].sum() if not df_p.empty else pd.Series()
-            val_r = df_r.groupby('data_vencimento')['total'].sum() if not df_r.empty else pd.Series()
-            
-            df_plot['Pagar'] = df_plot['data'].dt.strftime('%Y-%m-%d').map(val_p).fillna(0)
-            df_plot['Receber'] = df_plot['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
-            df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
+        val_p = df_p.groupby('data_vencimento')['total'].sum() if not df_p.empty else pd.Series()
+        val_r = df_r.groupby('data_vencimento')['total'].sum() if not df_r.empty else pd.Series()
+        
+        df_base['Pagar'] = df_base['data'].dt.strftime('%Y-%m-%d').map(val_p).fillna(0)
+        df_base['Receber'] = df_base['data'].dt.strftime('%Y-%m-%d').map(val_r).fillna(0)
+        df_base['Saldo'] = df_base['Receber'] - df_base['Pagar']
 
-            # Formatação dos cards superiores para padrão BR
-            c1, c2, c3 = st.columns(3)
-            c1.metric("A Receber", f"R$ {df_plot['Receber'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-            c2.metric("A Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-            c3.metric("Saldo Período", f"R$ {df_plot['Saldo'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+        # Cards com formatação BR
+        c1, c2, c3 = st.columns(3)
+        fmt = lambda x: f"R$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        c1.metric("A Receber", fmt(df_base['Receber'].sum()))
+        c2.metric("A Pagar", fmt(df_base['Pagar'].sum()))
+        c3.metric("Saldo Período", fmt(df_base['Saldo'].sum()))
 
-            # --- GRÁFICO (PADRÃO BR + FILTRO ABERTO) ---
-            fig = go.Figure()
-            hovertemp = 'R$ %{y:,.2f}<extra></extra>'
+        # Gráfico Plotly
+        fig = go.Figure()
+        ttip = 'R$ %{y:,.2f}<extra></extra>'
 
-            fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
-                                 marker_color='#2ecc71', hovertemplate='Receitas: ' + hovertemp))
-            fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
-                                 marker_color='#e74c3c', hovertemplate='Despesas: ' + hovertemp))
-            fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
-                                     line=dict(color='#2C3E50', width=3),
-                                     marker=dict(size=10, symbol='circle', line=dict(width=2, color='white')),
-                                     hovertemplate='Saldo: ' + hovertemp))
+        fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Receber'], name='Receitas', marker_color='#2ecc71', hovertemplate=ttip))
+        fig.add_trace(go.Bar(x=df_base['data'], y=df_base['Pagar'], name='Despesas', marker_color='#e74c3c', hovertemplate=ttip))
+        fig.add_trace(go.Scatter(x=df_base['data'], y=df_base['Saldo'], name='Saldo', line=dict(color='#2C3E50', width=3), hovertemplate=ttip))
 
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-                hovermode="x unified", dragmode=False, height=500,
-                margin=dict(l=70, r=20, t=20, b=100),
-                separators=',.', # Define Milhar como ponto e Decimal como vírgula
-                xaxis=dict(tickformat='%d/%m', showgrid=False, showspikes=False),
-                yaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)', 
-                    zerolinecolor='rgba(128,128,128,0.5)',
-                    tickformat=',.2f', # Valor cheio sem 'k'
-                    showspikes=False   # Remove linha vertical
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={'displayModeBar': False})
-            st.session_state.auto_sync = False
-        else:
-            st.error("Erro na autenticação automática.")
+        fig.update_layout(
+            separators=',.', # Formatação BR
+            hovermode="x unified",
+            xaxis=dict(tickformat='%d/%m', showgrid=False, showspikes=False),
+            yaxis=dict(tickformat=',.2f', gridcolor='rgba(128,128,128,0.1)', showspikes=False),
+            legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
+            margin=dict(l=60, r=20, t=20, b=80),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.session_state.sync_done = True
