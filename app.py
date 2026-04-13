@@ -23,16 +23,24 @@ AUTH_URL = "https://auth.contaazul.com/login"
 
 st.set_page_config(page_title="BPO Dashboard JRM", layout="wide")
 
-# --- 2. CSS PARA COMPACTAÇÃO ---
+# --- 2. CSS PARA AJUSTE DE TEMA E ESPAÇAMENTO ---
 st.markdown("""
     <style>
+        /* Ajuste de margens globais */
         .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
         h1 {margin-top: -45px; margin-bottom: 10px; font-size: 1.8rem !important;}
+        
+        /* Cards com bordas sutis e fundo adaptável */
         div[data-testid="stMetric"] {
             padding: 15px; 
-            background: rgba(128, 128, 128, 0.1); 
+            background: rgba(128, 128, 128, 0.08); 
             border-radius: 10px;
             border: 1px solid rgba(128, 128, 128, 0.2);
+        }
+        
+        /* Garantir que textos da sidebar fiquem visíveis */
+        section[data-testid="stSidebar"] label {
+            font-weight: 600;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -88,19 +96,20 @@ with st.sidebar:
     st.link_button("🔗 Vincular Nova Conta", url_auth, use_container_width=True)
     
     st.divider()
-    data_inicio = st.date_input("Data Inicial", datetime.now(), format="DD/MM/YYYY")
-    data_fim = st.date_input("Data Final", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
+    st.subheader("📅 Período")
+    data_inicio = st.date_input("Início", datetime.now(), format="DD/MM/YYYY")
+    data_fim = st.date_input("Fim", datetime.now() + timedelta(days=7), format="DD/MM/YYYY")
     btn_sincronizar = st.button("🔄 Sincronizar dados", use_container_width=True, type="primary")
     
     sh = get_sheet()
     clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
-    emp_selecionada = st.selectbox("Selecione o Cliente Ativo", clientes)
+    emp_selecionada = st.selectbox("Cliente Ativo", clientes)
 
 # --- 5. DASHBOARD PRINCIPAL ---
 st.title("Painel Financeiro JRM")
 
 if emp_selecionada and btn_sincronizar:
-    with st.spinner(f"Atualizando {emp_selecionada}..."):
+    with st.spinner(f"Processando {emp_selecionada}..."):
         token = obter_novo_access_token(emp_selecionada)
         if token:
             headers = {"Authorization": f"Bearer {token}"}
@@ -125,42 +134,42 @@ if emp_selecionada and btn_sincronizar:
             c2.metric("Total a Pagar", f"R$ {df_plot['Pagar'].sum():,.2f}")
             c3.metric("Saldo do Período", f"R$ {df_plot['Saldo'].sum():,.2f}")
 
-            # --- GRÁFICO FIXO E DE ALTO CONTRASTE ---
+            # --- GRÁFICO ---
             fig = go.Figure()
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
             fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
             fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
-                                     line=dict(color='#2C3E50', width=3),
-                                     marker=dict(size=10, symbol='circle', line=dict(width=2, color='white'))))
+                                     line=dict(color='#5D6D7E', width=3),
+                                     marker=dict(size=10, symbol='circle', line=dict(width=1, color='white'))))
 
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color="#262730"), # Força texto escuro (mais nítido)
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#262730")),
+                # Legenda posicionada abaixo do gráfico
+                legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
                 hovermode="x unified",
-                dragmode=False, # TRAVA O GRÁFICO (IMPEDE MOVER/ARRASTAR)
+                dragmode=False, # Impede o arraste (estático)
+                # Configuração dos eixos para evitar cortes e garantir visibilidade
                 xaxis=dict(
                     tickformat='%d/%m', 
                     showgrid=False,
-                    tickfont=dict(color="#262730", size=12),
-                    linecolor='#ABB2B9' # Linha de base visível
+                    automargin=True,
+                    tickangle=0
                 ),
                 yaxis=dict(
-                    gridcolor='rgba(0,0,0,0.1)', 
-                    zerolinecolor='#2C3E50', # Linha do zero bem marcada
-                    tickfont=dict(color="#262730", size=12)
+                    gridcolor='rgba(128,128,128,0.2)',
+                    zerolinecolor='rgba(128,128,128,0.5)',
+                    automargin=True
                 ),
-                height=450,
-                margin=dict(l=10, r=10, t=10, b=10)
+                height=500,
+                margin=dict(l=50, r=20, t=20, b=100) # Margem inferior maior para a legenda e datas
             )
             
-            # config={'staticPlot': False, 'scrollZoom': False} remove as ferramentas de zoom/arraste
-            st.plotly_chart(fig, use_container_width=True, theme=None, config={
-                'displayModeBar': False, 
-                'staticPlot': False, 
+            # theme="streamlit" faz com que as cores das fontes (datas/lateral) mudem conforme o modo
+            st.plotly_chart(fig, use_container_width=True, theme="streamlit", config={
+                'displayModeBar': False, # Remove a barra de ferramentas
                 'scrollZoom': False,
-                'doubleClick': False
+                'staticPlot': False # Mantém o hover mas trava o movimento
             })
         else:
-            st.error("Erro de autenticação.")
+            st.error("Erro ao autenticar. Verifique o acesso à Conta Azul.")
