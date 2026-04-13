@@ -7,12 +7,12 @@ import secrets
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. CONFIGURAÇÕES (VIA SECRETS) ---
+# --- 1. CONFIGURAÇÕES ---
 CA_ID = st.secrets["conta_azul"]["client_id"]
 CA_SECRET = st.secrets["conta_azul"]["client_secret"]
 CA_REDIRECT = st.secrets["conta_azul"]["redirect_uri"]
 
-# ENDPOINT CORRIGIDO: Sem "/api" e sem barra no final
+# URL BASE CORRIGIDA (Sem /api e sem barra final)
 AUTH_URL = "https://auth.contaazul.com/login"
 TOKEN_URL = "https://auth.contaazul.com/oauth2/token"
 API_BASE_URL = "https://api-v2.contaazul.com" 
@@ -32,6 +32,7 @@ def get_sheet():
         return None
 
 def salvar_refresh_token(empresa, refresh_token):
+    """Busca empresa e atualiza se existir; caso contrário, cria nova linha."""
     sh = get_sheet()
     if not sh: return
     try:
@@ -45,10 +46,10 @@ def salvar_refresh_token(empresa, refresh_token):
         
         if linha_index > 0:
             sh.update_cell(linha_index, 2, refresh_token)
-            st.toast(f"🔄 Token de '{empresa}' atualizado!")
+            st.toast(f"🔄 Token de '{empresa}' atualizado na planilha!")
         else:
             sh.append_row([empresa, refresh_token])
-            st.toast(f"✨ '{empresa}' cadastrada!")
+            st.toast(f"✨ Nova empresa '{empresa}' cadastrada!")
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
@@ -81,7 +82,7 @@ def obter_novo_access_token(empresa_nome):
     except:
         return None
 
-# --- 4. INTERFACE LATERAL ---
+# --- 4. INTERFACE LATERAL (SIDEBAR) ---
 
 with st.sidebar:
     st.header("⚙️ Configurações")
@@ -95,7 +96,7 @@ with st.sidebar:
     params_url = st.query_params
     if "code" in params_url:
         st.divider()
-        nome_input = st.text_input("Identificação do Cliente", placeholder="Ex: JTL")
+        nome_input = st.text_input("Nome do Cliente (ex: JTL)", placeholder="Digite aqui")
         if st.button("Finalizar Vínculo"):
             auth_b64 = base64.b64encode(f"{CA_ID}:{CA_SECRET}".encode()).decode()
             res = requests.post(TOKEN_URL, 
@@ -124,7 +125,7 @@ with st.sidebar:
                 df_pl.columns = [c.strip().lower() for c in df_pl.columns]
                 if 'empresa' in df_pl.columns:
                     lista = df_pl['empresa'].unique().tolist()
-                    emp_selecionada = st.selectbox("Cliente Ativo", lista)
+                    emp_selecionada = st.selectbox("Selecione o Cliente", lista)
         except:
             pass
 
@@ -138,36 +139,31 @@ if emp_selecionada and st.button("🔄 Sincronizar Dados", use_container_width=T
     if token:
         headers = {"Authorization": f"Bearer {token}"}
         
-        # DEFINA AS DATAS (obrigatórias na API v2)
-        # Exemplo: busca os últimos 30 dias e os próximos 30
-        data_ini = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-        data_fim = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-        
+        # Filtros de data OBRIGATÓRIOS
         params_api = {
-            "data_vencimento_de": data_ini,
-            "data_vencimento_ate": data_fim,
+            "data_vencimento_de": (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'),
+            "data_vencimento_ate": (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d'),
+            "pagina": 1,
             "tamanho_pagina": 100
         }
         
-        # CHAMADA CORRETA: Sem o prefixo /api e com params
-        res = requests.get(
-            f"{API_BASE_URL}/v1/financeiro/contas-a-pagar", 
-            headers=headers, 
-            params=params_api
-        )
+        # ENDPOINT DE BUSCA DA NOVA API (V2)
+        url_busca = f"{API_BASE_URL}/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar"
+        
+        res = requests.get(url_busca, headers=headers, params=params_api)
         
         if res.status_code == 200:
             dados_api = res.json().get('itens', [])
-            df_final = pd.DataFrame(dados_api)
-            
-            if not df_final.empty:
-                # Na v2, o campo valor líquido é 'valor_liquido_total'
-                col_soma = 'valor_liquido_total' if 'valor_liquido_total' in df_final.columns else 'valor'
-                st.metric("Total a Pagar (Período)", f"R$ {df_final[col_soma].sum():,.2f}")
+            if dados_api:
+                df_final = pd.DataFrame(dados_api)
+                # O campo de valor na API de busca é geralmente 'total'
+                col_valor = 'total' if 'total' in df_final.columns else 'valor'
+                
+                st.metric("Total a Pagar (Período)", f"R$ {df_final[col_valor].sum():,.2f}")
                 st.dataframe(df_final, use_container_width=True)
             else:
-                st.info(f"Nenhum dado encontrado entre {data_ini} e {data_fim}.")
+                st.info("Nenhum lançamento encontrado para os últimos/próximos 30 dias.")
         else:
-            st.error(f"Erro na API ({res.status_code}): {res.text}")
+            st.error(f"Erro {res.status_code}: {res.text}")
     else:
-        st.error("Falha na renovação do token. Verifique o login.")
+        st.error("Falha na autenticação. Tente o login novamente.")
