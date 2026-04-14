@@ -13,27 +13,35 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
 st.markdown("""
     <style>
-        /* 1. Esconde especificamente os botões de Fork e GitHub sem matar o Header */
-        .stAppDeployButton {
-            display: none !important;
-        }
-        
-        /* 2. Mantém o Header transparente para o botão de ferramentas (3 pontinhos) aparecer */
-        [data-testid="stHeader"] {
-            background-color: rgba(0,0,0,0) !important;
-            color: white !important;
+        /* Esconde Fork, GitHub e Status no topo */
+        .stAppDeployButton, 
+        [data-testid="stStatusWidget"],
+        .st-emotion-cache-12fmjuu { 
+            display: none !important; 
         }
 
-        /* 3. Garante que as informações ao passar o mouse (Plotly Tooltips) funcionem */
-        .js-plotly-plot .plotly .hoverlayer {
-            z-index: 9999 !important;
+        /* Esconde os ícones e o rodapé no canto inferior direito */
+        footer, 
+        [data-testid="stConnectionStatus"],
+        .st-emotion-cache-zq59db { 
+            display: none !important; 
+        }
+
+        /* Remove o fundo do Header mas mantém o clique nos 3 pontinhos */
+        [data-testid="stHeader"] {
+            background: transparent !important;
+            pointer-events: none; /* Deixa o mouse passar através do header para o gráfico */
         }
         
-        /* 4. Remove o rodapé e o menu principal (opcional, já que quer os 3 pontinhos) */
-        footer { visibility: hidden; }
-        
-        /* Ajuste de espaçamento do topo */
-        .main .block-container { padding-top: 1rem !important; }
+        /* Reativa o clique APENAS nos botões do header (3 pontinhos) */
+        [data-testid="stHeader"] button {
+            pointer-events: auto;
+        }
+
+        /* Garante que o gráfico (Plotly) seja a camada prioritária para o mouse */
+        .js-plotly-plot {
+            z-index: 1;
+        }
     </style>
 """, unsafe_allow_html=True)
 
