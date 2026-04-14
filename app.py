@@ -13,15 +13,7 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
 st.markdown("""
     <style>
-        /* 1. ESCONDE O AVATAR E A COROA (SUPERIOR DIREITO) */
-        /* Ataca o data-testid do avatar e qualquer classe que comece com '_profileImage' ou '_link' */
-        [data-testid="appCreatorAvatar"],
-        img[class*="_profileImage_"],
-        div[class*="_link_"] {
-            display: none !important;
-        }
-
-        /* 2. ESCONDE O FORK E O GITHUB (TOPO) */
+        /* 1. O QUE JÁ ESTAVA FUNCIONANDO (Fork e GitHub) */
         .stAppDeployButton, 
         [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
@@ -29,29 +21,36 @@ st.markdown("""
             display: none !important;
         }
 
-        /* 3. ESCONDE O RODAPÉ E SELOS (INFERIOR DIREITO) */
-        footer, 
+        /* 2. ESCONDE O AVATAR E A COROA (Pelo data-testid que você extraiu) */
+        /* Em vez de 'display: none', vamos zerar o tamanho e a opacidade */
+        [data-testid="appCreatorAvatar"],
+        div[class*="_link_gzau3_"] {
+            opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            pointer-events: none !important;
+        }
+
+        /* 3. LIMPEZA DO RODAPÉ (Os selos inferiores) */
         [data-testid="stViewerBadge"],
-        [data-testid="stStatusWidget"],
-        [data-testid="stConnectionStatus"] {
+        footer {
             display: none !important;
         }
 
-        /* 4. LIMPEZA E INTERAÇÃO DO GRÁFICO */
-        /* Deixa o header transparente e permite que o mouse "atravesse" ele */
+        /* 4. PROTEÇÃO DO GRÁFICO E BARRA LATERAL */
         [data-testid="stHeader"] {
-            background-color: transparent !important;
-            pointer-events: none;
+            background: transparent !important;
+            /* pointer-events: none aqui pode quebrar o hover se o header for muito alto */
         }
-
-        /* Reativa o mouse APENAS para o botão de abrir a barra lateral */
+        
+        /* Garante que o botão da Sidebar e os 3 pontinhos continuem clicáveis */
         button[data-testid="stSidebarCollapse"],
-        [data-testid="stHeader"] button {
-            pointer-events: auto !important;
+        button[kind="header"] {
             visibility: visible !important;
+            pointer-events: auto !important;
         }
 
-        /* Garante que o balão de informações do gráfico fique sempre visível */
+        /* Força os tooltips do gráfico para a frente */
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
