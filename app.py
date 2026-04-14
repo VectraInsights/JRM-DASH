@@ -147,26 +147,30 @@ if p_total or r_total:
     ))
 
     fig.update_layout(
+        hovermode="x unified", # O SEGREDO PARA O BALÃO ÚNICO ESTÁ AQUI
         separators=",.",
-        hovermode="x",
-        hoverdistance=0,
-        spikedistance=0, # Garante que o spike não seja detectado
         xaxis=dict(
             showgrid=False, 
-            showspikes=False, # Desativa no eixo X
-            fixedrange=True,
-            tickformat='%d/%m', tickangle=-45
+            showspikes=False, 
+            fixedrange=True, 
+            tickformat='%d/%m', 
+            tickangle=-45
         ),
         yaxis=dict(
             showgrid=False, 
-            showspikes=False, # Desativa no eixo Y
-            fixedrange=True,
+            showspikes=False, 
+            fixedrange=True, 
             tickformat=',.2f'
         ),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
+        plot_bgcolor='rgba(0,0,0,0)',
+        hoverlabel=dict(
+            bgcolor="#2b2b2b", # Cor de fundo do balão (escuro)
+            font_size=14,
+            font_family="Arial"
+        )
     )
     
     # CONFIG REFORÇADA: Desativa explicitamente os spikes na renderização
