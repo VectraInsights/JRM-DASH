@@ -11,37 +11,29 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
 # CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
-st.markdown("""
-    <style>
-        /* 1. LIMPEZA DO CANTO INFERIOR ("Hosted with Streamlit" e "Created by") */
-        /* Ataca diretamente os links e o badge do Streamlit Cloud */
-        a[href^="https://streamlit.io/cloud"], 
-        [data-testid="stViewerBadge"] {
-            display: none !important;
-        }
-        
-        /* Remove o espaço do rodapé */
-        footer { display: none !important; }
+import streamlit as st
 
-        /* 2. LIMPEZA DO TOPO (FORK e GITHUB) */
-        /* Esconde o ícone do GitHub (qualquer link dentro da barra de ferramentas) */
-        [data-testid="stToolbar"] a {
-            display: none !important;
-        }
-        
-        /* Esconde o botão de Deploy/Fork (cobre as versões novas e antigas) */
+# CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
+hide_style = """
+    <style>
+        /* 1. Esconde o botão de Deploy/Fork e o ícone do GitHub no topo */
+        [data-testid="stToolbar"] a, 
         .stAppDeployButton, 
         [data-testid="stDeployButton"] {
             display: none !important;
         }
-
-        /* 3. ESTÉTICA DO CABEÇALHO */
-        /* Deixa o fundo transparente para ficar limpo */
-        [data-testid="stHeader"] {
-            background-color: transparent !important;
-        }
+        
+        /* 2. Remove o selo "Hosted with Streamlit" e o rodapé completo */
+        footer {display: none !important;}
+        [data-testid="stViewerBadge"] {display: none !important;}
+        
+        /* 3. Garante que o cabeçalho não bloqueie cliques mas fique invisível */
+        header {visibility: hidden !important;}
+        [data-testid="stHeader"] {background-color: transparent !important;}
     </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(hide_style, unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
