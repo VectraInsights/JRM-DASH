@@ -13,6 +13,39 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
 import streamlit as st
 
+import streamlit as st
+
+st.markdown("""
+    <style>
+        /* 1. ESCONDE O ÍCONE DO GITHUB (BOTÃO DE AÇÃO) */
+        /* Usamos o seletor que você encontrou no F12 */
+        [data-testid="stToolbarActionButtonIcon"] {
+            display: none !important;
+        }
+        
+        /* Remove o botão pai (o container do botão que você enviou) */
+        button[data-testid="stBaseButton-header"] {
+            display: none !important;
+        }
+
+        /* 2. ESCONDE O BOTÃO DE FORK / DEPLOY */
+        .stAppDeployButton, 
+        [data-testid="stDeployButton"] {
+            display: none !important;
+        }
+
+        /* 3. LIMPEZA DO RODAPÉ (OPCIONAL) */
+        footer {display: none !important;}
+        [data-testid="stViewerBadge"] {display: none !important;}
+        
+        /* 4. MANTÉM O CABEÇALHO TRANSPARENTE */
+        /* Isso garante que o botão da barra lateral (hambúrguer) continue visível */
+        header[data-testid="stHeader"] {
+            background-color: rgba(0,0,0,0) !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
 @st.cache_resource
