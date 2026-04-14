@@ -13,24 +13,27 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
 st.markdown("""
     <style>
-        /* Esconde o botão de Fork e o ícone do GitHub */
-        .stAppDeployButton, 
-        [data-testid="stStatusWidget"] {
+        /* 1. Esconde especificamente os botões de Fork e GitHub sem matar o Header */
+        .stAppDeployButton {
             display: none !important;
         }
-
-        /* Mantém o cabeçalho mas remove o fundo dele para ficar limpo */
+        
+        /* 2. Mantém o Header transparente para o botão de ferramentas (3 pontinhos) aparecer */
         [data-testid="stHeader"] {
             background-color: rgba(0,0,0,0) !important;
+            color: white !important;
         }
 
-        /* Garante que os três pontinhos (botão de ferramentas) fiquem visíveis */
-        button[kind="header"] {
-            visibility: visible !important;
+        /* 3. Garante que as informações ao passar o mouse (Plotly Tooltips) funcionem */
+        .js-plotly-plot .plotly .hoverlayer {
+            z-index: 9999 !important;
         }
-
-        /* Esconde o menu original do Streamlit e rodapé se ainda sobrarem */
-        #MainMenu, footer { display: none !important; }
+        
+        /* 4. Remove o rodapé e o menu principal (opcional, já que quer os 3 pontinhos) */
+        footer { visibility: hidden; }
+        
+        /* Ajuste de espaçamento do topo */
+        .main .block-container { padding-top: 1rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
