@@ -22,11 +22,7 @@ hide_style = """
         [data-testid="stDeployButton"] {
             display: none !important;
         }
-        
-        /* 2. Remove o selo "Hosted with Streamlit" e o rodapé completo */
-        footer {display: none !important;}
-        [data-testid="stViewerBadge"] {display: none !important;}
-        
+             
         /* 3. Garante que o cabeçalho não bloqueie cliques mas fique invisível */
         header {visibility: hidden !important;}
         [data-testid="stHeader"] {background-color: transparent !important;}
