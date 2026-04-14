@@ -45,8 +45,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown(hide_style, unsafe_allow_html=True)
-
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
 @st.cache_resource
