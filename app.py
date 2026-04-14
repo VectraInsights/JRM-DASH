@@ -13,29 +13,24 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
 st.markdown("""
     <style>
-        /* Esconde apenas o fundo e elementos desnecessários do header, mas não o botão */
-        [data-testid="stHeader"] {
-            background-color: rgba(0,0,0,0);
-            color: white;
-        }
-        
-        /* Esconde o menu original e o rodapé */
-        #MainMenu, footer { display: none !important; }
-        
-        .main .block-container { padding-top: 2rem !important; }
-
-        /* Remove linhas de hover no gráfico */
-        .hoverlayer line, .spikeline, .axislines {
+        /* Esconde o botão de Fork e o ícone do GitHub */
+        .stAppDeployButton, 
+        [data-testid="stStatusWidget"] {
             display: none !important;
-            stroke-width: 0px !important;
-            opacity: 0 !important;
         }
-        
-        div[data-testid="stMetric"] {
-            background: rgba(128, 128, 128, 0.05); 
-            border: 1px solid rgba(128, 128, 128, 0.2);
-            padding: 15px; border-radius: 10px;
+
+        /* Mantém o cabeçalho mas remove o fundo dele para ficar limpo */
+        [data-testid="stHeader"] {
+            background-color: rgba(0,0,0,0) !important;
         }
+
+        /* Garante que os três pontinhos (botão de ferramentas) fiquem visíveis */
+        button[kind="header"] {
+            visibility: visible !important;
+        }
+
+        /* Esconde o menu original do Streamlit e rodapé se ainda sobrarem */
+        #MainMenu, footer { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,7 +104,7 @@ with st.sidebar:
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
-        data_fim = st.date_input("Fim", hoje + timedelta(days=17), format="DD/MM/YYYY")
+        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
         st.form_submit_button("Atualizar Datas", type="primary")
 
 st.title("Fluxo de Caixa")
