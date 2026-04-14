@@ -22,11 +22,6 @@ hide_style = """
         [data-testid="stDeployButton"] {
             display: none !important;
         }
-             
-        /* 3. Garante que o cabeçalho não bloqueie cliques mas fique invisível */
-        header {visibility: hidden !important;}
-        [data-testid="stHeader"] {background-color: transparent !important;}
-    </style>
 """
 
 st.markdown(hide_style, unsafe_allow_html=True)
