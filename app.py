@@ -34,19 +34,24 @@ st.markdown("""
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
 @st.cache_resource
+@st.cache_resource
 def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds_info = st.secrets["google_sheets"]
+        
+        # Criamos uma cópia editável dos segredos para evitar o erro de atribuição
+        creds_info = st.secrets["google_sheets"].to_dict()
+        
+        # Agora podemos modificar a cópia sem problemas
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         
-        # Tente abrir e retorne o erro no log se falhar
-        return client.open_by_url("SUA_URL_AQUI").sheet1
+        # Tente abrir a planilha pelo link
+        return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        # ISSO VAI MOSTRAR O ERRO REAL NO LOG DO STREAMLIT
-        st.error(f"Erro na conexão: {e}")
+        st.error(f"Erro real detectado: {e}")
         return None
 
 def format_br(valor):
