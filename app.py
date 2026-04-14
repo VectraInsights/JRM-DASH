@@ -13,35 +13,46 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
 import streamlit as st
 
-import streamlit as st
-
 st.markdown("""
     <style>
-        /* 1. ESCONDE O ÍCONE DO GITHUB (BOTÃO DE AÇÃO) */
-        /* Usamos o seletor que você encontrou no F12 */
-        [data-testid="stToolbarActionButtonIcon"] {
-            display: none !important;
-        }
-        
-        /* Remove o botão pai (o container do botão que você enviou) */
+        /* 1. TOPO: Esconde Fork, GitHub e Botões de Ação extras */
+        .stAppDeployButton, 
+        [data-testid="stDeployButton"],
+        [data-testid="stToolbarActionButtonIcon"],
         button[data-testid="stBaseButton-header"] {
             display: none !important;
         }
 
-        /* 2. ESCONDE O BOTÃO DE FORK / DEPLOY */
-        .stAppDeployButton, 
-        [data-testid="stDeployButton"] {
+        /* 2. CANTO SUPERIOR DIREITO: Esconde seu Avatar e ícones de perfil */
+        [data-testid="appCreatorAvatar"],
+        div[class*="_link_gzau3_"] {
+            display: some !important;
+        }
+
+        /* 3. CANTO INFERIOR DIREITO: Esconde selos do Streamlit e Status */
+        footer, 
+        [data-testid="stViewerBadge"],
+        [data-testid="stStatusWidget"],
+        [data-testid="stConnectionStatus"] {
             display: none !important;
         }
 
-        /* 3. LIMPEZA DO RODAPÉ (OPCIONAL) */
-        footer {display: none !important;}
-        [data-testid="stViewerBadge"] {display: none !important;}
-        
-        /* 4. MANTÉM O CABEÇALHO TRANSPARENTE */
-        /* Isso garante que o botão da barra lateral (hambúrguer) continue visível */
-        header[data-testid="stHeader"] {
-            background-color: rgba(0,0,0,0) !important;
+        /* 4. ESTRUTURA: Cabeçalho invisível que NÃO bloqueia o mouse no gráfico */
+        [data-testid="stHeader"] {
+            background-color: transparent !important;
+            pointer-events: none;
+        }
+
+        /* Reativa o clique APENAS para o botão da Barra Lateral (hambúrguer) */
+        [data-testid="stHeader"] button,
+        button[data-testid="stSidebarCollapse"] {
+            pointer-events: auto !important;
+            visibility: visible !important;
+        }
+
+        /* 5. GRÁFICO: Garante que as informações (tooltips) fiquem na frente de tudo */
+        .js-plotly-plot .plotly .hoverlayer {
+            z-index: 9999 !important;
         }
     </style>
 """, unsafe_allow_html=True)
