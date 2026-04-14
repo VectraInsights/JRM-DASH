@@ -13,45 +13,47 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
 st.markdown("""
     <style>
-        /* 1. ESCONDE O AVATAR E A COROA (SUPERIOR DIREITO) */
-        /* Ataca o data-testid do avatar e qualquer classe que comece com '_profileImage' ou '_link' */
-        [data-testid="appCreatorAvatar"],
-        img[class*="_profileImage_"],
-        div[class*="_link_"] {
-            display: none !important;
-        }
-
-        /* 2. ESCONDE O FORK E O GITHUB (TOPO) */
-        .stAppDeployButton, 
-        [data-testid="stDeployButton"],
-        [data-testid="stToolbarActionButtonIcon"],
-        button[data-testid="stBaseButton-header"] {
-            display: none !important;
-        }
-
-        /* 3. ESCONDE O RODAPÉ E SELOS (INFERIOR DIREITO) */
-        footer, 
-        [data-testid="stViewerBadge"],
+        /* 1. MOVE TUDO O QUE SOBROU PARA FORA DA TELA */
+        /* Isso ataca o Avatar, a Coroa, o Fork e o Status de uma vez só */
+        [data-testid="stToolbar"],
         [data-testid="stStatusWidget"],
-        [data-testid="stConnectionStatus"] {
+        [data-testid="stViewerBadge"],
+        .stAppDeployButton,
+        div[class*="_profileImage_"],
+        div[class*="_link_"] {
+            position: absolute !important;
+            left: -3000px !important;
             display: none !important;
+            visibility: hidden !important;
         }
 
-        /* 4. LIMPEZA E INTERAÇÃO DO GRÁFICO */
-        /* Deixa o header transparente e permite que o mouse "atravesse" ele */
+        /* 2. RECUPERA OS TRÊS PONTINHOS */
+        /* O menu de sistema é essencial, então forçamos ele de volta ao lugar */
+        [data-testid="stToolbar"] button:last-child {
+            position: fixed !important;
+            left: auto !important;
+            right: 10px !important;
+            top: 5px !important;
+            display: flex !important;
+            visibility: visible !important;
+            z-index: 999999 !important;
+        }
+
+        /* 3. LIMPEZA DO RODAPÉ */
+        footer { display: none !important; }
+
+        /* 4. PROTEÇÃO DO GRÁFICO E BARRA LATERAL */
         [data-testid="stHeader"] {
-            background-color: transparent !important;
+            background: transparent !important;
             pointer-events: none;
         }
-
-        /* Reativa o mouse APENAS para o botão de abrir a barra lateral */
-        button[data-testid="stSidebarCollapse"],
-        [data-testid="stHeader"] button {
+        
+        button[data-testid="stSidebarCollapse"] {
             pointer-events: auto !important;
             visibility: visible !important;
         }
 
-        /* Garante que o balão de informações do gráfico fique sempre visível */
+        /* Garante que o hover do gráfico (tooltips) funcione */
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
