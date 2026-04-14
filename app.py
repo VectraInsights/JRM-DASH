@@ -10,6 +10,43 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
+# CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
+st.markdown("""
+    <style>
+        /* 1. Esconde especificamente o botão de Fork/Deploy e o ícone do GitHub */
+        .stAppDeployButton, 
+        [data-testid="stActionButtonIcon"],
+        [data-testid="stStatusWidget"] { 
+            display: none !important; 
+        }
+
+        /* 2. Remove os ícones do canto inferior direito (Status e Made with Streamlit) */
+        [data-testid="stConnectionStatus"],
+        [data-testid="stDecoration"],
+        footer { 
+            display: none !important; 
+        }
+
+        /* 3. LIBERA O MOUSE PARA O GRÁFICO */
+        /* Deixamos o header invisível e "atravessável" pelo mouse */
+        [data-testid="stHeader"] {
+            background: transparent !important;
+            pointer-events: none;
+        }
+        
+        /* Reativa o mouse apenas para os 3 pontinhos */
+        [data-testid="stHeader"] > div:first-child,
+        [data-testid="stToolbar"] {
+            pointer-events: auto !important;
+        }
+
+        /* Força o gráfico a aceitar o mouse */
+        .js-plotly-plot .plotly .hoverlayer {
+            z-index: 9999 !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
 @st.cache_resource
