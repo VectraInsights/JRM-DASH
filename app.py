@@ -10,7 +10,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS REFORÇADO - Bloqueia a renderização de linhas de hover no SVG
 st.markdown("""
     <style>
         [data-testid="stHeader"], #MainMenu, footer { display: none !important; }
@@ -121,51 +120,26 @@ if p_total or r_total:
     c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
     c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
 
-    # --- 4. GRÁFICO (TRAVAS ADICIONAIS) ---
+    # --- 4. GRÁFICO ---
     fig = go.Figure()
     
-    # Trava em cada TRACE individualmente
-    fig.add_trace(go.Bar(
-        x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
-        marker_color='#2ecc71', showlegend=True
-    ))
-    fig.add_trace(go.Bar(
-        x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
-        marker_color='#e74c3c'
-    ))
-    fig.add_trace(go.Scatter(
-        x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
-        line=dict(color='#34495e', width=3), mode='lines+markers'
-    ))
+    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71', showlegend=True))
+    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+    fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3), mode='lines+markers'))
 
     fig.update_layout(
         separators=",.",
         hovermode="x",
         hoverdistance=0,
-        spikedistance=0, # Garante que o spike não seja detectado
-        xaxis=dict(
-            showgrid=False, 
-            showspikes=False, # Desativa no eixo X
-            fixedrange=True,
-            tickformat='%d/%m', tickangle=-45
-        ),
-        yaxis=dict(
-            showgrid=False, 
-            showspikes=False, # Desativa no eixo Y
-            fixedrange=True,
-            tickformat=',.2f'
-        ),
+        spikedistance=0,
+        xaxis=dict(showgrid=False, showspikes=False, fixedrange=True, tickformat='%d/%m', tickangle=-45),
+        yaxis=dict(showgrid=False, showspikes=False, fixedrange=True, tickformat=',.2f'),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
     
-    # CONFIG REFORÇADA: Desativa explicitamente os spikes na renderização
-    st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': False,
-        'showSpikes': False,
-        'responsive': True
-    })
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'showSpikes': False, 'responsive': True})
 else:
     st.info("Nenhum dado encontrado.")
