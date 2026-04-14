@@ -10,13 +10,21 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS REFORÇADO - Bloqueia a renderização de linhas de hover no SVG
+# CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
 st.markdown("""
     <style>
-        [data-testid="stHeader"], #MainMenu, footer { display: none !important; }
-        .main .block-container { padding-top: 0rem !important; }
+        /* Esconde apenas o fundo e elementos desnecessários do header, mas não o botão */
+        [data-testid="stHeader"] {
+            background-color: rgba(0,0,0,0);
+            color: white;
+        }
+        
+        /* Esconde o menu original e o rodapé */
+        #MainMenu, footer { display: none !important; }
+        
+        .main .block-container { padding-top: 2rem !important; }
 
-        /* MATA QUALQUER LINHA DE HOVER NO SVG */
+        /* Remove linhas de hover no gráfico */
         .hoverlayer line, .spikeline, .axislines {
             display: none !important;
             stroke-width: 0px !important;
