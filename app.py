@@ -43,6 +43,20 @@ def get_sheet():
         return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
         return None
+        
+        # TESTE DE CONEXÃO (Adicione isso para ver o erro real)
+with st.expander("Debug de Conexão"):
+    try:
+        if "google_sheets" not in st.secrets:
+            st.error("A seção [google_sheets] não foi encontrada no Secrets.")
+        else:
+            test_sheet = get_sheet()
+            if test_sheet:
+                st.success("Conexão com Google Sheets: OK!")
+            else:
+                st.error("get_sheet() retornou None. Verifique as permissões do e-mail no Google Drive.")
+    except Exception as e:
+        st.exception(e)
 
 def format_br(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
