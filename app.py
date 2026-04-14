@@ -10,40 +10,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
-import streamlit as st
-
 # CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
 import streamlit as st
-
-st.markdown("""
-    <style>
-        /* 1. ESCONDE ESPECIFICAMENTE O GITHUB E O FORK NO TOPO */
-        /* O seletor 'header a' pega apenas links (GitHub/Fork) no cabeçalho */
-        header[data-testid="stHeader"] a {
-            display: none !important;
-        }
-
-        /* 2. MANTÉM O CABEÇALHO TRANSPARENTE MAS CLICÁVEL */
-        /* Usamos visibility: visible para não matar o botão da sidebar */
-        header[data-testid="stHeader"] {
-            background-color: rgba(0,0,0,0) !important;
-            color: transparent !important;
-        }
-
-        /* 3. REMOVE O RODAPÉ E OS SELOS "HOSTED WITH STREAMLIT" */
-        /* Ataca o seletor de teste e o rodapé padrão */
-        [data-testid="stViewerBadge"], 
-        footer {
-            display: none !important;
-        }
-
-        /* 4. AJUSTE DE MARGEM PARA O GRÁFICO NÃO SUBIR DEMAIS */
-        .main .block-container {
-            padding-top: 2rem !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
