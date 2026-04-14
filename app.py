@@ -11,11 +11,17 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
 # CSS atualizado para esconder o Fork, GitHub e o selo do rodapé
-import streamlit as st
-
 st.markdown("""
     <style>
-        /* 1. TOPO: Esconde Fork, GitHub e Botões de Ação extras */
+        /* 1. ESCONDE O AVATAR E A COROA (SUPERIOR DIREITO) */
+        /* Ataca o data-testid do avatar e qualquer classe que comece com '_profileImage' ou '_link' */
+        [data-testid="appCreatorAvatar"],
+        img[class*="_profileImage_"],
+        div[class*="_link_"] {
+            display: none !important;
+        }
+
+        /* 2. ESCONDE O FORK E O GITHUB (TOPO) */
         .stAppDeployButton, 
         [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
@@ -23,13 +29,7 @@ st.markdown("""
             display: none !important;
         }
 
-        /* 2. CANTO SUPERIOR DIREITO: Esconde seu Avatar e ícones de perfil */
-        [data-testid="appCreatorAvatar"],
-        div[class*="_link_gzau3_"] {
-            display: some !important;
-        }
-
-        /* 3. CANTO INFERIOR DIREITO: Esconde selos do Streamlit e Status */
+        /* 3. ESCONDE O RODAPÉ E SELOS (INFERIOR DIREITO) */
         footer, 
         [data-testid="stViewerBadge"],
         [data-testid="stStatusWidget"],
@@ -37,20 +37,21 @@ st.markdown("""
             display: none !important;
         }
 
-        /* 4. ESTRUTURA: Cabeçalho invisível que NÃO bloqueia o mouse no gráfico */
+        /* 4. LIMPEZA E INTERAÇÃO DO GRÁFICO */
+        /* Deixa o header transparente e permite que o mouse "atravesse" ele */
         [data-testid="stHeader"] {
             background-color: transparent !important;
             pointer-events: none;
         }
 
-        /* Reativa o clique APENAS para o botão da Barra Lateral (hambúrguer) */
-        [data-testid="stHeader"] button,
-        button[data-testid="stSidebarCollapse"] {
+        /* Reativa o mouse APENAS para o botão de abrir a barra lateral */
+        button[data-testid="stSidebarCollapse"],
+        [data-testid="stHeader"] button {
             pointer-events: auto !important;
             visibility: visible !important;
         }
 
-        /* 5. GRÁFICO: Garante que as informações (tooltips) fiquem na frente de tudo */
+        /* Garante que o balão de informações do gráfico fique sempre visível */
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
