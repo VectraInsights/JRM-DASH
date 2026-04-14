@@ -13,17 +13,33 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS AJUSTADO - Esconde o lixo mas mantém o botão da sidebar
 st.markdown("""
     <style>
-        /* 1. Esconde o botão de Deploy/Fork */
-        .stAppDeployButton { display: none !important; }
+        /* 1. LIMPEZA DO CANTO INFERIOR ("Hosted with Streamlit" e "Created by") */
+        /* Ataca diretamente os links e o badge do Streamlit Cloud */
+        a[href^="https://streamlit.io/cloud"], 
+        [data-testid="stViewerBadge"] {
+            display: none !important;
+        }
         
-        /* 2. Esconde o link do GitHub na barra de ferramentas, mas mantém os 3 pontinhos */
-        [data-testid="stToolbar"] a { display: none !important; }
-        
-        /* 3. Esconde o rodapé padrão */
+        /* Remove o espaço do rodapé */
         footer { display: none !important; }
+
+        /* 2. LIMPEZA DO TOPO (FORK e GITHUB) */
+        /* Esconde o ícone do GitHub (qualquer link dentro da barra de ferramentas) */
+        [data-testid="stToolbar"] a {
+            display: none !important;
+        }
         
-        /* 4. Tira a linha preta/branca do fundo do cabeçalho */
-        [data-testid="stHeader"] { background-color: transparent !important; }
+        /* Esconde o botão de Deploy/Fork (cobre as versões novas e antigas) */
+        .stAppDeployButton, 
+        [data-testid="stDeployButton"] {
+            display: none !important;
+        }
+
+        /* 3. ESTÉTICA DO CABEÇALHO */
+        /* Deixa o fundo transparente para ficar limpo */
+        [data-testid="stHeader"] {
+            background-color: transparent !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
