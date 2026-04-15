@@ -7,77 +7,63 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- CONFIG PAGE ---
-st.set_page_config(
-    page_title="Fluxo de Caixa JRM",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- 1. CONFIGURAÇÕES E ESTILO ---
+st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS PROFISSIONAL ---
 st.markdown("""
-<style>
-/* Fundo geral */
-.stApp {
-    background-color: #0f172a;
-    color: #e5e7eb;
-}
+    <style>
+        .stAppDeployButton, 
+        [data-testid="stDeployButton"],
+        [data-testid="stToolbarActionButtonIcon"],
+        button[data-testid="stBaseButton-header"] {
+            display: none !important;
+        }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background-color: #111827;
-}
+        [data-testid="appCreatorAvatar"],
+        div[class*="_link_gzau3_"] {
+            opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            pointer-events: none !important;
+        }
 
-/* Remover coisas do Streamlit */
-.stAppDeployButton, 
-[data-testid="stDeployButton"],
-[data-testid="stToolbarActionButtonIcon"],
-button[data-testid="stBaseButton-header"],
-[data-testid="stViewerBadge"],
-footer {
-    display: none !important;
-}
+        [data-testid="stViewerBadge"],
+        footer {
+            display: none !important;
+        }
 
-/* Cards */
-.card {
-    background: #111827;
-    padding: 20px;
-    border-radius: 12px;
-}
+        [data-testid="stHeader"] {
+            background: transparent !important;
+        }
+        
+        button[data-testid="stSidebarCollapse"],
+        button[kind="header"] {
+            visibility: visible !important;
+            pointer-events: auto !important;
+        }
 
-/* Métricas */
-.metric-title {
-    font-size: 13px;
-    opacity: 0.7;
-}
+        .js-plotly-plot .plotly .hoverlayer {
+            z-index: 9999 !important;
+        }
 
-.metric-value {
-    font-size: 28px;
-    font-weight: bold;
-}
+        /* CORES DOS CARDS */
+        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
+            color: #2ecc71;
+        }
 
-/* Saldo destaque */
-.saldo-card {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    padding: 25px;
-    border-radius: 14px;
-    text-align: center;
-}
+        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
+            color: #e74c3c;
+        }
 
-/* Título */
-.title {
-    font-size: 32px;
-    font-weight: 600;
-}
+        div[data-testid="metric-container"]:nth-of-type(3) {
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
 
-/* Espaçamento */
-.block {
-    margin-bottom: 20px;
-}
-</style>
+    </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÕES ---
+# --- 2. FUNÇÕES ---
 @st.cache_resource
 def get_sheet():
     try:
@@ -86,11 +72,9 @@ def get_sheet():
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
-        return client.open_by_url(
-            "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
-        ).sheet1
+        return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro real detectado: {e}")
         return None
 
 def format_br(valor):
@@ -169,15 +153,15 @@ def buscar_v2(endpoint, token, params):
 
     return itens_acumulados
 
-# --- SIDEBAR ---
+# --- 3. INTERFACE ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
-    st.header("⚙️ Configurações")
+    st.header("Fluxo de Caixa JRM")
 
     empresa_sel = st.selectbox(
-        "Empresa",
+        "Selecione a Empresa",
         ["Todos os Clientes"] + clientes
     )
 
@@ -200,23 +184,24 @@ with st.sidebar:
         data_ini = hoje
         data_fim = hoje + timedelta(days=30)
     else:
-        data_ini = st.date_input("Início", hoje)
-        data_fim = st.date_input("Fim", hoje + timedelta(days=7))
+        data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
+        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
 
     st.divider()
 
-    exibir_receitas = st.checkbox("Receitas", True)
-    exibir_despesas = st.checkbox("Despesas", True)
-    exibir_saldo = st.checkbox("Saldo", True)
+    exibir_receitas = st.checkbox("Exibir Receitas", True)
+    exibir_despesas = st.checkbox("Exibir Despesas", True)
+    exibir_saldo = st.checkbox("Exibir Saldo", True)
 
-# --- HEADER ---
-st.markdown('<div class="title">💰 Fluxo de Caixa</div>', unsafe_allow_html=True)
+# --- TÍTULO ---
+st.title("Fluxo de Caixa")
+st.markdown("<br>", unsafe_allow_html=True)
 
 # --- DADOS ---
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
 
-with st.spinner("Carregando dados..."):
+with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
@@ -235,109 +220,105 @@ with st.spinner("Carregando dados..."):
                 tk, params.copy()
             ))
 
-# --- PROCESSAMENTO ---
 if p_total or r_total:
 
-    df = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
-    df['data_str'] = df['data'].dt.strftime('%Y-%m-%d')
+    df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
+    df_plot['data_str'] = df_plot['data'].dt.strftime('%Y-%m-%d')
 
     val_p = pd.DataFrame(p_total).groupby('Vencimento')['Valor'].sum() if p_total else pd.Series(dtype=float)
     val_r = pd.DataFrame(r_total).groupby('Vencimento')['Valor'].sum() if r_total else pd.Series(dtype=float)
 
-    df['Pagar'] = df['data_str'].map(val_p).fillna(0)
-    df['Receber'] = df['data_str'].map(val_r).fillna(0)
-    df['Saldo'] = df['Receber'] - df['Pagar']
-    df['Saldo Acumulado'] = df['Saldo'].cumsum()
-
-    total_r = df['Receber'].sum()
-    total_p = df['Pagar'].sum()
-    saldo_total = df['Saldo'].sum()
-
-    cor_saldo = "#22c55e" if saldo_total >= 0 else "#ef4444"
+    df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
+    df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
+    df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
     # --- CARDS ---
     c1, c2, c3 = st.columns(3)
 
-    with c1:
-        st.markdown(f"""
-        <div class="card">
-            <div class="metric-title">Receber</div>
-            <div class="metric-value" style="color:#22c55e">
-                {format_br(total_r)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    if exibir_receitas:
+        c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
 
-    with c2:
-        st.markdown(f"""
-        <div class="card">
-            <div class="metric-title">Pagar</div>
-            <div class="metric-value" style="color:#ef4444">
-                {format_br(total_p)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    if exibir_despesas:
+        c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
 
-    with c3:
-        st.markdown(f"""
-        <div class="saldo-card">
-            <div class="metric-title">Saldo Líquido</div>
-            <div style="font-size:36px; font-weight:bold; color:{cor_saldo}">
+    if exibir_saldo:
+        saldo_total = df_plot['Saldo'].sum()
+        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+
+        c3.markdown(f"""
+        <div data-testid="metric-container">
+            <label>Saldo Líquido</label>
+            <div style="font-size:30px; font-weight:bold; color:{cor_saldo}">
                 {format_br(saldo_total)}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # --- INSIGHTS ---
-    st.markdown("<div class='block'></div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
+    # --- INSIGHT LEVE ---
     if saldo_total < 0:
-        st.warning("⚠️ Fluxo negativo no período")
-    else:
-        st.success("✅ Fluxo positivo no período")
-
-    pior_dia = df.loc[df['Saldo'].idxmin()]
-    st.caption(f"Pior dia: {pior_dia['data'].strftime('%d/%m')} ({format_br(pior_dia['Saldo'])})")
+        st.caption("⚠️ Período com mais saídas do que entradas")
 
     # --- GRÁFICO ---
     fig = go.Figure()
 
     if exibir_receitas:
         fig.add_bar(
-            x=df['data'],
-            y=df['Receber'],
-            name="Receitas"
+            x=df_plot['data'],
+            y=df_plot['Receber'],
+            name='Receitas',
+            marker_color='#2ecc71'
         )
 
     if exibir_despesas:
         fig.add_bar(
-            x=df['data'],
-            y=df['Pagar'],
-            name="Despesas"
+            x=df_plot['data'],
+            y=df_plot['Pagar'],
+            name='Despesas',
+            marker_color='#e74c3c'
         )
 
     if exibir_saldo:
         fig.add_scatter(
-            x=df['data'],
-            y=df['Saldo Acumulado'],
-            name="Saldo Acumulado",
-            mode='lines',
-            line=dict(width=4)
+            x=df_plot['data'],
+            y=df_plot['Saldo'],
+            name='Saldo',
+            mode='lines+markers',
+            line=dict(width=3, color='#34495e')
         )
 
+    fig.update_traces(marker_line_width=0)
+
     fig.update_layout(
-        barmode='group',
-        template="plotly_dark",
         hovermode="x unified",
+        separators=",.",
+        xaxis=dict(
+            showgrid=False,
+            fixedrange=True,
+            tickformat='%d/%m',
+            tickangle=-45
+        ),
+        yaxis=dict(
+            showgrid=False,
+            fixedrange=True,
+            tickformat=',.2f'
+        ),
+        legend=dict(
+            orientation="h",
+            y=-0.25,
+            x=0.5,
+            xanchor="center"
+        ),
+        margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(tickformat='%d/%m'),
-        yaxis=dict(tickformat=',.2f'),
-        legend=dict(orientation="h", y=-0.2)
+        plot_bgcolor='rgba(0,0,0,0)'
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': False,
+        'responsive': True
+    })
 
 else:
     st.info("Nenhum dado encontrado.")
