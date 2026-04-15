@@ -10,10 +10,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS Consolidado: Limpeza + Cores dos Cards
+# CSS para Limpeza e Estilização dos Cards Customizados
 st.markdown("""
     <style>
-        /* 1. LIMPEZA TOTAL (Fork, GitHub, Avatar, Rodapé) */
+        /* LIMPEZA TOTAL */
         .stAppDeployButton, [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
         button[data-testid="stBaseButton-header"],
@@ -26,26 +26,30 @@ st.markdown("""
             display: none !important;
         }
 
-        /* 2. CABEÇALHO TRANSPARENTE */
+        /* CABEÇALHO TRANSPARENTE */
         [data-testid="stHeader"] { background: transparent !important; }
         button[data-testid="stSidebarCollapse"] { visibility: visible !important; }
 
-        /* 3. CORES DOS CARDS (METRICS) */
-        /* Primeiro card (Receber) -> Verde */
-        [data-testid="stMetric"]:nth-child(1) [data-testid="stMetricValue"] {
-            color: #2ecc71 !important;
+        /* ESTILO DOS CARDS CUSTOMIZADOS */
+        .card-container {
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 5px solid #333;
+            margin-bottom: 10px;
         }
-        /* Segundo card (Pagar) -> Vermelho */
-        [data-testid="stMetric"]:nth-child(2) [data-testid="stMetricValue"] {
-            color: #e74c3c !important;
+        .card-label {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 5px;
         }
-        /* Terceiro card (Saldo) -> Cinza Azulado */
-        [data-testid="stMetric"]:nth-child(3) [data-testid="stMetricValue"] {
-            color: #34495e !important;
+        .card-value {
+            font-size: 24px;
+            font-weight: bold;
         }
-
-        /* Ajuste fino para os tooltips do gráfico */
-        .js-plotly-plot .plotly .hoverlayer { z-index: 9999 !important; }
+        .verde { color: #2ecc71 !important; }
+        .vermelho { color: #e74c3c !important; }
+        .neutro { color: #34495e !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -59,9 +63,7 @@ def get_sheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
-    except Exception as e:
-        st.error(f"Erro na conexão: {e}")
-        return None
+    except: return None
 
 def format_br(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
@@ -100,73 +102,69 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. SIDEBAR E FILTROS ---
+# --- 3. SIDEBAR ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
-    st.header("Menu de Controle")
+    st.header("Gestão Financeira")
     empresa_sel = st.selectbox("Empresa", ["Todos os Clientes"] + clientes)
-    
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
         data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
-        st.form_submit_button("Atualizar Dash", type="primary")
+        st.form_submit_button("Atualizar", type="primary")
     
     st.divider()
-    st.subheader("O que visualizar?")
-    exibir_r = st.checkbox("Receitas (Verde)", value=True)
-    exibir_p = st.checkbox("Despesas (Vermelho)", value=True)
-    exibir_s = st.checkbox("Saldo Líquido", value=True)
+    exibir_r = st.checkbox("Receitas", value=True)
+    exibir_p = st.checkbox("Despesas", value=True)
+    exibir_s = st.checkbox("Saldo", value=True)
 
 st.title("Fluxo de Caixa")
 
-# --- 4. PROCESSAMENTO ---
+# --- 4. DADOS ---
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
 
-with st.spinner("Sincronizando dados..."):
+with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
-            api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
-            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
-            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
+            api_params = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_params.copy()))
+            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_params.copy()))
 
 if p_total or r_total:
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
     df_plot['data_str'] = df_plot['data'].dt.strftime('%Y-%m-%d')
-    
     val_p = pd.DataFrame(p_total).groupby('Vencimento')['Valor'].sum() if p_total else pd.Series(dtype=float)
     val_r = pd.DataFrame(r_total).groupby('Vencimento')['Valor'].sum() if r_total else pd.Series(dtype=float)
-    
     df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # --- 5. EXIBIÇÃO ---
-    cols = st.columns(3)
-    if exibir_r: cols[0].metric("A Receber", format_br(df_plot['Receber'].sum()))
-    if exibir_p: cols[1].metric("A Pagar", format_br(df_plot['Pagar'].sum()))
-    if exibir_s: cols[2].metric("Saldo do Período", format_br(df_plot['Saldo'].sum()))
-
-    fig = go.Figure()
-    if exibir_r:
-        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
-    if exibir_p:
-        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
-    if exibir_s:
-        fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
-
-    fig.update_layout(
-        hovermode="x unified",
-        margin=dict(l=10, r=10, t=10, b=50),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center")
-    )
+    # --- 5. CARDS COM CORES DINÂMICAS ---
+    c1, c2, c3 = st.columns(3)
     
+    total_r = df_plot['Receber'].sum()
+    total_p = df_plot['Pagar'].sum()
+    total_s = df_plot['Saldo'].sum()
+
+    if exibir_r:
+        c1.markdown(f'<div class="card-container"><div class="card-label">Total a Receber</div><div class="card-value verde">{format_br(total_r)}</div></div>', unsafe_allow_html=True)
+    if exibir_p:
+        c2.markdown(f'<div class="card-container"><div class="card-label">Total a Pagar</div><div class="card-value vermelho">{format_br(total_p)}</div></div>', unsafe_allow_html=True)
+    if exibir_s:
+        cor_saldo = "verde" if total_s >= 0 else "vermelho"
+        c3.markdown(f'<div class="card-container"><div class="card-label">Saldo Líquido</div><div class="card-value {cor_saldo}">{format_br(total_s)}</div></div>', unsafe_allow_html=True)
+
+    # --- 6. GRÁFICO ---
+    fig = go.Figure()
+    if exibir_r: fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
+    if exibir_p: fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+    if exibir_s: fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
+
+    fig.update_layout(hovermode="x unified", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=10, b=50))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.info("Selecione um período com lançamentos.")
+    st.info("Nenhum dado para o período.")
