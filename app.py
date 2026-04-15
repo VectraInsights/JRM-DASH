@@ -10,7 +10,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS original + cores dos metrics
+# CSS original para limpeza de interface e proteção do gráfico
 st.markdown("""
     <style>
         .stAppDeployButton, 
@@ -46,20 +46,6 @@ st.markdown("""
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
-
-        /* CORES DOS NÚMEROS DOS CARDS */
-        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
-            color: #2ecc71; /* Receber */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
-            color: #e74c3c; /* Pagar */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
-            color: white; /* será sobrescrito no saldo */
-        }
-
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,11 +95,7 @@ def buscar_v2(endpoint, token, params):
         if not itens: break
         for i in itens:
             saldo = i.get('total', 0) - i.get('pago', 0)
-            if saldo > 0:
-                itens_acumulados.append({
-                    "Vencimento": i.get("data_vencimento"),
-                    "Valor": saldo
-                })
+            if saldo > 0: itens_acumulados.append({"Vencimento": i.get("data_vencimento"), "Valor": saldo})
         if len(itens) < 100: break
         params["pagina"] += 1
     return itens_acumulados
@@ -125,7 +107,6 @@ clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 with st.sidebar:
     st.header("Fluxo de Caixa JRM")
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
-    
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
@@ -147,10 +128,7 @@ with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
-            api_p = {
-                "data_vencimento_de": data_ini.isoformat(),
-                "data_vencimento_ate": data_fim.isoformat()
-            }
+            api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
             p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
 
@@ -165,73 +143,48 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # CARDS
+    # CARDS COM FILTRO
     c1, c2, c3 = st.columns(3)
-
     if exibir_receitas:
         c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
-
     if exibir_despesas:
         c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
-
     if exibir_saldo:
-        saldo_total = df_plot['Saldo'].sum()
-        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+        c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
 
-        c3.markdown(f"""
-        <div data-testid="metric-container">
-            <label>Saldo Líquido</label>
-            <div style="font-size:28px; font-weight:bold; color:{cor_saldo}">
-                {format_br(saldo_total)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # --- 4. GRÁFICO ---
+    # --- 4. GRÁFICO (COM FILTRO) ---
     fig = go.Figure()
     
     if exibir_receitas:
         fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Receber'],
-            name='Receitas', marker_color='#2ecc71'
+            x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
+            marker_color='#2ecc71', showlegend=True
         ))
     
     if exibir_despesas:
         fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Pagar'],
-            name='Despesas', marker_color='#e74c3c'
+            x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
+            marker_color='#e74c3c'
         ))
     
     if exibir_saldo:
         fig.add_trace(go.Scatter(
-            x=df_plot['data'], y=df_plot['Saldo'],
-            name='Saldo',
-            line=dict(color='#34495e', width=3),
-            mode='lines+markers'
+            x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
+            line=dict(color='#34495e', width=3), mode='lines+markers'
         ))
 
     fig.update_layout(
         hovermode="x unified",
         separators=",.",
         xaxis=dict(
-            showgrid=False,
-            showspikes=False,
-            fixedrange=True,
-            tickformat='%d/%m',
-            tickangle=-45
+            showgrid=False, showspikes=False, fixedrange=True, 
+            tickformat='%d/%m', tickangle=-45
         ),
         yaxis=dict(
-            showgrid=False,
-            showspikes=False,
-            fixedrange=True,
+            showgrid=False, showspikes=False, fixedrange=True, 
             tickformat=',.2f'
         ),
-        legend=dict(
-            orientation="h",
-            y=-0.3,
-            x=0.5,
-            xanchor="center"
-        ),
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
@@ -247,6 +200,5 @@ if p_total or r_total:
         'showSpikes': False,
         'responsive': True
     })
-
 else:
     st.info("Nenhum dado encontrado.")
