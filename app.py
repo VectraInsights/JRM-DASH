@@ -59,7 +59,6 @@ st.markdown("""
         div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
             color: white; /* será sobrescrito no saldo */
         }
-
     </style>
 """, unsafe_allow_html=True)
 
@@ -82,38 +81,20 @@ def format_br(valor):
 
 def obter_token(empresa_nome):
     sh = get_sheet()
-    if not sh: 
-        st.sidebar.error("❌ Não foi possível acessar a Planilha Google.")
-        return None
+    if not sh: return None
     try:
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
-        
         ca = st.secrets["conta_azul"]
         auth_b64 = base64.b64encode(f"{ca['client_id']}:{ca['client_secret']}".encode()).decode()
-        
         res = requests.post("https://auth.contaazul.com/oauth2/token", 
-            headers={
-                "Authorization": f"Basic {auth_b64}", 
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
-            data={
-                "grant_type": "refresh_token", 
-                "refresh_token": rt
-            })
-            
+            headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
+            data={"grant_type": "refresh_token", "refresh_token": rt})
         if res.status_code == 200:
             dados = res.json()
-            novo_rt = dados.get('refresh_token')
-            if novo_rt:
-                sh.update_cell(cell.row, 2, novo_rt)
+            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
-        else:
-            # ISSO AQUI VAI TE DIZER O MOTIVO REAL
-            st.sidebar.error(f"Erro no Conta Azul ({empresa_nome}): {res.status_code} - {res.text}")
-            
-    except Exception as e:
-        st.sidebar.error(f"Erro interno ao obter token: {e}")
+    except: pass
     return None
 
 def buscar_v2(endpoint, token, params):
@@ -164,25 +145,13 @@ p_total, r_total = [], []
 with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
-        if not tk:
-            st.sidebar.warning(f"⚠️ Falha ao gerar Token para: {emp}")
-            continue
-            
-        api_p = {
-            "data_vencimento_de": data_ini.isoformat(),
-            "data_vencimento_ate": data_fim.isoformat()
-        }
-        
-        # Teste de Receber
-        res_r = requests.get(f"https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", 
-                             headers={"Authorization": f"Bearer {tk}"}, params=api_p)
-        
-        if res_r.status_code == 200:
-            dados = res_r.json().get('itens', [])
-            st.sidebar.write(f"✅ {emp}: Encontrou {len(dados)} recebíveis.")
+        if tk:
+            api_p = {
+                "data_vencimento_de": data_ini.isoformat(),
+                "data_vencimento_ate": data_fim.isoformat()
+            }
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
-        else:
-            st.sidebar.error(f"❌ Erro na API para {emp}: {res_r.status_code}")
 
 if p_total or r_total:
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
