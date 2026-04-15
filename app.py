@@ -10,50 +10,42 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS Consolidado para limpeza total e profissionalismo
+# CSS Consolidado: Limpeza + Cores dos Cards
 st.markdown("""
     <style>
-        /* 1. ESCONDE FORK, GITHUB E BOTÕES DE DEPLOY */
-        .stAppDeployButton, 
-        [data-testid="stDeployButton"],
+        /* 1. LIMPEZA TOTAL (Fork, GitHub, Avatar, Rodapé) */
+        .stAppDeployButton, [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
-        button[data-testid="stBaseButton-header"] {
-            display: none !important;
-        }
-
-        /* 2. ESCONDE AVATAR E COROA (Usando seletores parciais para classes dinâmicas) */
+        button[data-testid="stBaseButton-header"],
         [data-testid="appCreatorAvatar"],
         img[class^="_profileImage_"],
-        div[class*="_link_"] {
-            opacity: 0 !important;
-            width: 0 !important;
-            height: 0 !important;
-            display: none !important;
-            pointer-events: none !important;
-        }
-
-        /* 3. LIMPEZA DO RODAPÉ E STATUS */
+        div[class*="_link_"],
         [data-testid="stViewerBadge"],
         [data-testid="stStatusWidget"],
         footer {
             display: none !important;
         }
 
-        /* 4. AJUSTE DO CABEÇALHO PARA NÃO TRAVAR O GRÁFICO */
-        [data-testid="stHeader"] {
-            background: transparent !important;
+        /* 2. CABEÇALHO TRANSPARENTE */
+        [data-testid="stHeader"] { background: transparent !important; }
+        button[data-testid="stSidebarCollapse"] { visibility: visible !important; }
+
+        /* 3. CORES DOS CARDS (METRICS) */
+        /* Primeiro card (Receber) -> Verde */
+        [data-testid="stMetric"]:nth-child(1) [data-testid="stMetricValue"] {
+            color: #2ecc71 !important;
         }
-        
-        /* Garante que o botão da Sidebar continue visível e clicável */
-        button[data-testid="stSidebarCollapse"] {
-            visibility: visible !important;
-            pointer-events: auto !important;
+        /* Segundo card (Pagar) -> Vermelho */
+        [data-testid="stMetric"]:nth-child(2) [data-testid="stMetricValue"] {
+            color: #e74c3c !important;
+        }
+        /* Terceiro card (Saldo) -> Cinza Azulado */
+        [data-testid="stMetric"]:nth-child(3) [data-testid="stMetricValue"] {
+            color: #34495e !important;
         }
 
-        /* Força os tooltips do gráfico para a frente */
-        .js-plotly-plot .plotly .hoverlayer {
-            z-index: 9999 !important;
-        }
+        /* Ajuste fino para os tooltips do gráfico */
+        .js-plotly-plot .plotly .hoverlayer { z-index: 9999 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -68,7 +60,7 @@ def get_sheet():
         client = gspread.authorize(creds)
         return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro na conexão com Google Sheets: {e}")
+        st.error(f"Erro na conexão: {e}")
         return None
 
 def format_br(valor):
@@ -108,33 +100,33 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. INTERFACE E SIDEBAR ---
+# --- 3. SIDEBAR E FILTROS ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
-    st.header("Fluxo de Caixa JRM")
-    empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
+    st.header("Menu de Controle")
+    empresa_sel = st.selectbox("Empresa", ["Todos os Clientes"] + clientes)
     
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
         data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
-        st.form_submit_button("Atualizar Dados", type="primary")
+        st.form_submit_button("Atualizar Dash", type="primary")
     
     st.divider()
-    st.subheader("Visualização")
-    # Checkboxes para controle de exibição
-    ver_receber = st.checkbox("Exibir Receitas", value=True)
-    ver_pagar = st.checkbox("Exibir Despesas", value=True)
-    ver_saldo = st.checkbox("Exibir Saldo", value=True)
+    st.subheader("O que visualizar?")
+    exibir_r = st.checkbox("Receitas (Verde)", value=True)
+    exibir_p = st.checkbox("Despesas (Vermelho)", value=True)
+    exibir_s = st.checkbox("Saldo Líquido", value=True)
 
 st.title("Fluxo de Caixa")
 
+# --- 4. PROCESSAMENTO ---
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
 
-with st.spinner("Sincronizando com Conta Azul..."):
+with st.spinner("Sincronizando dados..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
@@ -151,50 +143,30 @@ if p_total or r_total:
     
     df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
-    df_plot['Saldo_Dia'] = df_plot['Receber'] - df_plot['Pagar']
+    df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # --- 4. EXIBIÇÃO DINÂMICA (METRICS) ---
+    # --- 5. EXIBIÇÃO ---
     cols = st.columns(3)
-    if ver_receber:
-        cols[0].metric("Total a Receber", format_br(df_plot['Receber'].sum()))
-    if ver_pagar:
-        cols[1].metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
-    if ver_saldo:
-        cols[2].metric("Saldo Líquido", format_br(df_plot['Saldo_Dia'].sum()))
+    if exibir_r: cols[0].metric("A Receber", format_br(df_plot['Receber'].sum()))
+    if exibir_p: cols[1].metric("A Pagar", format_br(df_plot['Pagar'].sum()))
+    if exibir_s: cols[2].metric("Saldo do Período", format_br(df_plot['Saldo'].sum()))
 
-    # --- 5. GRÁFICO (COM FILTROS DOS CHECKBOXES) ---
     fig = go.Figure()
-    
-    if ver_receber:
-        fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
-            marker_color='#2ecc71'
-        ))
-    
-    if ver_pagar:
-        fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
-            marker_color='#e74c3c'
-        ))
-    
-    if ver_saldo:
-        fig.add_trace(go.Scatter(
-            x=df_plot['data'], y=df_plot['Saldo_Dia'], name='Saldo do Dia', 
-            line=dict(color='#34495e', width=3), mode='lines+markers'
-        ))
+    if exibir_r:
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
+    if exibir_p:
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+    if exibir_s:
+        fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
 
     fig.update_layout(
         hovermode="x unified",
-        separators=",.",
-        xaxis=dict(showgrid=False, fixedrange=True, tickformat='%d/%m'),
-        yaxis=dict(showgrid=False, fixedrange=True, tickformat=',.2f'),
-        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        hoverlabel=dict(bgcolor="#2b2b2b", font_size=14)
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center")
     )
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.info("Nenhum lançamento encontrado para o período selecionado.")
+    st.info("Selecione um período com lançamentos.")
