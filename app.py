@@ -223,8 +223,9 @@ if p_total or r_total:
         hovermode="x unified",
         separators=",.",
         xaxis=dict(
-            type='category', # Força a exibição dia a dia sem interpolação
             showgrid=False,
+            showspikes=False,
+            fixedrange=True,
             tickformat='%d/%m',
             tickangle=-45
         ),
