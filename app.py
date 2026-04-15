@@ -82,20 +82,38 @@ def format_br(valor):
 
 def obter_token(empresa_nome):
     sh = get_sheet()
-    if not sh: return None
+    if not sh: 
+        st.sidebar.error("❌ Não foi possível acessar a Planilha Google.")
+        return None
     try:
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
+        
         ca = st.secrets["conta_azul"]
         auth_b64 = base64.b64encode(f"{ca['client_id']}:{ca['client_secret']}".encode()).decode()
+        
         res = requests.post("https://auth.contaazul.com/oauth2/token", 
-            headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "refresh_token", "refresh_token": rt})
+            headers={
+                "Authorization": f"Basic {auth_b64}", 
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            data={
+                "grant_type": "refresh_token", 
+                "refresh_token": rt
+            })
+            
         if res.status_code == 200:
             dados = res.json()
-            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
+            novo_rt = dados.get('refresh_token')
+            if novo_rt:
+                sh.update_cell(cell.row, 2, novo_rt)
             return dados['access_token']
-    except: pass
+        else:
+            # ISSO AQUI VAI TE DIZER O MOTIVO REAL
+            st.sidebar.error(f"Erro no Conta Azul ({empresa_nome}): {res.status_code} - {res.text}")
+            
+    except Exception as e:
+        st.sidebar.error(f"Erro interno ao obter token: {e}")
     return None
 
 def buscar_v2(endpoint, token, params):
