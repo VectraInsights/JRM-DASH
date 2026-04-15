@@ -10,9 +10,19 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS original + cores dos metrics
+# CSS original + Fundo Off-White
 st.markdown("""
     <style>
+        /* FORÇAR FUNDO OFF-WHITE */
+        .stApp {
+            background-color: #F8F9FA !important;
+        }
+
+        /* AJUSTE DE TEXTOS PARA FUNDO CLARO */
+        h1, h2, h3, p, label, .stMarkdown {
+            color: #2b2b2b !important;
+        }
+
         .stAppDeployButton, 
         [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
@@ -47,19 +57,14 @@ st.markdown("""
             z-index: 9999 !important;
         }
 
-        /* CORES DOS NÚMEROS DOS CARDS */
+        /* CORES DOS NÚMEROS DOS CARDS (Caso volte a usar o componente nativo) */
         div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
-            color: #2ecc71; /* Receber */
+            color: #2ecc71;
         }
 
         div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
-            color: #e74c3c; /* Pagar */
+            color: #e74c3c;
         }
-
-        div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
-            color: white; /* será sobrescrito no saldo */
-        }
-
     </style>
 """, unsafe_allow_html=True)
 
@@ -166,44 +171,41 @@ if p_total or r_total:
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
     # CARDS
-    # CARDS
-c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
+    total_receber = df_plot['Receber'].sum()
+    total_pagar = df_plot['Pagar'].sum()
+    saldo_total = df_plot['Saldo'].sum()
 
-total_receber = df_plot['Receber'].sum()
-total_pagar = df_plot['Pagar'].sum()
-saldo_total = df_plot['Saldo'].sum()
-
-if exibir_receitas:
-    c1.markdown(f"""
-    <div>
-        <div style="font-size:14px; opacity:0.8;">Total a Receber</div>
-        <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
-            {format_br(total_receber)}
+    if exibir_receitas:
+        c1.markdown(f"""
+        <div>
+            <div style="font-size:14px; color:#666;">Total a Receber</div>
+            <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
+                {format_br(total_receber)}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-if exibir_despesas:
-    c2.markdown(f"""
-    <div>
-        <div style="font-size:14px; opacity:0.8;">Total a Pagar</div>
-        <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
-            {format_br(-total_pagar)}
+    if exibir_despesas:
+        c2.markdown(f"""
+        <div>
+            <div style="font-size:14px; color:#666;">Total a Pagar</div>
+            <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
+                {format_br(-total_pagar)}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-if exibir_saldo:
-    cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
-
-    c3.markdown(f"""
-    <div>
-        <div style="font-size:14px; opacity:0.8;">Saldo Líquido</div>
-        <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
-            {format_br(saldo_total)}
+    if exibir_saldo:
+        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+        c3.markdown(f"""
+        <div>
+            <div style="font-size:14px; color:#666;">Saldo Líquido</div>
+            <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
+                {format_br(saldo_total)}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
     # --- 4. GRÁFICO ---
     fig = go.Figure()
@@ -233,14 +235,12 @@ if exibir_saldo:
         separators=",.",
         xaxis=dict(
             showgrid=False,
-            showspikes=False,
             fixedrange=True,
             tickformat='%d/%m',
             tickangle=-45
         ),
         yaxis=dict(
             showgrid=False,
-            showspikes=False,
             fixedrange=True,
             tickformat=',.2f'
         ),
