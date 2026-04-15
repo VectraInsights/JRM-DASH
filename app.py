@@ -146,13 +146,25 @@ p_total, r_total = [], []
 with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
-        if tk:
-            api_p = {
-                "data_vencimento_de": data_ini.isoformat(),
-                "data_vencimento_ate": data_fim.isoformat()
-            }
-            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
+        if not tk:
+            st.sidebar.warning(f"⚠️ Falha ao gerar Token para: {emp}")
+            continue
+            
+        api_p = {
+            "data_vencimento_de": data_ini.isoformat(),
+            "data_vencimento_ate": data_fim.isoformat()
+        }
+        
+        # Teste de Receber
+        res_r = requests.get(f"https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", 
+                             headers={"Authorization": f"Bearer {tk}"}, params=api_p)
+        
+        if res_r.status_code == 200:
+            dados = res_r.json().get('itens', [])
+            st.sidebar.write(f"✅ {emp}: Encontrou {len(dados)} recebíveis.")
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
+        else:
+            st.sidebar.error(f"❌ Erro na API para {emp}: {res_r.status_code}")
 
 if p_total or r_total:
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
