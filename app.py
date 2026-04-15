@@ -155,7 +155,7 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # --- CARDS CORRIGIDOS ---
+    # --- CARDS ---
     c1, c2, c3 = st.columns(3)
 
     total_receber = df_plot['Receber'].sum()
@@ -220,7 +220,10 @@ if p_total or r_total:
     fig.update_layout(
         hovermode="x unified",
         separators=",.",
-        xaxis=dict(showgrid=False, tickformat='%d/%m', tickangle=-45),
+        xaxis=dict(
+            showgrid=False,
+            showspikes=False  # 🔥 REMOVE SPIKELINE
+        ),
         yaxis=dict(showgrid=False, tickformat=',.2f'),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
@@ -228,7 +231,10 @@ if p_total or r_total:
         plot_bgcolor='rgba(0,0,0,0)'
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': False,
+        'showSpikes': False  # 🔥 REMOVE DEFINITIVO
+    })
 
 else:
     st.info("Nenhum dado encontrado.")
