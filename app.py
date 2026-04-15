@@ -166,26 +166,44 @@ if p_total or r_total:
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
     # CARDS
-    c1, c2, c3 = st.columns(3)
+    # CARDS
+c1, c2, c3 = st.columns(3)
 
-    if exibir_receitas:
-        c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
+total_receber = df_plot['Receber'].sum()
+total_pagar = df_plot['Pagar'].sum()
+saldo_total = df_plot['Saldo'].sum()
 
-    if exibir_despesas:
-        c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
-
-    if exibir_saldo:
-        saldo_total = df_plot['Saldo'].sum()
-        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
-
-        c3.markdown(f"""
-        <div data-testid="metric-container">
-            <label>Saldo Líquido</label>
-            <div style="font-size:28px; font-weight:bold; color:{cor_saldo}">
-                {format_br(saldo_total)}
-            </div>
+if exibir_receitas:
+    c1.markdown(f"""
+    <div>
+        <div style="font-size:14px; opacity:0.8;">Total a Receber</div>
+        <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
+            {format_br(total_receber)}
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
+
+if exibir_despesas:
+    c2.markdown(f"""
+    <div>
+        <div style="font-size:14px; opacity:0.8;">Total a Pagar</div>
+        <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
+            {format_br(-total_pagar)}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+if exibir_saldo:
+    cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+
+    c3.markdown(f"""
+    <div>
+        <div style="font-size:14px; opacity:0.8;">Saldo Líquido</div>
+        <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
+            {format_br(saldo_total)}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # --- 4. GRÁFICO ---
     fig = go.Figure()
