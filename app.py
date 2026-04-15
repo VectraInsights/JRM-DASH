@@ -59,6 +59,7 @@ st.markdown("""
         div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
             color: white; /* será sobrescrito no saldo */
         }
+
     </style>
 """, unsafe_allow_html=True)
 
