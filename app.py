@@ -6,6 +6,7 @@ import gspread
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
+from oauth2client.service_account import ServiceAccountCredentials
 
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
@@ -48,9 +49,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES DE APOIO ---
-from oauth2client.service_account import ServiceAccountCredentials
-
+# --- 2. FUNÇÕES ---
 @st.cache_resource
 def get_sheet():
     try:
@@ -69,15 +68,26 @@ def format_br(valor):
 
 def obter_token(empresa_nome):
     sh = get_sheet()
-    if not sh: return None
+    if not sh:
+        return None
     try:
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
         ca = st.secrets["conta_azul"]
         auth_b64 = base64.b64encode(f"{ca['client_id']}:{ca['client_secret']}".encode()).decode()
-        res = requests.post("https://auth.contaazul.com/oauth2/token", 
-            headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "refresh_token", "refresh_token": rt})
+
+        res = requests.post(
+            "https://auth.contaazul.com/oauth2/token",
+            headers={
+                "Authorization": f"Basic {auth_b64}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": rt
+            }
+        )
+
         if res.status_code == 200:
             dados = res.json()
             if dados.get('refresh_token'):
@@ -91,13 +101,17 @@ def buscar_v2(endpoint, token, params):
     itens_acumulados = []
     headers = {"Authorization": f"Bearer {token}"}
     params.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
+
     while True:
         res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params)
+
         if res.status_code != 200:
             break
+
         itens = res.json().get('itens', [])
         if not itens:
             break
+
         for i in itens:
             saldo = i.get('total', 0) - i.get('pago', 0)
             if saldo > 0:
@@ -105,9 +119,12 @@ def buscar_v2(endpoint, token, params):
                     "Vencimento": i.get("data_vencimento"),
                     "Valor": saldo
                 })
+
         if len(itens) < 100:
             break
+
         params["pagina"] += 1
+
     return itens_acumulados
 
 # --- 3. INTERFACE ---
@@ -116,14 +133,15 @@ clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
     st.header("Fluxo de Caixa JRM")
+
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
 
     hoje = datetime.now().date()
     default_ini = hoje
     default_fim = hoje + timedelta(days=7)
 
-    # 🔥 CALENDÁRIO EM PORTUGUÊS
-    data_range = components.html(f"""
+    # 🔥 CALENDÁRIO PT-BR CORRETO
+    components.html(f"""
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://npmcdn.com/flatpickr/dist/l10n/pt.js"></script>
@@ -140,6 +158,7 @@ with st.sidebar:
             if (selectedDates.length === 2) {{
                 const start = selectedDates[0].toISOString().split('T')[0];
                 const end = selectedDates[1].toISOString().split('T')[0];
+
                 window.parent.postMessage({{
                     type: "streamlit:setComponentValue",
                     value: start + "|" + end
@@ -148,10 +167,13 @@ with st.sidebar:
         }}
     }});
     </script>
-    """, height=90)
+    """, height=90, key="data_range")
 
-    if data_range:
-        data_ini_str, data_fim_str = data_range.split("|")
+    # 🔥 CAPTURA CORRETA
+    data_value = st.session_state.get("data_range")
+
+    if data_value:
+        data_ini_str, data_fim_str = data_value.split("|")
         data_ini = datetime.fromisoformat(data_ini_str).date()
         data_fim = datetime.fromisoformat(data_fim_str).date()
     else:
@@ -177,8 +199,18 @@ with st.spinner("Sincronizando..."):
                 "data_vencimento_de": data_ini.isoformat(),
                 "data_vencimento_ate": data_fim.isoformat()
             }
-            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
-            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
+
+            p_total.extend(buscar_v2(
+                "/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar",
+                tk,
+                api_p.copy()
+            ))
+
+            r_total.extend(buscar_v2(
+                "/v1/financeiro/eventos-financeiros/contas-a-receber/buscar",
+                tk,
+                api_p.copy()
+            ))
 
 if p_total or r_total:
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
