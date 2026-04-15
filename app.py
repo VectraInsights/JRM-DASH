@@ -10,7 +10,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS Refinado: Cards modernos e limpeza de UI
 st.markdown("""
     <style>
         /* Limpeza de elementos nativos */
@@ -21,19 +20,22 @@ st.markdown("""
             display: none !important;
         }
 
-        /* Estilização dos Cards Customizados */
+        /* CARDS ADAPTÁVEIS (DYNAMIC THEME) */
         .card-container {
-            background-color: #1e2130; /* Fundo levemente diferente do fundo geral */
+            /* Usa as cores do tema do Streamlit: Fundo secundário e texto principal */
+            background-color: var(--secondary-background-color); 
+            color: var(--text-color);
             padding: 20px;
             border-radius: 12px;
             border-left: 5px solid #34495e;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
             margin-bottom: 10px;
         }
         
         .card-title {
             font-size: 14px;
-            color: #9ea4b0;
+            /* Opacidade para o título ficar discreto mas legível em ambos os temas */
+            opacity: 0.7;
             margin-bottom: 5px;
             font-weight: 500;
         }
@@ -43,7 +45,7 @@ st.markdown("""
             font-weight: bold;
         }
 
-        /* Cores específicas por tipo de card */
+        /* Cores de borda fixas para manter a identidade visual */
         .border-receber { border-left-color: #2ecc71 !important; }
         .border-pagar { border-left-color: #e74c3c !important; }
         .border-saldo { border-left-color: #3498db !important; }
