@@ -10,9 +10,20 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS original + cores dos metrics
+# CSS original com fundo "Off-White" para maior conforto visual
 st.markdown("""
     <style>
+        /* AJUSTE DO FUNDO: Cinza suave para evitar o brilho do branco puro */
+        .stApp {
+            background-color: #F5F5F5 !important;
+        }
+
+        /* AJUSTE DO HEADER: Acompanha a cor do fundo */
+        [data-testid="stHeader"] {
+            background-color: #F5F5F5 !important;
+        }
+
+        /* REMOVER ELEMENTOS NATIVOS DO STREAMLIT */
         .stAppDeployButton, 
         [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
@@ -32,10 +43,6 @@ st.markdown("""
         footer {
             display: none !important;
         }
-
-        [data-testid="stHeader"] {
-            background: transparent !important;
-        }
         
         button[data-testid="stSidebarCollapse"],
         button[kind="header"] {
@@ -47,7 +54,7 @@ st.markdown("""
             z-index: 9999 !important;
         }
 
-        /* CORES DOS NÚMEROS DOS CARDS */
+        /* CORES DOS NÚMEROS DOS CARDS (MANTIDO) */
         div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
             color: #2ecc71; /* Receber */
         }
@@ -57,7 +64,7 @@ st.markdown("""
         }
 
         div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
-            color: white; /* será sobrescrito no saldo */
+            color: #31333F; /* Cor de texto padrão para visibilidade no fundo claro */
         }
 
     </style>
