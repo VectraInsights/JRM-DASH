@@ -219,7 +219,7 @@ if p_total or r_total:
         </div>
         """, unsafe_allow_html=True)
 
-    # --- 4. GRÁFICO ---
+    # --- 4. GRÁFICO ATUALIZADO ---
     fig = go.Figure()
     
     if exibir_receitas:
@@ -235,11 +235,22 @@ if p_total or r_total:
         ))
     
     if exibir_saldo:
+        # Gráfico de Saldo Diário
         fig.add_trace(go.Scatter(
             x=df_plot['data'], y=df_plot['Saldo'],
-            name='Saldo',
-            line=dict(color='#34495e', width=3),
+            name='Saldo Diário',
+            line=dict(color='#34495e', width=2, dash='dot'), # Linha pontilhada para o diário
             mode='lines+markers'
+        ))
+
+        # CÁLCULO DA LINHA DE TENDÊNCIA (Média Móvel de 3 dias)
+        df_plot['Tendencia'] = df_plot['Saldo'].rolling(window=3, min_periods=1).mean()
+        
+        fig.add_trace(go.Scatter(
+            x=df_plot['data'], y=df_plot['Tendencia'],
+            name='Tendência (Média 3d)',
+            line=dict(color='#f1c40f', width=4), # Linha amarela sólida e mais grossa
+            mode='lines'
         ))
 
     fig.update_layout(
@@ -247,15 +258,11 @@ if p_total or r_total:
         separators=",.",
         xaxis=dict(
             showgrid=False,
-            showspikes=False,
-            fixedrange=True,
             tickformat='%d/%m',
             tickangle=-45
         ),
         yaxis=dict(
             showgrid=False,
-            showspikes=False,
-            fixedrange=True,
             tickformat=',.2f'
         ),
         legend=dict(
@@ -266,19 +273,7 @@ if p_total or r_total:
         ),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        hoverlabel=dict(
-            bgcolor="#2b2b2b",
-            font_size=14,
-            font_family="Arial"
-        )
+        plot_bgcolor='rgba(0,0,0,0)'
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': False,
-        'showSpikes': False,
-        'responsive': True
-    })
-
-else:
-    st.info("Nenhum dado encontrado.")
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
