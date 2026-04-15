@@ -10,10 +10,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS para Limpeza e Estilização dos Cards Customizados
-st.markdown("""
+# Lógica para definir a cor do saldo antes de injetar o CSS
+# (Iniciamos com neutro para evitar erros no primeiro carregamento)
+cor_dinamica_saldo = "#34495e" 
+
+# CSS para Limpeza e Cores nos Metrics Originais
+st.markdown(f"""
     <style>
-        /* LIMPEZA TOTAL */
+        /* LIMPEZA TOTAL (Fork, GitHub, Avatar, Rodapé) */
         .stAppDeployButton, [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
         button[data-testid="stBaseButton-header"],
@@ -22,34 +26,29 @@ st.markdown("""
         div[class*="_link_"],
         [data-testid="stViewerBadge"],
         [data-testid="stStatusWidget"],
-        footer {
+        footer {{
             display: none !important;
-        }
+        }}
 
         /* CABEÇALHO TRANSPARENTE */
-        [data-testid="stHeader"] { background: transparent !important; }
-        button[data-testid="stSidebarCollapse"] { visibility: visible !important; }
+        [data-testid="stHeader"] {{ background: transparent !important; }}
+        button[data-testid="stSidebarCollapse"] {{ visibility: visible !important; }}
 
-        /* ESTILO DOS CARDS CUSTOMIZADOS */
-        .card-container {
-            background-color: #1e1e1e;
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 5px solid #333;
-            margin-bottom: 10px;
-        }
-        .card-label {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 5px;
-        }
-        .card-value {
-            font-size: 24px;
-            font-weight: bold;
-        }
-        .verde { color: #2ecc71 !important; }
-        .vermelho { color: #e74c3c !important; }
-        .neutro { color: #34495e !important; }
+        /* CORES DOS CARDS ORIGINAIS (st.metric) */
+        /* Card 1: Receber (Sempre Verde) */
+        [data-testid="stMetric"]:nth-of-type(1) [data-testid="stMetricValue"] {{
+            color: #2ecc71 !important;
+        }}
+        /* Card 2: Pagar (Sempre Vermelho) */
+        [data-testid="stMetric"]:nth-of-type(2) [data-testid="stMetricValue"] {{
+            color: #e74c3c !important;
+        }}
+        /* Card 3: Saldo (Cor Injetada via Variável Python) */
+        [data-testid="stMetric"]:nth-of-type(3) [data-testid="stMetricValue"] {{
+            color: {{cor_dinamica_saldo}} !important;
+        }}
+
+        .js-plotly-plot .plotly .hoverlayer {{ z-index: 9999 !important; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -107,7 +106,7 @@ sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
-    st.header("Gestão Financeira")
+    st.header("Menu")
     empresa_sel = st.selectbox("Empresa", ["Todos os Clientes"] + clientes)
     with st.form("datas_form"):
         hoje = datetime.now().date()
@@ -116,9 +115,9 @@ with st.sidebar:
         st.form_submit_button("Atualizar", type="primary")
     
     st.divider()
-    exibir_r = st.checkbox("Receitas", value=True)
-    exibir_p = st.checkbox("Despesas", value=True)
-    exibir_s = st.checkbox("Saldo", value=True)
+    exibir_r = st.checkbox("Exibir Receitas", value=True)
+    exibir_p = st.checkbox("Exibir Despesas", value=True)
+    exibir_s = st.checkbox("Exibir Saldo", value=True)
 
 st.title("Fluxo de Caixa")
 
@@ -130,9 +129,8 @@ with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
-            api_params = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
-            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_params.copy()))
-            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_params.copy()))
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}))
+            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}))
 
 if p_total or r_total:
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
@@ -143,20 +141,18 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # --- 5. CARDS COM CORES DINÂMICAS ---
-    c1, c2, c3 = st.columns(3)
+    # --- LÓGICA DE COR DINÂMICA ---
+    total_saldo = df_plot['Saldo'].sum()
+    cor_dinamica_saldo = "#2ecc71" if total_saldo >= 0 else "#e74c3c"
     
-    total_r = df_plot['Receber'].sum()
-    total_p = df_plot['Pagar'].sum()
-    total_s = df_plot['Saldo'].sum()
+    # Re-injetamos o CSS para atualizar a cor do saldo com base no resultado
+    st.markdown(f"<style>[data-testid='stMetric']:nth-of-type(3) [data-testid='stMetricValue'] {{ color: {cor_dinamica_saldo} !important; }}</style>", unsafe_allow_html=True)
 
-    if exibir_r:
-        c1.markdown(f'<div class="card-container"><div class="card-label">Total a Receber</div><div class="card-value verde">{format_br(total_r)}</div></div>', unsafe_allow_html=True)
-    if exibir_p:
-        c2.markdown(f'<div class="card-container"><div class="card-label">Total a Pagar</div><div class="card-value vermelho">{format_br(total_p)}</div></div>', unsafe_allow_html=True)
-    if exibir_s:
-        cor_saldo = "verde" if total_s >= 0 else "vermelho"
-        c3.markdown(f'<div class="card-container"><div class="card-label">Saldo Líquido</div><div class="card-value {cor_saldo}">{format_br(total_s)}</div></div>', unsafe_allow_html=True)
+    # --- 5. EXIBIÇÃO ---
+    cols = st.columns(3)
+    if exibir_r: cols[0].metric("Total a Receber", format_br(df_plot['Receber'].sum()))
+    if exibir_p: cols[1].metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
+    if exibir_s: cols[2].metric("Saldo Líquido", format_br(total_saldo))
 
     # --- 6. GRÁFICO ---
     fig = go.Figure()
@@ -167,4 +163,4 @@ if p_total or r_total:
     fig.update_layout(hovermode="x unified", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=10, b=50))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.info("Nenhum dado para o período.")
+    st.info("Nenhum dado encontrado.")
