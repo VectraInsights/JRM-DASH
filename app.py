@@ -10,41 +10,44 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-def inject_custom_css(cor_saldo):
+def aplicar_estilo_visual(cor_saldo):
+    """Injeta CSS para limpar a UI e forçar as cores dos cards"""
     st.markdown(f"""
         <style>
-            /* LIMPEZA DE INTERFACE */
+            /* 1. LIMPEZA TOTAL DA INTERFACE STREAMLIT */
             .stAppDeployButton, [data-testid="stDeployButton"],
             [data-testid="stToolbarActionButtonIcon"],
             button[data-testid="stBaseButton-header"],
             [data-testid="appCreatorAvatar"],
+            img[class^="_profileImage_"],
             footer {{ display: none !important; }}
 
-            /* FORÇAR CORES NOS CARDS (Independente do Tema) */
-            /* Coluna 1: Verde */
+            /* 2. CABEÇALHO E SIDEBAR */
+            [data-testid="stHeader"] {{ background: transparent !important; }}
+            
+            /* 3. CORES DOS CARDS (st.metric) */
+            /* Coluna 1: Receber (Verde) */
             [data-testid="column"]:nth-of-type(1) [data-testid="stMetricValue"] {{
                 color: #2ecc71 !important;
                 -webkit-text-fill-color: #2ecc71 !important;
             }}
-            /* Coluna 2: Vermelho */
+            /* Coluna 2: Pagar (Vermelho) */
             [data-testid="column"]:nth-of-type(2) [data-testid="stMetricValue"] {{
                 color: #e74c3c !important;
                 -webkit-text-fill-color: #e74c3c !important;
             }}
-            /* Coluna 3: Dinâmico */
+            /* Coluna 3: Saldo (Dinâmico) */
             [data-testid="column"]:nth-of-type(3) [data-testid="stMetricValue"] {{
                 color: {cor_saldo} !important;
                 -webkit-text-fill-color: {cor_saldo} !important;
             }}
-            
-            /* Ajuste de contraste para labels */
-            [data-testid="stMetricLabel"] {{
-                color: #888 !important;
-            }}
+
+            /* Ajuste de legenda do gráfico para não sobrepor */
+            .js-plotly-plot .plotly .hoverlayer {{ z-index: 9999 !important; }}
         </style>
     """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES DE APOIO ---
+# --- 2. FUNÇÕES DE DADOS ---
 @st.cache_resource
 def get_sheet():
     try:
@@ -93,52 +96,73 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. SIDEBAR ---
+# --- 3. INTERFACE (SIDEBAR) ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
-    st.header("Configurações")
+    st.header("Filtros")
     empresa_sel = st.selectbox("Empresa", ["Todos os Clientes"] + clientes)
     with st.form("datas_form"):
         hoje = datetime.now().date()
         data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
         data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
-        st.form_submit_button("Sincronizar", type="primary")
-
-# --- 4. DADOS ---
-alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
-p_total, r_total = [], []
-
-with st.spinner("Carregando..."):
-    for emp in alvo:
-        tk = obter_token(emp)
-        if tk:
-            api_params = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
-            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_params.copy()))
-            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_params.copy()))
+        st.form_submit_button("Atualizar Dash", type="primary")
 
 st.title("Fluxo de Caixa")
 
-if p_total or r_total:
-    val_p = pd.DataFrame(p_total)['Valor'].sum() if p_total else 0
-    val_r = pd.DataFrame(r_total)['Valor'].sum() if r_total else 0
-    total_s = val_r - val_p
-    
-    # Define a cor do saldo ANTES de injetar o CSS
-    cor_dinamica_saldo = "#2ecc71" if total_s >= 0 else "#e74c3c"
-    inject_custom_css(cor_dinamica_saldo)
+# --- 4. EXECUÇÃO ---
+alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
+p_total, r_total = [], []
 
-    # Exibição dos cards
+with st.spinner("Sincronizando com Conta Azul..."):
+    for emp in alvo:
+        tk = obter_token(emp)
+        if tk:
+            api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
+            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
+
+if p_total or r_total:
+    # Preparação dos dados para o gráfico
+    df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
+    df_plot['data_str'] = df_plot['data'].dt.strftime('%Y-%m-%d')
+    
+    val_p = pd.DataFrame(p_total).groupby('Vencimento')['Valor'].sum() if p_total else pd.Series(dtype=float)
+    val_r = pd.DataFrame(r_total).groupby('Vencimento')['Valor'].sum() if r_total else pd.Series(dtype=float)
+    
+    df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
+    df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
+    df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
+
+    # --- 5. DEFINIÇÃO DE CORES DINÂMICAS ---
+    total_r = df_plot['Receber'].sum()
+    total_p = df_plot['Pagar'].sum()
+    total_s = total_r - total_p
+    
+    # Saldo Verde se >= 0, Vermelho se < 0
+    cor_dinamica_saldo = "#2ecc71" if total_s >= 0 else "#e74c3c"
+    aplicar_estilo_visual(cor_dinamica_saldo)
+
+    # --- 6. EXIBIÇÃO DOS CARDS ---
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total a Receber", format_br(val_r))
-    c2.metric("Total a Pagar", format_br(val_p))
+    c1.metric("Total a Receber", format_br(total_r))
+    c2.metric("Total a Pagar", format_br(total_p))
     c3.metric("Saldo Líquido", format_br(total_s))
 
-    # Gráfico simples para visualização
+    # --- 7. GRÁFICO ---
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=['Receber', 'Pagar'], y=[val_r, val_p], marker_color=['#2ecc71', '#e74c3c']))
-    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
+    fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+    fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3)))
+
+    fig.update_layout(
+        hovermode="x unified",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=10, r=10, t=10, b=50),
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center")
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.warning("Sem dados para o período.")
+    st.info("Nenhum dado encontrado para o período selecionado.")
