@@ -10,7 +10,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS original + cores dos metrics
 st.markdown("""
     <style>
         .stAppDeployButton, 
@@ -46,20 +45,6 @@ st.markdown("""
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
-
-        /* CORES DOS NÚMEROS DOS CARDS */
-        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
-            color: #2ecc71; /* Receber */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
-            color: #e74c3c; /* Pagar */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
-            color: white; /* será sobrescrito no saldo */
-        }
-
     </style>
 """, unsafe_allow_html=True)
 
@@ -93,9 +78,11 @@ def obter_token(empresa_nome):
             data={"grant_type": "refresh_token", "refresh_token": rt})
         if res.status_code == 200:
             dados = res.json()
-            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
+            if dados.get('refresh_token'):
+                sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
-    except: pass
+    except:
+        pass
     return None
 
 def buscar_v2(endpoint, token, params):
@@ -104,9 +91,11 @@ def buscar_v2(endpoint, token, params):
     params.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
     while True:
         res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params)
-        if res.status_code != 200: break
+        if res.status_code != 200:
+            break
         itens = res.json().get('itens', [])
-        if not itens: break
+        if not itens:
+            break
         for i in itens:
             saldo = i.get('total', 0) - i.get('pago', 0)
             if saldo > 0:
@@ -114,7 +103,8 @@ def buscar_v2(endpoint, token, params):
                     "Vencimento": i.get("data_vencimento"),
                     "Valor": saldo
                 })
-        if len(itens) < 100: break
+        if len(itens) < 100:
+            break
         params["pagina"] += 1
     return itens_acumulados
 
@@ -165,29 +155,46 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # CARDS
+    # --- CARDS CORRIGIDOS ---
     c1, c2, c3 = st.columns(3)
 
+    total_receber = df_plot['Receber'].sum()
+    total_pagar = df_plot['Pagar'].sum()
+    saldo_total = df_plot['Saldo'].sum()
+
     if exibir_receitas:
-        c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
+        c1.markdown(f"""
+        <div>
+            <div style="font-size:14px; opacity:0.8;">Total a Receber</div>
+            <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
+                {format_br(total_receber)}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if exibir_despesas:
-        c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
+        c2.markdown(f"""
+        <div>
+            <div style="font-size:14px; opacity:0.8;">Total a Pagar</div>
+            <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
+                {format_br(-total_pagar)}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if exibir_saldo:
-        saldo_total = df_plot['Saldo'].sum()
         cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
 
         c3.markdown(f"""
-        <div data-testid="metric-container">
-            <label>Saldo Líquido</label>
-            <div style="font-size:28px; font-weight:bold; color:{cor_saldo}">
+        <div>
+            <div style="font-size:14px; opacity:0.8;">Saldo Líquido</div>
+            <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
                 {format_br(saldo_total)}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # --- 4. GRÁFICO ---
+    # --- GRÁFICO ---
     fig = go.Figure()
     
     if exibir_receitas:
@@ -213,40 +220,15 @@ if p_total or r_total:
     fig.update_layout(
         hovermode="x unified",
         separators=",.",
-        xaxis=dict(
-            showgrid=False,
-            showspikes=False,
-            fixedrange=True,
-            tickformat='%d/%m',
-            tickangle=-45
-        ),
-        yaxis=dict(
-            showgrid=False,
-            showspikes=False,
-            fixedrange=True,
-            tickformat=',.2f'
-        ),
-        legend=dict(
-            orientation="h",
-            y=-0.3,
-            x=0.5,
-            xanchor="center"
-        ),
+        xaxis=dict(showgrid=False, tickformat='%d/%m', tickangle=-45),
+        yaxis=dict(showgrid=False, tickformat=',.2f'),
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        hoverlabel=dict(
-            bgcolor="#2b2b2b",
-            font_size=14,
-            font_family="Arial"
-        )
+        plot_bgcolor='rgba(0,0,0,0)'
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': False,
-        'showSpikes': False,
-        'responsive': True
-    })
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 else:
     st.info("Nenhum dado encontrado.")
