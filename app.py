@@ -145,12 +145,35 @@ if p_total or r_total:
 
     # CARDS COM FILTRO
     c1, c2, c3 = st.columns(3)
-    if exibir_receitas:
-        c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
-    if exibir_despesas:
-        c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
-    if exibir_saldo:
-        c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
+
+def card_html(titulo, valor, cor):
+    return f"""
+    <div style="
+        background-color:{cor};
+        padding:20px;
+        border-radius:10px;
+        text-align:center;
+        color:white;
+        font-weight:bold;
+    ">
+        <div style="font-size:14px; opacity:0.9;">{titulo}</div>
+        <div style="font-size:28px; margin-top:5px;">{valor}</div>
+    </div>
+    """
+
+total_receber = df_plot['Receber'].sum()
+total_pagar = df_plot['Pagar'].sum()
+saldo_total = df_plot['Saldo'].sum()
+
+if exibir_receitas:
+    c1.markdown(card_html("Total a Receber", format_br(total_receber), "#2ecc71"), unsafe_allow_html=True)
+
+if exibir_despesas:
+    c2.markdown(card_html("Total a Pagar", format_br(total_pagar), "#e74c3c"), unsafe_allow_html=True)
+
+if exibir_saldo:
+    cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+    c3.markdown(card_html("Saldo Líquido", format_br(saldo_total), cor_saldo), unsafe_allow_html=True)
 
     # --- 4. GRÁFICO (COM FILTRO) ---
     fig = go.Figure()
