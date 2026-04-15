@@ -13,30 +13,26 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 # CSS original com fundo "Off-White" para maior conforto visual
 st.markdown("""
     <style>
-        /* AJUSTE DO FUNDO: Cinza suave para evitar o brilho do branco puro */
-        .stApp {
-            background-color: #F5F5F5 !important;
+        /* APLICA APENAS QUANDO O USUÁRIO ESTIVER NO MODO CLARO */
+        @media (prefers-color-scheme: light) {
+            .stApp {
+                background-color: #F5F5F5 !important;
+            }
+            [data-testid="stHeader"] {
+                background-color: #F5F5F5 !important;
+            }
+            /* Garante que o texto do terceiro card seja legível no fundo claro */
+            div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
+                color: #31333F !important;
+            }
         }
 
-        /* AJUSTE DO HEADER: Acompanha a cor do fundo */
-        [data-testid="stHeader"] {
-            background-color: #F5F5F5 !important;
-        }
-
-        /* REMOVER ELEMENTOS NATIVOS DO STREAMLIT */
+        /* CONFIGURAÇÕES GERAIS (VALEM PARA OS DOIS TEMAS) */
         .stAppDeployButton, 
         [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
         button[data-testid="stBaseButton-header"] {
             display: none !important;
-        }
-
-        [data-testid="appCreatorAvatar"],
-        div[class*="_link_gzau3_"] {
-            opacity: 0 !important;
-            width: 0 !important;
-            height: 0 !important;
-            pointer-events: none !important;
         }
 
         [data-testid="stViewerBadge"],
@@ -50,23 +46,18 @@ st.markdown("""
             pointer-events: auto !important;
         }
 
+        /* CORES DOS NÚMEROS DOS CARDS (SINALIZAÇÃO FIXA) */
+        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
+            color: #2ecc71 !important; /* Receber */
+        }
+        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
+            color: #e74c3c !important; /* Pagar */
+        }
+
+        /* Mantém o hover do gráfico visível */
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
-
-        /* CORES DOS NÚMEROS DOS CARDS (MANTIDO) */
-        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
-            color: #2ecc71; /* Receber */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
-            color: #e74c3c; /* Pagar */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
-            color: #31333F; /* Cor de texto padrão para visibilidade no fundo claro */
-        }
-
     </style>
 """, unsafe_allow_html=True)
 
