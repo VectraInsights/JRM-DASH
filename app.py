@@ -10,44 +10,43 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS original para limpeza de interface e proteção do gráfico
-st.markdown("""
-    <style>
-        .stAppDeployButton, 
-        [data-testid="stDeployButton"],
-        [data-testid="stToolbarActionButtonIcon"],
-        button[data-testid="stBaseButton-header"] {
-            display: none !important;
-        }
+def estilizar_metrics(cor_saldo):
+    """Força as cores dos cards ignorando o tema padrão do Streamlit"""
+    st.markdown(f"""
+        <style>
+            /* LIMPEZA DE INTERFACE (GitHub, Fork, Rodapé) */
+            .stAppDeployButton, [data-testid="stDeployButton"],
+            [data-testid="stToolbarActionButtonIcon"],
+            button[data-testid="stBaseButton-header"],
+            [data-testid="appCreatorAvatar"],
+            div[class*="_link_gzau3_"],
+            [data-testid="stViewerBadge"],
+            footer {{ display: none !important; }}
 
-        [data-testid="appCreatorAvatar"],
-        div[class*="_link_gzau3_"] {
-            opacity: 0 !important;
-            width: 0 !important;
-            height: 0 !important;
-            pointer-events: none !important;
-        }
+            [data-testid="stHeader"] {{ background: transparent !important; }}
 
-        [data-testid="stViewerBadge"],
-        footer {
-            display: none !important;
-        }
+            /* FORÇAR CORES NOS CARDS */
+            /* Coluna 1: Receber (Verde) */
+            [data-testid="column"]:nth-of-type(1) [data-testid="stMetricValue"] {{
+                color: #2ecc71 !important;
+                -webkit-text-fill-color: #2ecc71 !important;
+            }}
+            /* Coluna 2: Pagar (Vermelho) */
+            [data-testid="column"]:nth-of-type(2) [data-testid="stMetricValue"] {{
+                color: #e74c3c !important;
+                -webkit-text-fill-color: #e74c3c !important;
+            }}
+            /* Coluna 3: Saldo (Dinâmico) */
+            [data-testid="column"]:nth-of-type(3) [data-testid="stMetricValue"] {{
+                color: {cor_saldo} !important;
+                -webkit-text-fill-color: {cor_saldo} !important;
+            }}
 
-        [data-testid="stHeader"] {
-            background: transparent !important;
-        }
-        
-        button[data-testid="stSidebarCollapse"],
-        button[kind="header"] {
-            visibility: visible !important;
-            pointer-events: auto !important;
-        }
-
-        .js-plotly-plot .plotly .hoverlayer {
-            z-index: 9999 !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
+            /* Garante visibilidade dos controles */
+            button[data-testid="stSidebarCollapse"] {{ visibility: visible !important; }}
+            .js-plotly-plot .plotly .hoverlayer {{ z-index: 9999 !important; }}
+        </style>
+    """, unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
@@ -143,62 +142,47 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # CARDS COM FILTRO
+    # --- CÁLCULO DE CORES ---
+    total_saldo = df_plot['Saldo'].sum()
+    cor_dinamica_saldo = "#2ecc71" if total_saldo >= 0 else "#e74c3c"
+    
+    # Injeta o CSS específico ANTES dos cards aparecerem
+    estilizar_metrics(cor_dinamica_saldo)
+
+    # --- EXIBIÇÃO DOS CARDS ---
     c1, c2, c3 = st.columns(3)
     if exibir_receitas:
         c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
     if exibir_despesas:
         c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
     if exibir_saldo:
-        c3.metric("Saldo Líquido", format_br(df_plot['Saldo'].sum()))
+        c3.metric("Saldo Líquido", format_br(total_saldo))
 
-    # --- 4. GRÁFICO (COM FILTRO) ---
+    # --- 4. GRÁFICO ---
     fig = go.Figure()
     
     if exibir_receitas:
-        fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Receber'], name='Receitas', 
-            marker_color='#2ecc71', showlegend=True
-        ))
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     
     if exibir_despesas:
-        fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', 
-            marker_color='#e74c3c'
-        ))
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
     
     if exibir_saldo:
-        fig.add_trace(go.Scatter(
-            x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
-            line=dict(color='#34495e', width=3), mode='lines+markers'
-        ))
+        fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', 
+                                line=dict(color='#34495e', width=3), mode='lines+markers'))
 
     fig.update_layout(
         hovermode="x unified",
         separators=",.",
-        xaxis=dict(
-            showgrid=False, showspikes=False, fixedrange=True, 
-            tickformat='%d/%m', tickangle=-45
-        ),
-        yaxis=dict(
-            showgrid=False, showspikes=False, fixedrange=True, 
-            tickformat=',.2f'
-        ),
+        xaxis=dict(showgrid=False, fixedrange=True, tickformat='%d/%m', tickangle=-45),
+        yaxis=dict(showgrid=False, fixedrange=True, tickformat=',.2f'),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        hoverlabel=dict(
-            bgcolor="#2b2b2b",
-            font_size=14,
-            font_family="Arial"
-        )
+        hoverlabel=dict(bgcolor="#2b2b2b", font_size=14)
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': False,
-        'showSpikes': False,
-        'responsive': True
-    })
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
     st.info("Nenhum dado encontrado.")
