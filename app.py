@@ -190,46 +190,43 @@ if p_total or r_total:
             </div>
         ''', unsafe_allow_html=True)
 
-   # --- 4. GRÁFICO (SEM SPIKE) ---
+   # --- 4. GRÁFICO ---
     fig = go.Figure()
     
     if exibir_receitas:
         fig.add_trace(go.Bar(
             x=df_plot['data'], y=df_plot['Receber'],
-            name='Receitas', marker_color='#2ecc71',
-            hovertemplate='Receitas: %{y:,.2f}<extra></extra>'
+            name='Receitas', marker_color='#2ecc71'
         ))
     
     if exibir_despesas:
         fig.add_trace(go.Bar(
             x=df_plot['data'], y=df_plot['Pagar'],
-            name='Despesas', marker_color='#e74c3c',
-            hovertemplate='Despesas: %{y:,.2f}<extra></extra>'
+            name='Despesas', marker_color='#e74c3c'
         ))
     
     if exibir_saldo:
-        # Usamos Scatter com connectgaps=False para evitar o "spike" 
-        # e forçamos o eixo a tratar as datas como categorias
         fig.add_trace(go.Scatter(
             x=df_plot['data'], y=df_plot['Saldo'],
             name='Saldo',
-            line=dict(color='#3498db', width=3),
-            mode='lines+markers',
-            connectgaps=False, 
-            hovertemplate='Saldo: %{y:,.2f}<extra></extra>'
+            line=dict(color='#34495e', width=3),
+            mode='lines+markers'
         ))
 
     fig.update_layout(
         hovermode="x unified",
         separators=",.",
         xaxis=dict(
-            type='category', # Força a exibição dia a dia sem interpolação
             showgrid=False,
+            showspikes=False,
+            fixedrange=True,
             tickformat='%d/%m',
             tickangle=-45
         ),
         yaxis=dict(
             showgrid=False,
+            showspikes=False,
+            fixedrange=True,
             tickformat=',.2f'
         ),
         legend=dict(
@@ -240,7 +237,19 @@ if p_total or r_total:
         ),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
+        plot_bgcolor='rgba(0,0,0,0)',
+        hoverlabel=dict(
+            bgcolor="#2b2b2b",
+            font_size=14,
+            font_family="Arial"
+        )
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': False,
+        'showSpikes': False,
+        'responsive': True
+    })
+
+else:
+    st.info("Nenhum dado encontrado.")
