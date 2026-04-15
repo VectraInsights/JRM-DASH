@@ -6,6 +6,8 @@ import gspread
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
+import locale
+locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
@@ -221,8 +223,11 @@ if p_total or r_total:
         hovermode="x unified",
         separators=",.",
         xaxis=dict(
-            showgrid=False,
-            showspikes=False  # 🔥 REMOVE SPIKELINE
+             type='date',
+             showgrid=False,
+             showspikes=False,
+             tickformat='%d/%m',
+             tickangle=-45
         ),
         yaxis=dict(showgrid=False, tickformat=',.2f'),
         legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
