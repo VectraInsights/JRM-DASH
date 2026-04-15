@@ -47,23 +47,19 @@ st.markdown("""
             z-index: 9999 !important;
         }
 
-        .stAppDeployButton, [data-testid="stDeployButton"], [data-testid="stToolbarActionButtonIcon"],
-        button[data-testid="stBaseButton-header"], [data-testid="stViewerBadge"], footer {
-            display: none !important;
+        /* CORES DOS NÚMEROS DOS CARDS */
+        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
+            color: #2ecc71; /* Receber */
         }
 
-        /* Cores baseadas no texto do rótulo (label) */
-        /* Verde para 'Total a Receber' */
-        div[data-testid="stMetric"]:has(label p:contains("Total a Receber")) [data-testid="stMetricValue"] {
-            color: #2ecc71 !important;
+        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
+            color: #e74c3c; /* Pagar */
         }
 
-        /* Vermelho para 'Total a Pagar' */
-        div[data-testid="stMetric"]:has(label p:contains("Total a Pagar")) [data-testid="stMetricValue"] {
-            color: #e74c3c !important;
+        div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
+            color: white; /* será sobrescrito no saldo */
         }
 
-        /* O Saldo Líquido será colorido via Delta ou Injeção simples se preferir manter o padrão */
     </style>
 """, unsafe_allow_html=True)
 
