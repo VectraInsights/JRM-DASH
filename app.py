@@ -12,32 +12,43 @@ st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sideb
 
 st.markdown("""
     <style>
-        .stAppDeployButton, 
-        [data-testid="stDeployButton"],
-        [data-testid="stToolbarActionButtonIcon"],
-        button[data-testid="stBaseButton-header"] {
+        /* TEMA CLARO PERSONALIZADO */
+        @media (prefers-color-scheme: light) {
+            .stApp {
+                background-color: #F5F5F5 !important;
+            }
+            [data-testid="stHeader"] {
+                background-color: #F5F5F5 !important;
+            }
+        }
+
+        /* ESTILO DOS CONTAINERS (CARDS) */
+        .metric-card {
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+        }
+
+        .card-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .card-value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        /* REMOVER ELEMENTOS NATIVOS DO STREAMLIT */
+        .stAppDeployButton, [data-testid="stDeployButton"], [data-testid="stToolbarActionButtonIcon"],
+        button[data-testid="stBaseButton-header"], [data-testid="stViewerBadge"], footer {
             display: none !important;
-        }
-
-        [data-testid="appCreatorAvatar"],
-        div[class*="_link_gzau3_"] {
-            opacity: 0 !important;
-            width: 0 !important;
-            height: 0 !important;
-            pointer-events: none !important;
-        }
-
-        [data-testid="stViewerBadge"],
-        footer {
-            display: none !important;
-        }
-
-        [data-testid="stHeader"] {
-            background: transparent !important;
         }
         
-        button[data-testid="stSidebarCollapse"],
-        button[kind="header"] {
+        button[data-testid="stSidebarCollapse"], button[kind="header"] {
             visibility: visible !important;
             pointer-events: auto !important;
         }
@@ -45,25 +56,10 @@ st.markdown("""
         .js-plotly-plot .plotly .hoverlayer {
             z-index: 9999 !important;
         }
-
-        /* CORES DOS CARDS */
-        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
-            color: #2ecc71;
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
-            color: #e74c3c;
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(3) {
-            border: 1px solid rgba(0,0,0,0.1);
-            border-radius: 8px;
-        }
-
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES ---
+# --- 2. FUNÇÕES DE APOIO ---
 @st.cache_resource
 def get_sheet():
     try:
@@ -74,7 +70,7 @@ def get_sheet():
         client = gspread.authorize(creds)
         return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro real detectado: {e}")
+        st.error(f"Erro na planilha: {e}")
         return None
 
 def format_br(valor):
@@ -87,117 +83,72 @@ def obter_token(empresa_nome):
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
         ca = st.secrets["conta_azul"]
-
-        auth_b64 = base64.b64encode(
-            f"{ca['client_id']}:{ca['client_secret']}".encode()
-        ).decode()
-
-        res = requests.post(
-            "https://auth.contaazul.com/oauth2/token",
-            headers={
-                "Authorization": f"Basic {auth_b64}",
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": rt
-            }
-        )
-
+        auth_b64 = base64.b64encode(f"{ca['client_id']}:{ca['client_secret']}".encode()).decode()
+        res = requests.post("https://auth.contaazul.com/oauth2/token", 
+            headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
+            data={"grant_type": "refresh_token", "refresh_token": rt})
         if res.status_code == 200:
             dados = res.json()
-            if dados.get('refresh_token'):
-                sh.update_cell(cell.row, 2, dados['refresh_token'])
+            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
-    except:
-        pass
-
+    except: pass
     return None
 
 def buscar_v2(endpoint, token, params):
     itens_acumulados = []
     headers = {"Authorization": f"Bearer {token}"}
-
-    params.update({
-        "status": "EM_ABERTO",
-        "tamanho_pagina": 100,
-        "pagina": 1
-    })
-
+    params.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
     while True:
-        res = requests.get(
-            f"https://api-v2.contaazul.com{endpoint}",
-            headers=headers,
-            params=params
-        )
-
-        if res.status_code != 200:
-            break
-
+        res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params)
+        if res.status_code != 200: break
         itens = res.json().get('itens', [])
-        if not itens:
-            break
-
+        if not itens: break
         for i in itens:
             saldo = i.get('total', 0) - i.get('pago', 0)
             if saldo > 0:
-                itens_acumulados.append({
-                    "Vencimento": i.get("data_vencimento"),
-                    "Valor": saldo
-                })
-
-        if len(itens) < 100:
-            break
-
+                itens_acumulados.append({"Vencimento": i.get("data_vencimento"), "Valor": saldo})
+        if len(itens) < 100: break
         params["pagina"] += 1
-
     return itens_acumulados
 
-# --- 3. INTERFACE ---
+# --- 3. INTERFACE E LÓGICA DE PERÍODO ---
 sh = get_sheet()
 clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
 with st.sidebar:
     st.header("Fluxo de Caixa JRM")
-
-    empresa_sel = st.selectbox(
-        "Selecione a Empresa",
-        ["Todos os Clientes"] + clientes
+    empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
+    
+    # Lógica conforme imagem enviada
+    st.subheader("Período")
+    hoje = datetime.now().date()
+    opcao_periodo = st.selectbox(
+        "Escolha o intervalo",
+        ["Hoje", "7 dias", "15 dias", "30 dias", "Personalizado"],
+        index=1
     )
 
-    hoje = datetime.now().date()
-
-    periodo = st.selectbox("Período", [
-        "Hoje", "7 dias", "15 dias", "30 dias", "Personalizado"
-    ])
-
-    if periodo == "Hoje":
-        data_ini = hoje
-        data_fim = hoje
-    elif periodo == "7 dias":
-        data_ini = hoje
-        data_fim = hoje + timedelta(days=7)
-    elif periodo == "15 dias":
-        data_ini = hoje
-        data_fim = hoje + timedelta(days=15)
-    elif periodo == "30 dias":
-        data_ini = hoje
-        data_fim = hoje + timedelta(days=30)
-    else:
-        data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
-        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
+    if opcao_periodo == "Hoje":
+        data_ini, data_fim = hoje, hoje
+    elif opcao_periodo == "7 dias":
+        data_ini, data_fim = hoje, hoje + timedelta(days=7)
+    elif opcao_periodo == "15 dias":
+        data_ini, data_fim = hoje, hoje + timedelta(days=15)
+    elif opcao_periodo == "30 dias":
+        data_ini, data_fim = hoje, hoje + timedelta(days=30)
+    else: # Personalizado
+        c_ini, c_fim = st.columns(2)
+        data_ini = c_ini.date_input("Início", hoje, format="DD/MM/YYYY")
+        data_fim = c_fim.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
 
     st.divider()
+    st.subheader("Visualização")
+    exibir_receitas = st.checkbox("Exibir Receitas", value=True)
+    exibir_despesas = st.checkbox("Exibir Despesas", value=True)
+    exibir_saldo = st.checkbox("Exibir Saldo", value=True)
 
-    exibir_receitas = st.checkbox("Exibir Receitas", True)
-    exibir_despesas = st.checkbox("Exibir Despesas", True)
-    exibir_saldo = st.checkbox("Exibir Saldo", True)
-
-# --- TÍTULO ---
 st.title("Fluxo de Caixa")
-st.markdown("<br>", unsafe_allow_html=True)
 
-# --- DADOS ---
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
 
@@ -205,120 +156,54 @@ with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
-            params = {
-                "data_vencimento_de": data_ini.isoformat(),
-                "data_vencimento_ate": data_fim.isoformat()
-            }
-
-            p_total.extend(buscar_v2(
-                "/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar",
-                tk, params.copy()
-            ))
-
-            r_total.extend(buscar_v2(
-                "/v1/financeiro/eventos-financeiros/contas-a-receber/buscar",
-                tk, params.copy()
-            ))
+            api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
+            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
 
 if p_total or r_total:
-
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
     df_plot['data_str'] = df_plot['data'].dt.strftime('%Y-%m-%d')
-
     val_p = pd.DataFrame(p_total).groupby('Vencimento')['Valor'].sum() if p_total else pd.Series(dtype=float)
     val_r = pd.DataFrame(r_total).groupby('Vencimento')['Valor'].sum() if r_total else pd.Series(dtype=float)
-
+    
     df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # --- CARDS ---
+    total_receber = df_plot['Receber'].sum()
+    total_pagar = df_plot['Pagar'].sum()
+    saldo_total = df_plot['Saldo'].sum()
+
+    # --- CARDS VISUAIS ---
     c1, c2, c3 = st.columns(3)
 
     if exibir_receitas:
-        c1.metric("Total a Receber", format_br(df_plot['Receber'].sum()))
-
+        c1.markdown(f"""<div class="metric-card"><div class="card-label">Total a Receber</div><div class="card-value" style="color:#2ecc71;">{format_br(total_receber)}</div></div>""", unsafe_allow_html=True)
     if exibir_despesas:
-        c2.metric("Total a Pagar", format_br(df_plot['Pagar'].sum()))
-
+        c2.markdown(f"""<div class="metric-card"><div class="card-label">Total a Pagar</div><div class="card-value" style="color:#e74c3c;">{format_br(-total_pagar)}</div></div>""", unsafe_allow_html=True)
     if exibir_saldo:
-        saldo_total = df_plot['Saldo'].sum()
-        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+        cor_s = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+        c3.markdown(f"""<div class="metric-card"><div class="card-label">Saldo Líquido</div><div class="card-value" style="color:{cor_s};">{format_br(saldo_total)}</div></div>""", unsafe_allow_html=True)
 
-        c3.markdown(f"""
-        <div data-testid="metric-container">
-            <label>Saldo Líquido</label>
-            <div style="font-size:30px; font-weight:bold; color:{cor_saldo}">
-                {format_br(saldo_total)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # --- INSIGHT LEVE ---
-    if saldo_total < 0:
-        st.caption("⚠️ Período com mais saídas do que entradas")
-
-    # --- GRÁFICO ---
+    # --- 4. GRÁFICO ---
     fig = go.Figure()
-
     if exibir_receitas:
-        fig.add_bar(
-            x=df_plot['data'],
-            y=df_plot['Receber'],
-            name='Receitas',
-            marker_color='#2ecc71'
-        )
-
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     if exibir_despesas:
-        fig.add_bar(
-            x=df_plot['data'],
-            y=df_plot['Pagar'],
-            name='Despesas',
-            marker_color='#e74c3c'
-        )
-
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
     if exibir_saldo:
-        fig.add_scatter(
-            x=df_plot['data'],
-            y=df_plot['Saldo'],
-            name='Saldo',
-            mode='lines+markers',
-            line=dict(width=3, color='#34495e')
-        )
-
-    fig.update_traces(marker_line_width=0)
+        fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#34495e', width=3), mode='lines+markers'))
 
     fig.update_layout(
         hovermode="x unified",
-        separators=",.",
-        xaxis=dict(
-            showgrid=False,
-            fixedrange=True,
-            tickformat='%d/%m',
-            tickangle=-45
-        ),
-        yaxis=dict(
-            showgrid=False,
-            fixedrange=True,
-            tickformat=',.2f'
-        ),
-        legend=dict(
-            orientation="h",
-            y=-0.25,
-            x=0.5,
-            xanchor="center"
-        ),
+        xaxis=dict(showgrid=False, fixedrange=True, tickformat='%d/%m', tickangle=-45),
+        yaxis=dict(showgrid=False, fixedrange=True, tickformat=',.2f'),
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
+        plot_bgcolor='rgba(0,0,0,0)',
+        hoverlabel=dict(bgcolor="#2b2b2b", font_size=14)
     )
-
-    st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': False,
-        'responsive': True
-    })
-
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.info("Nenhum dado encontrado.")
+    st.info("Nenhum dado encontrado para este período.")
