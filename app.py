@@ -126,29 +126,12 @@ with st.sidebar:
     st.header("Fluxo de Caixa JRM")
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
     
-    # --- NOVA LÓGICA DE PERÍODO ---
-    st.subheader("Período")
-    hoje = datetime.now().date()
+    with st.form("datas_form"):
+        hoje = datetime.now().date()
+        data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
+        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
+        st.form_submit_button("Atualizar Datas", type="primary")
     
-    opcao_periodo = st.selectbox(
-        "Escolha o intervalo",
-        ["Hoje", "7 dias", "15 dias", "30 dias", "Personalizado"],
-        index=1  # Padrão em 7 dias como na sua imagem
-    )
-
-    if opcao_periodo == "Hoje":
-        data_ini, data_fim = hoje, hoje
-    elif opcao_periodo == "7 dias":
-        data_ini, data_fim = hoje, hoje + timedelta(days=7)
-    elif opcao_periodo == "15 dias":
-        data_ini, data_fim = hoje, hoje + timedelta(days=15)
-    elif opcao_periodo == "30 dias":
-        data_ini, data_fim = hoje, hoje + timedelta(days=30)
-    else:  # Personalizado
-        col_ini, col_fim = st.columns(2)
-        data_ini = col_ini.date_input("Início", hoje, format="DD/MM/YYYY")
-        data_fim = col_fim.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
-
     st.divider()
     st.subheader("Visualização")
     exibir_receitas = st.checkbox("Exibir Receitas", value=True)
