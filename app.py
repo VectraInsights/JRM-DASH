@@ -126,11 +126,26 @@ with st.sidebar:
     st.header("Fluxo de Caixa JRM")
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
     
-    with st.form("datas_form"):
-        hoje = datetime.now().date()
-        data_ini = st.date_input("Início", hoje, format="DD/MM/YYYY")
-        data_fim = st.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
-        st.form_submit_button("Atualizar Datas", type="primary")
+    # --- LOGICA DO CALENDARIO ---
+    st.subheader("Período")
+    opcoes_periodo = ["Hoje", "7 dias", "15 dias", "30 dias", "Personalizado"]
+    periodo_sel = st.selectbox("Escolha o intervalo", opcoes_periodo, index=1) # Padrão 7 dias
+
+    hoje = datetime.now().date()
+    
+    if periodo_sel == "Hoje":
+        data_ini, data_fim = hoje, hoje
+    elif periodo_sel == "7 dias":
+        data_ini, data_fim = hoje, hoje + timedelta(days=6)
+    elif periodo_sel == "15 dias":
+        data_ini, data_fim = hoje, hoje + timedelta(days=14)
+    elif periodo_sel == "30 dias":
+        data_ini, data_fim = hoje, hoje + timedelta(days=29)
+    else:
+        # Abre os inputs apenas se for "Personalizado"
+        col_ini, col_fim = st.columns(2)
+        data_ini = col_ini.date_input("Início", hoje, format="DD/MM/YYYY")
+        data_fim = col_fim.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
     
     st.divider()
     st.subheader("Visualização")
@@ -166,44 +181,43 @@ if p_total or r_total:
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
     # CARDS
-    # CARDS
-c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-total_receber = df_plot['Receber'].sum()
-total_pagar = df_plot['Pagar'].sum()
-saldo_total = df_plot['Saldo'].sum()
+    total_receber = df_plot['Receber'].sum()
+    total_pagar = df_plot['Pagar'].sum()
+    saldo_total = df_plot['Saldo'].sum()
 
-if exibir_receitas:
-    c1.markdown(f"""
-    <div>
-        <div style="font-size:14px; opacity:0.8;">Total a Receber</div>
-        <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
-            {format_br(total_receber)}
+    if exibir_receitas:
+        c1.markdown(f"""
+        <div>
+            <div style="font-size:14px; opacity:0.8;">Total a Receber</div>
+            <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
+                {format_br(total_receber)}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-if exibir_despesas:
-    c2.markdown(f"""
-    <div>
-        <div style="font-size:14px; opacity:0.8;">Total a Pagar</div>
-        <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
-            {format_br(-total_pagar)}
+    if exibir_despesas:
+        c2.markdown(f"""
+        <div>
+            <div style="font-size:14px; opacity:0.8;">Total a Pagar</div>
+            <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
+                {format_br(-total_pagar)}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-if exibir_saldo:
-    cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+    if exibir_saldo:
+        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
 
-    c3.markdown(f"""
-    <div>
-        <div style="font-size:14px; opacity:0.8;">Saldo Líquido</div>
-        <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
-            {format_br(saldo_total)}
+        c3.markdown(f"""
+        <div>
+            <div style="font-size:14px; opacity:0.8;">Saldo Líquido</div>
+            <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
+                {format_br(saldo_total)}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
     # --- 4. GRÁFICO ---
     fig = go.Figure()
