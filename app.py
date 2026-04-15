@@ -10,55 +10,43 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONFIGURAÇÕES E ESTILO ---
 st.set_page_config(page_title="Fluxo de Caixa JRM", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS original + cores dos metrics
+# CSS Refinado: Cards modernos e limpeza de UI
 st.markdown("""
     <style>
-        .stAppDeployButton, 
-        [data-testid="stDeployButton"],
+        /* Limpeza de elementos nativos */
+        .stAppDeployButton, [data-testid="stDeployButton"],
         [data-testid="stToolbarActionButtonIcon"],
-        button[data-testid="stBaseButton-header"] {
+        button[data-testid="stBaseButton-header"],
+        [data-testid="stViewerBadge"], footer {
             display: none !important;
         }
 
-        [data-testid="appCreatorAvatar"],
-        div[class*="_link_gzau3_"] {
-            opacity: 0 !important;
-            width: 0 !important;
-            height: 0 !important;
-            pointer-events: none !important;
-        }
-
-        [data-testid="stViewerBadge"],
-        footer {
-            display: none !important;
-        }
-
-        [data-testid="stHeader"] {
-            background: transparent !important;
+        /* Estilização dos Cards Customizados */
+        .card-container {
+            background-color: #1e2130; /* Fundo levemente diferente do fundo geral */
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 5px solid #34495e;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+            margin-bottom: 10px;
         }
         
-        button[data-testid="stSidebarCollapse"],
-        button[kind="header"] {
-            visibility: visible !important;
-            pointer-events: auto !important;
+        .card-title {
+            font-size: 14px;
+            color: #9ea4b0;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .card-value {
+            font-size: 26px;
+            font-weight: bold;
         }
 
-        .js-plotly-plot .plotly .hoverlayer {
-            z-index: 9999 !important;
-        }
-
-        /* CORES DOS NÚMEROS DOS CARDS */
-        div[data-testid="metric-container"]:nth-of-type(1) [data-testid="stMetricValue"] {
-            color: #2ecc71; /* Receber */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(2) [data-testid="stMetricValue"] {
-            color: #e74c3c; /* Pagar */
-        }
-
-        div[data-testid="metric-container"]:nth-of-type(3) [data-testid="stMetricValue"] {
-            color: white; /* será sobrescrito no saldo */
-        }
+        /* Cores específicas por tipo de card */
+        .border-receber { border-left-color: #2ecc71 !important; }
+        .border-pagar { border-left-color: #e74c3c !important; }
+        .border-saldo { border-left-color: #3498db !important; }
 
     </style>
 """, unsafe_allow_html=True)
@@ -72,12 +60,14 @@ def get_sheet():
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
+        # URL da planilha do Victor Leandro Gomes Soares
         return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro real detectado: {e}")
+        st.error(f"Erro na conexão: {e}")
         return None
 
 def format_br(valor):
+    # Formatação DD/MM/AAAA conforme solicitado nas correções
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 def obter_token(empresa_nome):
@@ -110,10 +100,7 @@ def buscar_v2(endpoint, token, params):
         for i in itens:
             saldo = i.get('total', 0) - i.get('pago', 0)
             if saldo > 0:
-                itens_acumulados.append({
-                    "Vencimento": i.get("data_vencimento"),
-                    "Valor": saldo
-                })
+                itens_acumulados.append({"Vencimento": i.get("data_vencimento"), "Valor": saldo})
         if len(itens) < 100: break
         params["pagina"] += 1
     return itens_acumulados
@@ -126,29 +113,21 @@ with st.sidebar:
     st.header("Fluxo de Caixa JRM")
     empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
     
-    # --- LOGICA DO CALENDARIO ---
     st.subheader("Período")
     opcoes_periodo = ["Hoje", "7 dias", "15 dias", "30 dias", "Personalizado"]
-    periodo_sel = st.selectbox("Escolha o intervalo", opcoes_periodo, index=1) # Padrão 7 dias
+    periodo_sel = st.selectbox("Escolha o intervalo", opcoes_periodo, index=1)
 
     hoje = datetime.now().date()
-    
-    if periodo_sel == "Hoje":
-        data_ini, data_fim = hoje, hoje
-    elif periodo_sel == "7 dias":
-        data_ini, data_fim = hoje, hoje + timedelta(days=6)
-    elif periodo_sel == "15 dias":
-        data_ini, data_fim = hoje, hoje + timedelta(days=14)
-    elif periodo_sel == "30 dias":
-        data_ini, data_fim = hoje, hoje + timedelta(days=29)
+    if periodo_sel == "Hoje": data_ini, data_fim = hoje, hoje
+    elif periodo_sel == "7 dias": data_ini, data_fim = hoje, hoje + timedelta(days=6)
+    elif periodo_sel == "15 dias": data_ini, data_fim = hoje, hoje + timedelta(days=14)
+    elif periodo_sel == "30 dias": data_ini, data_fim = hoje, hoje + timedelta(days=29)
     else:
-        # Abre os inputs apenas se for "Personalizado"
         col_ini, col_fim = st.columns(2)
         data_ini = col_ini.date_input("Início", hoje, format="DD/MM/YYYY")
         data_fim = col_fim.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
     
     st.divider()
-    st.subheader("Visualização")
     exibir_receitas = st.checkbox("Exibir Receitas", value=True)
     exibir_despesas = st.checkbox("Exibir Despesas", value=True)
     exibir_saldo = st.checkbox("Exibir Saldo", value=True)
@@ -162,10 +141,7 @@ with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
-            api_p = {
-                "data_vencimento_de": data_ini.isoformat(),
-                "data_vencimento_ate": data_fim.isoformat()
-            }
+            api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
             p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
 
@@ -180,100 +156,56 @@ if p_total or r_total:
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
     df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
 
-    # CARDS
+    # --- SEÇÃO DE CARDS MELHORADOS ---
     c1, c2, c3 = st.columns(3)
-
+    
     total_receber = df_plot['Receber'].sum()
     total_pagar = df_plot['Pagar'].sum()
     saldo_total = df_plot['Saldo'].sum()
 
     if exibir_receitas:
-        c1.markdown(f"""
-        <div>
-            <div style="font-size:14px; opacity:0.8;">Total a Receber</div>
-            <div style="font-size:28px; font-weight:bold; color:#2ecc71;">
-                {format_br(total_receber)}
+        c1.markdown(f'''
+            <div class="card-container border-receber">
+                <div class="card-title">TOTAL A RECEBER</div>
+                <div class="card-value" style="color: #2ecc71;">{format_br(total_receber)}</div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
 
     if exibir_despesas:
-        c2.markdown(f"""
-        <div>
-            <div style="font-size:14px; opacity:0.8;">Total a Pagar</div>
-            <div style="font-size:28px; font-weight:bold; color:#e74c3c;">
-                {format_br(-total_pagar)}
+        c2.markdown(f'''
+            <div class="card-container border-pagar">
+                <div class="card-title">TOTAL A PAGAR</div>
+                <div class="card-value" style="color: #e74c3c;">{format_br(-total_pagar)}</div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
 
     if exibir_saldo:
         cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
-
-        c3.markdown(f"""
-        <div>
-            <div style="font-size:14px; opacity:0.8;">Saldo Líquido</div>
-            <div style="font-size:28px; font-weight:bold; color:{cor_saldo};">
-                {format_br(saldo_total)}
+        c3.markdown(f'''
+            <div class="card-container border-saldo">
+                <div class="card-title">SALDO LÍQUIDO</div>
+                <div class="card-value" style="color: {cor_saldo};">{format_br(saldo_total)}</div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
 
-    # --- 4. GRÁFICO ATUALIZADO ---
+    # --- 4. GRÁFICO (REVERTIDO) ---
     fig = go.Figure()
-    
     if exibir_receitas:
-        fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Receber'],
-            name='Receitas', marker_color='#2ecc71'
-        ))
-    
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
     if exibir_despesas:
-        fig.add_trace(go.Bar(
-            x=df_plot['data'], y=df_plot['Pagar'],
-            name='Despesas', marker_color='#e74c3c'
-        ))
-    
+        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
     if exibir_saldo:
-        # Gráfico de Saldo Diário
-        fig.add_trace(go.Scatter(
-            x=df_plot['data'], y=df_plot['Saldo'],
-            name='Saldo Diário',
-            line=dict(color='#34495e', width=2, dash='dot'), # Linha pontilhada para o diário
-            mode='lines+markers'
-        ))
-
-        # CÁLCULO DA LINHA DE TENDÊNCIA (Média Móvel de 3 dias)
-        df_plot['Tendencia'] = df_plot['Saldo'].rolling(window=3, min_periods=1).mean()
-        
-        fig.add_trace(go.Scatter(
-            x=df_plot['data'], y=df_plot['Tendencia'],
-            name='Tendência (Média 3d)',
-            line=dict(color='#f1c40f', width=4), # Linha amarela sólida e mais grossa
-            mode='lines'
-        ))
+        fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo', line=dict(color='#3498db', width=3), mode='lines+markers'))
 
     fig.update_layout(
         hovermode="x unified",
-        separators=",.",
-        xaxis=dict(
-            showgrid=False,
-            tickformat='%d/%m',
-            tickangle=-45
-        ),
-        yaxis=dict(
-            showgrid=False,
-            tickformat=',.2f'
-        ),
-        legend=dict(
-            orientation="h",
-            y=-0.3,
-            x=0.5,
-            xanchor="center"
-        ),
+        xaxis=dict(showgrid=False, tickformat='%d/%m'),
+        yaxis=dict(showgrid=False, tickformat=',.2f'),
+        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
-    
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+else:
+    st.info("Nenhum dado encontrado.")
