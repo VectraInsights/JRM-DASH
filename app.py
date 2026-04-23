@@ -227,7 +227,7 @@ if p_total or r_total:
             showspikes=False,
             fixedrange=True,
             tickformat='%d/%m',
-            tickangle=-45
+            tickangle=-45,
             dtick=86400000.0,
             tickmode='linear'
         ),
