@@ -1,0 +1,14 @@
+name: Manter App Ativo
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          curl -I https://dashboard-conta-azul.streamlit.app/
