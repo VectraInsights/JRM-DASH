@@ -1,3 +1,4 @@
+import streamlit as st
 import requests
 import base64
 import pandas as pd
@@ -106,57 +107,151 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. PROCESSO DE SINCRONIZAÇÃO AUTOMÁTICA ---
+# --- 3. INTERFACE ---
+sh = get_sheet()
+clientes = [r[0] for r in sh.get_all_values()[1:]] if sh else []
 
-# Definimos um período fixo para o Looker ter dados (ex: 30 dias atrás até 60 dias à frente)
-hoje = datetime.now().date()
-data_ini = hoje - timedelta(days=30)
-data_fim = hoje + timedelta(days=60)
-
-# Buscamos a lista de clientes que está na Sheet1 (onde você guarda os tokens)
-sh_token = get_sheet()
-if sh_token:
-    # Pega os nomes dos clientes da coluna A (ignorando o cabeçalho)
-    clientes = [r[0] for r in sh_token.get_all_values()[1:]]
+with st.sidebar:
+    st.header("Fluxo de Caixa JRM")
+    empresa_sel = st.selectbox("Selecione a Empresa", ["Todos os Clientes"] + clientes)
     
-    p_total, r_total = [], []
+    st.subheader("Período")
+    opcoes_periodo = ["Hoje", "7 dias", "15 dias", "30 dias", "Personalizado"]
+    periodo_sel = st.selectbox("Escolha o intervalo", opcoes_periodo, index=1)
 
-    # Loop para buscar dados de cada empresa
-    for emp in clientes:
+    hoje = datetime.now().date()
+    if periodo_sel == "Hoje": data_ini, data_fim = hoje, hoje
+    elif periodo_sel == "7 dias": data_ini, data_fim = hoje, hoje + timedelta(days=6)
+    elif periodo_sel == "15 dias": data_ini, data_fim = hoje, hoje + timedelta(days=14)
+    elif periodo_sel == "30 dias": data_ini, data_fim = hoje, hoje + timedelta(days=29)
+    else:
+        col_ini, col_fim = st.columns(2)
+        data_ini = col_ini.date_input("Início", hoje, format="DD/MM/YYYY")
+        data_fim = col_fim.date_input("Fim", hoje + timedelta(days=7), format="DD/MM/YYYY")
+    
+    st.divider()
+    exibir_receitas = st.checkbox("Exibir Receitas", value=True)
+    exibir_despesas = st.checkbox("Exibir Despesas", value=True)
+    exibir_saldo = st.checkbox("Exibir Saldo", value=True)
+
+st.title("Fluxo de Caixa")
+
+alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
+p_total, r_total = [], []
+
+with st.spinner("Sincronizando..."):
+    for emp in alvo:
         tk = obter_token(emp)
         if tk:
             api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
-            
-            # Buscamos os dados
-            pagar = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy())
-            receber = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy())
-            
-            # Marcamos de qual empresa é o dado e o tipo (Entrada/Saída)
-            for i in pagar: i.update({"Empresa": emp, "Tipo": "Despesa"})
-            for i in receber: i.update({"Empresa": emp, "Tipo": "Receita"})
-            
-            p_total.extend(pagar)
-            r_total.extend(receber)
+            p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
+            r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
 
-    # --- 4. ENVIO PARA O LOOKER ---
-    if p_total or r_total:
-        df_finais = pd.DataFrame(p_total + r_total)
-        
-        # Selecionamos as colunas que o Looker vai usar
-        df_finais = df_finais[['Vencimento', 'Empresa', 'Tipo', 'Valor']]
-        
-        try:
-            # Criamos ou acessamos uma aba nova chamada 'Base_Looker' para não misturar com os Tokens
-            try:
-                worksheet = sh_token.spreadsheet.worksheet("Base_Looker")
-            except:
-                worksheet = sh_token.spreadsheet.add_worksheet(title="Base_Looker", rows="5000", cols="5")
-            
-            # Limpa a aba e escreve os novos dados
-            worksheet.clear()
-            dados_para_sheet = [df_finais.columns.values.tolist()] + df_finais.astype(str).values.tolist()
-            worksheet.update(dados_para_sheet)
-            
-            print("Sincronização concluída com sucesso para o Looker Studio!")
-        except Exception as e:
-            print(f"Erro ao salvar dados: {e}")
+if p_total or r_total:
+    df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
+    df_plot['data_str'] = df_plot['data'].dt.strftime('%Y-%m-%d')
+    
+    val_p = pd.DataFrame(p_total).groupby('Vencimento')['Valor'].sum() if p_total else pd.Series(dtype=float)
+    val_r = pd.DataFrame(r_total).groupby('Vencimento')['Valor'].sum() if r_total else pd.Series(dtype=float)
+    
+    df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
+    df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
+    df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
+
+    # --- SEÇÃO DE CARDS MELHORADOS ---
+    c1, c2, c3 = st.columns(3)
+    
+    total_receber = df_plot['Receber'].sum()
+    total_pagar = df_plot['Pagar'].sum()
+    saldo_total = df_plot['Saldo'].sum()
+
+    if exibir_receitas:
+        c1.markdown(f'''
+            <div class="card-container border-receber">
+                <div class="card-title">TOTAL A RECEBER</div>
+                <div class="card-value" style="color: #2ecc71;">{format_br(total_receber)}</div>
+            </div>
+        ''', unsafe_allow_html=True)
+
+    if exibir_despesas:
+        c2.markdown(f'''
+            <div class="card-container border-pagar">
+                <div class="card-title">TOTAL A PAGAR</div>
+                <div class="card-value" style="color: #e74c3c;">{format_br(-total_pagar)}</div>
+            </div>
+        ''', unsafe_allow_html=True)
+
+    if exibir_saldo:
+        cor_saldo = "#2ecc71" if saldo_total >= 0 else "#e74c3c"
+        c3.markdown(f'''
+            <div class="card-container border-saldo">
+                <div class="card-title">SALDO LÍQUIDO</div>
+                <div class="card-value" style="color: {cor_saldo};">{format_br(saldo_total)}</div>
+            </div>
+        ''', unsafe_allow_html=True)
+
+  # --- 4. GRÁFICO (SEM SPIKE) ---
+    fig = go.Figure()
+    
+    if exibir_receitas:
+        fig.add_trace(go.Bar(
+            x=df_plot['data'], y=df_plot['Receber'],
+            name='Receitas', marker_color='#2ecc71',
+            hovertemplate='Receitas: %{y:,.2f}<extra></extra>'
+        ))
+    
+    if exibir_despesas:
+        fig.add_trace(go.Bar(
+            x=df_plot['data'], y=df_plot['Pagar'],
+            name='Despesas', marker_color='#e74c3c',
+            hovertemplate='Despesas: %{y:,.2f}<extra></extra>'
+        ))
+    
+    if exibir_saldo:
+        # Usamos Scatter com connectgaps=False para evitar o "spike" 
+        # e forçamos o eixo a tratar as datas como categorias
+        fig.add_trace(go.Scatter(
+            x=df_plot['data'], y=df_plot['Saldo'],
+            name='Saldo',
+            line=dict(color='#3498db', width=3),
+            mode='lines+markers',
+            connectgaps=False, 
+            hovertemplate='Saldo: %{y:,.2f}<extra></extra>'
+        ))
+
+    # --- LÓGICA DE ESCALA DINÂMICA ---
+# Calcula a diferença de dias para decidir a densidade do eixo X
+diferenca_dias = (data_fim - data_ini).days
+
+# Se o período for <= 15 dias, forçamos a exibição diária (86400000ms = 1 dia)
+# Caso contrário, deixamos o Plotly decidir (None)
+config_dtick = 86400000.0 if diferenca_dias <= 15 else None
+
+fig.update_layout(
+    hovermode="x unified",
+    separators=",.",
+    xaxis=dict(
+        showgrid=False,
+        showspikes=False,
+        fixedrange=True,
+        tickformat='%d/%m',
+        tickangle=-45,
+        dtick=config_dtick, # Aplica a lógica dinâmica aqui
+        tickmode='linear' if config_dtick else 'auto'
+    ),
+    yaxis=dict(
+        showgrid=False,
+        tickformat=',.2f'
+    ),
+    legend=dict(
+        orientation="h",
+        y=-0.3,
+        x=0.5,
+        xanchor="center"
+    ),
+    margin=dict(l=10, r=10, t=10, b=50),
+    paper_bgcolor='rgba(0,0,0,0)',
+    plot_bgcolor='rgba(0,0,0,0)'
+)
+    
+st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
