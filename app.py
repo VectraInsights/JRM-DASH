@@ -219,31 +219,39 @@ if p_total or r_total:
             hovertemplate='Saldo: %{y:,.2f}<extra></extra>'
         ))
 
-    fig.update_layout(
-        hovermode="x unified",
-        separators=",.",
-        xaxis=dict(
-            showgrid=False,
-            showspikes=False,
-            fixedrange=True,
-            tickformat='%d/%m',
-            tickangle=-45,
-            dtick=config_dtick, # Aplica a lógica dinâmica aqui
-            tickmode='linear' if config_dtick else 'auto'
-        ),
-        yaxis=dict(
-            showgrid=False,
-            tickformat=',.2f'
-        ),
-        legend=dict(
-            orientation="h",
-            y=-0.3,
-            x=0.5,
-            xanchor="center"
-        ),
-        margin=dict(l=10, r=10, t=10, b=50),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
-    )
+    # --- LÓGICA DE ESCALA DINÂMICA ---
+# Calcula a diferença de dias para decidir a densidade do eixo X
+diferenca_dias = (data_fim - data_ini).days
+
+# Se o período for <= 15 dias, forçamos a exibição diária (86400000ms = 1 dia)
+# Caso contrário, deixamos o Plotly decidir (None)
+config_dtick = 86400000.0 if diferenca_dias <= 15 else None
+
+fig.update_layout(
+    hovermode="x unified",
+    separators=",.",
+    xaxis=dict(
+        showgrid=False,
+        showspikes=False,
+        fixedrange=True,
+        tickformat='%d/%m',
+        tickangle=-45,
+        dtick=config_dtick, # Aplica a lógica dinâmica aqui
+        tickmode='linear' if config_dtick else 'auto'
+    ),
+    yaxis=dict(
+        showgrid=False,
+        tickformat=',.2f'
+    ),
+    legend=dict(
+        orientation="h",
+        y=-0.3,
+        x=0.5,
+        xanchor="center"
+    ),
+    margin=dict(l=10, r=10, t=10, b=50),
+    paper_bgcolor='rgba(0,0,0,0)',
+    plot_bgcolor='rgba(0,0,0,0)'
+)
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
