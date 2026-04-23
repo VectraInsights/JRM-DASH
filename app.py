@@ -106,56 +106,57 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. PROCESSO DE SINCRONIZAÇÃO (PARA LOOKER STUDIO) ---
+# --- 3. PROCESSO DE SINCRONIZAÇÃO AUTOMÁTICA ---
 
-# 1. Definimos um período amplo para o Looker ter histórico (ex: 30 dias atrás até 60 dias à frente)
+# Definimos um período fixo para o Looker ter dados (ex: 30 dias atrás até 60 dias à frente)
 hoje = datetime.now().date()
 data_ini = hoje - timedelta(days=30)
 data_fim = hoje + timedelta(days=60)
 
-# 2. Buscamos a lista de todos os clientes na Planilha
-sh_client = get_sheet()
-clientes = [r[0] for r in sh_client.get_all_values()[1:]] if sh_client else []
-
-p_total, r_total = [], []
-
-# 3. Loop de coleta de dados da API da Conta Azul
-for emp in clientes:
-    tk = obter_token(emp)
-    if tk:
-        api_params = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
-        
-        # Buscamos os dados e adicionamos o nome da empresa para filtrar no Looker
-        pagar = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_params.copy())
-        receber = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_params.copy())
-        
-        for item in pagar: item.update({"Empresa": emp, "Tipo": "Despesa"})
-        for item in receber: item.update({"Empresa": emp, "Tipo": "Receita"})
-        
-        p_total.extend(pagar)
-        r_total.extend(receber)
-
-# 4. Consolidação dos dados em um DataFrame
-if p_total or r_total:
-    df_looker = pd.DataFrame(p_total + r_total)
+# Buscamos a lista de clientes que está na Sheet1 (onde você guarda os tokens)
+sh_token = get_sheet()
+if sh_token:
+    # Pega os nomes dos clientes da coluna A (ignorando o cabeçalho)
+    clientes = [r[0] for r in sh_token.get_all_values()[1:]]
     
-    # Organiza as colunas para o Looker Studio
-    df_looker = df_looker[['Vencimento', 'Empresa', 'Tipo', 'Valor']]
-    
-    # 5. SALVAR NA PLANILHA (Aba: Base_Looker)
-    try:
-        # Tenta abrir a aba, se não existir, cria
+    p_total, r_total = [], []
+
+    # Loop para buscar dados de cada empresa
+    for emp in clientes:
+        tk = obter_token(emp)
+        if tk:
+            api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
+            
+            # Buscamos os dados
+            pagar = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy())
+            receber = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy())
+            
+            # Marcamos de qual empresa é o dado e o tipo (Entrada/Saída)
+            for i in pagar: i.update({"Empresa": emp, "Tipo": "Despesa"})
+            for i in receber: i.update({"Empresa": emp, "Tipo": "Receita"})
+            
+            p_total.extend(pagar)
+            r_total.extend(receber)
+
+    # --- 4. ENVIO PARA O LOOKER ---
+    if p_total or r_total:
+        df_finais = pd.DataFrame(p_total + r_total)
+        
+        # Selecionamos as colunas que o Looker vai usar
+        df_finais = df_finais[['Vencimento', 'Empresa', 'Tipo', 'Valor']]
+        
         try:
-            worksheet = sh_client.spreadsheet.worksheet("Base_Looker")
-        except:
-            worksheet = sh_client.spreadsheet.add_worksheet(title="Base_Looker", rows="5000", cols="5")
-        
-        # Limpa e atualiza com os dados novos
-        worksheet.clear()
-        # Prepara os dados: Cabeçalho + Valores
-        dados_finais = [df_looker.columns.values.tolist()] + df_looker.astype(str).values.tolist()
-        worksheet.update(dados_finais)
-        
-        print(f"Sucesso! {len(df_looker)} linhas enviadas para o Looker Studio.")
-    except Exception as e:
-        print(f"Erro ao salvar na planilha: {e}")
+            # Criamos ou acessamos uma aba nova chamada 'Base_Looker' para não misturar com os Tokens
+            try:
+                worksheet = sh_token.spreadsheet.worksheet("Base_Looker")
+            except:
+                worksheet = sh_token.spreadsheet.add_worksheet(title="Base_Looker", rows="5000", cols="5")
+            
+            # Limpa a aba e escreve os novos dados
+            worksheet.clear()
+            dados_para_sheet = [df_finais.columns.values.tolist()] + df_finais.astype(str).values.tolist()
+            worksheet.update(dados_para_sheet)
+            
+            print("Sincronização concluída com sucesso para o Looker Studio!")
+        except Exception as e:
+            print(f"Erro ao salvar dados: {e}")
