@@ -228,6 +228,8 @@ if p_total or r_total:
             fixedrange=True,
             tickformat='%d/%m',
             tickangle=-45
+            dtick=86400000.0,
+            tickmode='linear'
         ),
         yaxis=dict(
             showgrid=False,
