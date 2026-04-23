@@ -2,20 +2,20 @@ name: Sincronizar Conta Azul para Looker
 
 on:
   schedule:
-    - cron: '0 9 * * *' # Roda todo dia às 06:00 (Horário de Brasília)
-  workflow_dispatch: # Adiciona o botão de "Play" manual
+    - cron: '0 9 * * *' 
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Baixar código do GitHub
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configurar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
 
       - name: Instalar bibliotecas
         run: |
@@ -23,7 +23,7 @@ jobs:
 
       - name: Rodar Script de Sincronização
         env:
-          # Aqui conectamos as credenciais que você já tem no Streamlit
+          # Segredos que você deve cadastrar no GitHub (Settings > Secrets and variables > Actions)
           GOOGLE_SHEETS_JSON: ${{ secrets.GOOGLE_SHEETS_JSON }}
           CONTA_AZUL_CLIENT_ID: ${{ secrets.CONTA_AZUL_CLIENT_ID }}
           CONTA_AZUL_CLIENT_SECRET: ${{ secrets.CONTA_AZUL_CLIENT_SECRET }}
