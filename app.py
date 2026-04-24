@@ -54,21 +54,26 @@ def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
-        # Carrega os dados usando a nossa função de apoio
-        segredos = carregar_segredos()
+        # 1. Carrega o segredo do Render ou do Streamlit
+        if os.path.exists("secrets.toml"):
+            config = toml.load("secrets.toml")
+            creds_info = config["google_sheets"]
+        else:
+            creds_info = st.secrets["google_sheets"].to_dict()
+
+        # 2. LIMPEZA AGRESSIVA: Resolve o erro de 29 caracteres
+        raw_key = str(creds_info.get("private_key", ""))
         
-        if not segredos or "google_sheets" not in segredos:
-            st.error("Configurações [google_sheets] não encontradas no arquivo de segredos.")
-            return None
-            
-        creds_info = segredos["google_sheets"]
+        # Remove cabeçalhos e limpa TUDO que não for o código Base64
+        clean_key = raw_key.replace("-----BEGIN PRIVATE KEY-----", "")
+        clean_key = clean_key.replace("-----END PRIVATE KEY-----", "")
+        # Remove quebras de linha literais, reais e espaços
+        clean_key = clean_key.replace("\\n", "").replace("\n", "").replace(" ", "").strip()
+        
+        # Reconstrói no formato exato que a API do Google exige
+        creds_info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{clean_key}\n-----END PRIVATE KEY-----\n"
 
-        # Limpeza da Chave (Crucial para o Render não dar erro de Base64)
-        if "private_key" in creds_info:
-            # Substitui o texto "\n" por quebras de linha reais e limpa espaços
-            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
-
-        # Autorização
+        # 3. Autorização
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         
