@@ -118,6 +118,20 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
+def buscar_saldos_bancarios(token):
+    headers = {"Authorization": f"Bearer {token}"}
+    # Buscamos as contas bancárias configuradas
+    res = requests.get("https://api-v2.contaazul.com/v1/financeiro/contas-correntes", headers=headers)
+    
+    saldo_total_empresa = 0
+    if res.status_code == 200:
+        contas = res.json()
+        for conta in contas:
+            # Somente contas ativas entram no cálculo
+            if conta.get('ativa', True):
+                saldo_total_empresa += conta.get('saldo', 0)
+    return saldo_total_empresa
+
 # --- 3. EXECUÇÃO DO APP ---
 sh = get_sheet() # Agora o Python já conhece a função
 if not sh:
@@ -154,6 +168,7 @@ with st.spinner("Sincronizando..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
+            saldo_bancos_total += buscar_saldos_bancarios(tk)
             api_p = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
             p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, api_p.copy()))
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
