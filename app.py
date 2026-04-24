@@ -38,11 +38,14 @@ st.markdown("""
 
 # --- 2. FUNÇÕES DE APOIO ---
 def carregar_segredos():
-    caminho_render = "secrets.toml"
-    if os.path.exists(caminho_render):
-        return toml.load(caminho_render)
+    # 1. Tenta ler o arquivo na raiz (onde o Render o coloca)
+    caminho_raiz = "secrets.toml"
+    if os.path.exists(caminho_raiz):
+        return toml.load(caminho_raiz)
+    
+    # 2. Se não existir, tenta o padrão do Streamlit
     try:
-        return st.secrets
+        return st.secrets.to_dict()
     except:
         return {}
 
@@ -51,31 +54,21 @@ def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
-        # 1. Tentar ler do Streamlit (Local/Cloud)
-        if "google_sheets" in st.secrets:
-            creds_info = st.secrets["google_sheets"].to_dict()
-        else:
-            # 2. Se falhar, lê o arquivo na raiz do Render
-            secrets_path = "secrets.toml" 
-            if os.path.exists(secrets_path):
-                config = toml.load(secrets_path)
-                # Verifica se a chave existe dentro do arquivo
-                if "google_sheets" in config:
-                    creds_info = config["google_sheets"]
-                else:
-                    st.error("Seção [google_sheets] não encontrada no secrets.toml")
-                    return None
-            else:
-                st.error("Arquivo secrets.toml não encontrado na raiz.")
-                return None
+        # Carrega os dados usando a nossa função de apoio
+        segredos = carregar_segredos()
+        
+        if not segredos or "google_sheets" not in segredos:
+            st.error("Configurações [google_sheets] não encontradas no arquivo de segredos.")
+            return None
+            
+        creds_info = segredos["google_sheets"]
 
-        # 3. Limpeza da Chave
-        key = creds_info.get("private_key")
-        if key and isinstance(key, str):
-            # Garante a conversão de caracteres de escape e remove espaços
-            creds_info["private_key"] = key.replace("\\n", "\n").strip()
+        # Limpeza da Chave (Crucial para o Render não dar erro de Base64)
+        if "private_key" in creds_info:
+            # Substitui o texto "\n" por quebras de linha reais e limpa espaços
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n").strip()
 
-        # 4. Conectar
+        # Autorização
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         
