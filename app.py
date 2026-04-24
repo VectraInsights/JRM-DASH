@@ -6,6 +6,7 @@ import gspread
 import plotly.graph_objects as go
 import os
 import toml
+import json
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -37,55 +38,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES DE APOIO ---
-def carregar_segredos():
-    # 1. Tenta ler o arquivo na raiz (onde o Render o coloca)
-    caminho_raiz = "secrets.toml"
-    if os.path.exists(caminho_raiz):
-        return toml.load(caminho_raiz)
-    
-    # 2. Se não existir, tenta o padrão do Streamlit
-    try:
-        return st.secrets.to_dict()
-    except:
-        return {}
-
-@st.cache_resource
-def get_sheet():
-    try:
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        
-        # 1. Carrega o segredo do Render ou do Streamlit
-        if os.path.exists("secrets.toml"):
-            config = toml.load("secrets.toml")
-            creds_info = config["google_sheets"]
-        else:
-            creds_info = st.secrets["google_sheets"].to_dict()
-
-        st.write(f"Tamanho da chave recebida: {len(creds_info.get('private_key', ''))}")
-        st.write(f"Início da chave: {creds_info.get('private_key', '')[:30]}")
-
-        # 2. LIMPEZA AGRESSIVA: Resolve o erro de 29 caracteres
-        raw_key = str(creds_info.get("private_key", ""))
-        
-        # Remove cabeçalhos e limpa TUDO que não for o código Base64
-        clean_key = raw_key.replace("-----BEGIN PRIVATE KEY-----", "")
-        clean_key = clean_key.replace("-----END PRIVATE KEY-----", "")
-        # Remove quebras de linha literais, reais e espaços
-        clean_key = clean_key.replace("\\n", "").replace("\n", "").replace(" ", "").strip()
-        
-        # Reconstrói no formato exato que a API do Google exige
-        creds_info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{clean_key}\n-----END PRIVATE KEY-----\n"
-
-        # 3. Autorização
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-        client = gspread.authorize(creds)
-        
-        url = "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
-        return client.open_by_url(url).sheet1
-        
-    except Exception as e:
-        st.error(f"Erro na ligação com Google: {e}")
-        return None
+def carregar_segredos_conta_azul():
+    # Lê apenas os dados da Conta Azul do arquivo
+    caminho = "secrets.toml"
+    if os.path.exists(caminho):
+        return toml.load(caminho)
+    return st.secrets # Fallback para local
 
 def format_br(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
