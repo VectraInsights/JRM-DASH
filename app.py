@@ -37,34 +37,69 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES DE APOIO ---
+# --- 2. FUNÇÕES DE APOIO (Definidas antes da execução) ---
+
+@st.cache_resource
+def get_sheet():
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        
+        # Carrega as credenciais do Google pela Variável de Ambiente (Render)
+        creds_json = os.getenv("GOOGLE_CREDS_JSON")
+        if not creds_json:
+            # Fallback para local (Streamlit Secrets)
+            if "google_sheets" in st.secrets:
+                creds_info = st.secrets["google_sheets"].to_dict()
+            else:
+                st.error("Variável GOOGLE_CREDS_JSON não configurada.")
+                return None
+        else:
+            creds_info = json.loads(creds_json)
+
+        # Limpeza e correção da chave privada
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+        client = gspread.authorize(creds)
+        
+        url = "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
+        return client.open_by_url(url).sheet1
+        
+    except Exception as e:
+        st.error(f"Erro na ligação com Google: {e}")
+        return None
+
 def carregar_segredos_conta_azul():
-    # Lê apenas os dados da Conta Azul do arquivo
     caminho = "secrets.toml"
     if os.path.exists(caminho):
         return toml.load(caminho)
-    return st.secrets # Fallback para local
+    return st.secrets
 
 def format_br(valor):
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 def obter_token(empresa_nome):
-    sh = get_sheet()
-    if not sh: return None
+    sh_local = get_sheet() # Chama a função já definida
+    if not sh_local: return None
     try:
-        segredos = carregar_segredos()
-        cell = sh.find(empresa_nome)
-        rt = sh.cell(cell.row, 2).value
+        segredos = carregar_segredos_conta_azul() # Nome da função corrigido
+        cell = sh_local.find(empresa_nome)
+        rt = sh_local.cell(cell.row, 2).value
         ca = segredos["conta_azul"]
+        
         auth_b64 = base64.b64encode(f"{ca['client_id']}:{ca['client_secret']}".encode()).decode()
         res = requests.post("https://auth.contaazul.com/oauth2/token", 
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "refresh_token", "refresh_token": rt})
+        
         if res.status_code == 200:
             dados = res.json()
-            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
+            if dados.get('refresh_token'): 
+                sh_local.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
-    except: pass
+    except Exception as e:
+        print(f"Erro no token: {e}")
     return None
 
 def buscar_v2(endpoint, token, params):
@@ -83,8 +118,8 @@ def buscar_v2(endpoint, token, params):
         params["pagina"] += 1
     return itens_acumulados
 
-# --- 3. INTERFACE ---
-sh = get_sheet()
+# --- 3. EXECUÇÃO DO APP ---
+sh = get_sheet() # Agora o Python já conhece a função
 if not sh:
     st.stop()
 
@@ -138,12 +173,11 @@ if p_total or r_total:
     if exibir_receitas:
         c1.markdown(f'<div class="card-container border-receber"><div class="card-title">RECEBER</div><div class="card-value" style="color:#2ecc71">{format_br(df_plot["Receber"].sum())}</div></div>', unsafe_allow_html=True)
     if exibir_despesas:
-        c2.markdown(f'<div class="card-container border-pagar"><div class="card-title">PAGAR</div><div class="card-value" style="color:#e74c3c">{format_br(-df_plot["Pagar"].sum())}</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="card-container border-pagar"><div class="card-title">PAGAR</div><div class="card-value" style="color:#e74c3c">{format_br(df_plot["Pagar"].sum())}</div></div>', unsafe_allow_html=True)
     if exibir_saldo:
         st_total = df_plot['Saldo'].sum()
         c3.markdown(f'<div class="card-container border-saldo"><div class="card-title">SALDO</div><div class="card-value" style="color:{"#2ecc71" if st_total >=0 else "#e74c3c"}">{format_br(st_total)}</div></div>', unsafe_allow_html=True)
 
-    # --- GRÁFICO (DENTRO DO IF) ---
     fig = go.Figure()
     if exibir_receitas:
         fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
