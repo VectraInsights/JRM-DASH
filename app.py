@@ -51,34 +51,36 @@ def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
-        # Tenta pegar do st.secrets (Streamlit) ou das variáveis de ambiente (Render)
-        try:
+        # 1. Tentar ler do Streamlit (Local/Cloud)
+        if "google_sheets" in st.secrets:
             creds_info = st.secrets["google_sheets"].to_dict()
-        except:
-            # Caso esteja no Render e você tenha configurado como Env Vars individuais
-            creds_info = {
-                "type": os.getenv("TYPE"),
-                "project_id": os.getenv("PROJECT_ID"),
-                "private_key": os.getenv("PRIVATE_KEY"),
-                "client_email": os.getenv("CLIENT_EMAIL"),
-                "token_uri": "https://oauth2.googleapis.com/token",
-                # ... adicione os outros campos conforme necessário
-            }
+        else:
+            # 2. Se falhar, tenta ler o ficheiro montado pelo Render
+            # O Render monta os Secret Files na raiz ou no caminho especificado
+            secrets_path = "secrets.toml" 
+            if os.path.exists(secrets_path):
+                config = toml.load(secrets_path)
+                creds_info = config["google_sheets"]
+            else:
+                st.error("Ficheiro secrets.toml não encontrado no Render.")
+                return None
 
-        # TRATAMENTO UNIVERSAL DA CHAVE
+        # 3. Limpeza da Chave (Crucial para evitar erro de Base64)
         key = creds_info["private_key"]
-        
-        # 1. Corrige o escape de barra invertida duplo que o Render/Streamlit as vezes cria
-        key = key.replace("\\n", "\n")
-        
-        # 2. Remove espaços em branco acidentais nas pontas
-        creds_info["private_key"] = key.strip()
+        if isinstance(key, str):
+            # Remove barras duplas e espaços extras
+            key = key.replace("\\n", "\n").strip()
+            creds_info["private_key"] = key
 
+        # 4. Conectar
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
-        return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
+        
+        url = "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
+        return client.open_by_url(url).sheet1
+        
     except Exception as e:
-        st.error(f"Erro na conexão com Google: {e}")
+        st.error(f"Erro na ligação com Google: {e}")
         return None
 
 def format_br(valor):
