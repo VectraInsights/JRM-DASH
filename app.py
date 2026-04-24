@@ -149,26 +149,22 @@ with st.sidebar:
     exibir_despesas = st.checkbox("Exibir Despesas", value=True)
     exibir_saldo_periodo = st.checkbox("Exibir Saldo do Período", value=True)
 
-st.title("Painel Financeiro")
+st.title("Fluxo de Caixa")
 
 alvo = clientes if empresa_sel == "Todos os Clientes" else [empresa_sel]
 p_total, r_total = [], []
-saldo_bancos_acumulado = 0  # Variável inicializada para evitar NameError
+saldo_bancos_acumulado = 0
 
 with st.spinner("Sincronizando com Conta Azul..."):
     for emp in alvo:
         tk = obter_token(emp)
         if tk:
-            # Soma saldos atuais dos bancos
             saldo_bancos_acumulado += buscar_saldos_bancarios(tk)
-            
-            # Busca previsões de Pagar/Receber
             params = {"data_vencimento_de": data_ini.isoformat(), "data_vencimento_ate": data_fim.isoformat()}
             p_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", tk, params.copy()))
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, params.copy()))
 
 if p_total or r_total or saldo_bancos_acumulado:
-    # Processamento de Dados
     df_dates = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
     df_dates['data_str'] = df_dates['data'].dt.strftime('%Y-%m-%d')
     
@@ -179,34 +175,24 @@ if p_total or r_total or saldo_bancos_acumulado:
     df_dates['Receber'] = df_dates['data_str'].map(val_r).fillna(0)
     df_dates['Saldo_Dia'] = df_dates['Receber'] - df_dates['Pagar']
     
-    # Exibição dos Cards
-    c1, c2, c3, c4 = st.columns(4)
+    # Grid de Cards (Agora em 4 colunas dinâmicas)
+    cols = st.columns(4)
     
     total_receber = df_dates['Receber'].sum()
     total_pagar = df_dates['Pagar'].sum()
     saldo_periodo = total_receber - total_pagar
 
     if exibir_bancos:
-        c1.markdown(f'<div class="card-container border-banco"><div class="card-title">Disponível em Conta</div><div class="card-value" style="color:#f1c40f">{format_br(saldo_bancos_acumulado)}</div></div>', unsafe_allow_html=True)
+        cols[0].markdown(f'<div class="card-container border-banco"><div class="card-title">Disponível em Conta</div><div class="card-value" style="color:#f1c40f">{format_br(saldo_bancos_acumulado)}</div></div>', unsafe_allow_html=True)
     if exibir_receitas:
-        c2.markdown(f'<div class="card-container border-receber"><div class="card-title">A Receber no Período</div><div class="card-value" style="color:#2ecc71">{format_br(total_receber)}</div></div>', unsafe_allow_html=True)
+        cols[1].markdown(f'<div class="card-container border-receber"><div class="card-title">A Receber no Período</div><div class="card-value" style="color:#2ecc71">{format_br(total_receber)}</div></div>', unsafe_allow_html=True)
     if exibir_despesas:
-        c3.markdown(f'<div class="card-container border-pagar"><div class="card-title">A Pagar no Período</div><div class="card-value" style="color:#e74c3c">{format_br(-total_pagar)}</div></div>', unsafe_allow_html=True)
+        cols[2].markdown(f'<div class="card-container border-pagar"><div class="card-title">A Pagar no Período</div><div class="card-value" style="color:#e74c3c">{format_br(-total_pagar)}</div></div>', unsafe_allow_html=True)
     if exibir_saldo_periodo:
         color = "#2ecc71" if saldo_periodo >= 0 else "#e74c3c"
-        c4.markdown(f'<div class="card-container border-saldo"><div class="card-title">Resultado do Período</div><div class="card-value" style="color:{color}">{format_br(saldo_periodo)}</div></div>', unsafe_allow_html=True)
+        cols[3].markdown(f'<div class="card-container border-saldo"><div class="card-title">Resultado do Período</div><div class="card-value" style="color:{color}">{format_br(saldo_periodo)}</div></div>', unsafe_allow_html=True)
 
-    # Card de Saldo Projetado (Destaque)
-    st.divider()
-    saldo_projetado = saldo_bancos_acumulado + saldo_periodo
-    proj_color = "#2ecc71" if saldo_projetado >= 0 else "#e74c3c"
-    st.markdown(f"""
-        <div style="text-align: center; padding: 20px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1)">
-            <h4 style="margin:0; opacity:0.7">SALDO PROJETADO AO FIM DO PERÍODO</h4>
-            <h1 style="margin:0; color:{proj_color}">{format_br(saldo_projetado)}</h1>
-            <small>Cálculo: Disponível Atual + (Receitas - Despesas do período)</small>
-        </div>
-    """, unsafe_allow_html=True)
+    st.write("---")
 
     # Gráfico
     fig = go.Figure()
@@ -225,7 +211,8 @@ if p_total or r_total or saldo_bancos_acumulado:
         xaxis=dict(tickformat='%d/%m', dtick=dtick, tickmode='linear' if dtick else 'auto'),
         margin=dict(l=10, r=10, t=10, b=50),
         paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
+        plot_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
