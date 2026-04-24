@@ -61,6 +61,9 @@ def get_sheet():
         else:
             creds_info = st.secrets["google_sheets"].to_dict()
 
+        st.write(f"Tamanho da chave recebida: {len(creds_info.get('private_key', ''))}")
+        st.write(f"Início da chave: {creds_info.get('private_key', '')[:30]}")
+
         # 2. LIMPEZA AGRESSIVA: Resolve o erro de 29 caracteres
         raw_key = str(creds_info.get("private_key", ""))
         
