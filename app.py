@@ -57,23 +57,39 @@ st.markdown("""
 
 # --- 2. FUNÇÕES DE APOIO ---
 def carregar_segredos():
-    """Lógica centralizada para carregar segredos do Render ou Streamlit"""
+    # Caminho onde o Render guarda o arquivo que você criou no painel
     caminho_render = "/etc/secrets/secrets.toml"
+    
     if os.path.exists(caminho_render):
         return toml.load(caminho_render)
-    return st.secrets
+    
+    # Fallback para local ou Streamlit Cloud
+    try:
+        return st.secrets
+    except:
+        st.error("Configuração de segredos não encontrada.")
+        return {}
+
 @st.cache_resource
 def get_sheet():
     try:
+        segredos = carregar_segredos()
+        if not segredos:
+            return None
+            
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds_info = st.secrets["google_sheets"].to_dict()
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+        
+        # Garante que estamos lidando com um dicionário
+        creds_dict = dict(segredos["google_sheets"])
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-        # URL da planilha do Victor Leandro Gomes Soares
+        
+        # Planilha do Victor Leandro Gomes Soares
         return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
-        st.error(f"Erro na conexão: {e}")
+        st.error(f"Erro na conexão com Google: {e}")
         return None
 
 def format_br(valor):
