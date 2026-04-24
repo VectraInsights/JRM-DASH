@@ -38,7 +38,7 @@ st.markdown("""
 
 # --- 2. FUNÇÕES DE APOIO ---
 def carregar_segredos():
-    caminho_render = "/etc/secrets/secrets.toml"
+    caminho_render = "secrets.toml"
     if os.path.exists(caminho_render):
         return toml.load(caminho_render)
     try:
@@ -55,22 +55,25 @@ def get_sheet():
         if "google_sheets" in st.secrets:
             creds_info = st.secrets["google_sheets"].to_dict()
         else:
-            # 2. Se falhar, tenta ler o ficheiro montado pelo Render
-            # O Render monta os Secret Files na raiz ou no caminho especificado
+            # 2. Se falhar, lê o arquivo na raiz do Render
             secrets_path = "secrets.toml" 
             if os.path.exists(secrets_path):
                 config = toml.load(secrets_path)
-                creds_info = config["google_sheets"]
+                # Verifica se a chave existe dentro do arquivo
+                if "google_sheets" in config:
+                    creds_info = config["google_sheets"]
+                else:
+                    st.error("Seção [google_sheets] não encontrada no secrets.toml")
+                    return None
             else:
-                st.error("Ficheiro secrets.toml não encontrado no Render.")
+                st.error("Arquivo secrets.toml não encontrado na raiz.")
                 return None
 
-        # 3. Limpeza da Chave (Crucial para evitar erro de Base64)
-        key = creds_info["private_key"]
-        if isinstance(key, str):
-            # Remove barras duplas e espaços extras
-            key = key.replace("\\n", "\n").strip()
-            creds_info["private_key"] = key
+        # 3. Limpeza da Chave
+        key = creds_info.get("private_key")
+        if key and isinstance(key, str):
+            # Garante a conversão de caracteres de escape e remove espaços
+            creds_info["private_key"] = key.replace("\\n", "\n").strip()
 
         # 4. Conectar
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
