@@ -49,20 +49,34 @@ def carregar_segredos():
 @st.cache_resource
 def get_sheet():
     try:
-        segredos = carregar_segredos()
-        if not segredos: return None
-        
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds_dict = dict(segredos["google_sheets"])
         
-        # Limpeza robusta da chave para evitar erro de Base64
-        pk = creds_dict["private_key"].replace("\\n", "\n").strip()
-        if not pk.startswith("-----BEGIN"):
-            pk = f"-----BEGIN PRIVATE KEY-----\n{pk}\n-----END PRIVATE KEY-----"
-        creds_dict["private_key"] = pk
+        # Tenta pegar do st.secrets (Streamlit) ou das variáveis de ambiente (Render)
+        try:
+            creds_info = st.secrets["google_sheets"].to_dict()
+        except:
+            # Caso esteja no Render e você tenha configurado como Env Vars individuais
+            creds_info = {
+                "type": os.getenv("TYPE"),
+                "project_id": os.getenv("PROJECT_ID"),
+                "private_key": os.getenv("PRIVATE_KEY"),
+                "client_email": os.getenv("CLIENT_EMAIL"),
+                "token_uri": "https://oauth2.googleapis.com/token",
+                # ... adicione os outros campos conforme necessário
+            }
+
+        # TRATAMENTO UNIVERSAL DA CHAVE
+        key = creds_info["private_key"]
         
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        return gspread.authorize(creds).open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
+        # 1. Corrige o escape de barra invertida duplo que o Render/Streamlit as vezes cria
+        key = key.replace("\\n", "\n")
+        
+        # 2. Remove espaços em branco acidentais nas pontas
+        creds_info["private_key"] = key.strip()
+
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+        client = gspread.authorize(creds)
+        return client.open_by_url("https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0").sheet1
     except Exception as e:
         st.error(f"Erro na conexão com Google: {e}")
         return None
