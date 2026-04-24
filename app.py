@@ -4,6 +4,8 @@ import base64
 import pandas as pd
 import gspread
 import plotly.graph_objects as go
+import os
+import toml
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -54,6 +56,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. FUNÇÕES DE APOIO ---
+def carregar_segredos():
+    """Lógica centralizada para carregar segredos do Render ou Streamlit"""
+    caminho_render = "/etc/secrets/secrets.toml"
+    if os.path.exists(caminho_render):
+        return toml.load(caminho_render)
+    return st.secrets
 @st.cache_resource
 def get_sheet():
     try:
