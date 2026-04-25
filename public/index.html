@@ -1,1 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fluxo de Caixa JRM</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
 
+<h2>Fluxo de Caixa</h2>
+
+<select id="dias">
+  <option value="7">7 dias</option>
+  <option value="15">15 dias</option>
+  <option value="30">30 dias</option>
+</select>
+
+<button onclick="carregar()">Atualizar</button>
+
+<div id="grafico"></div>
+
+<script>
+async function carregar() {
+    const dias = document.getElementById("dias").value;
+
+    const res = await fetch(`/api/dados?empresa=teste&dias=${dias}`);
+    const data = await res.json();
+
+    const trace1 = {
+        x: data.datas,
+        y: data.receber,
+        name: "Receber",
+        type: "bar"
+    };
+
+    const trace2 = {
+        x: data.datas,
+        y: data.pagar.map(v => -v),
+        name: "Pagar",
+        type: "bar"
+    };
+
+    const layout = {barmode: "relative"};
+
+    Plotly.newPlot("grafico", [trace1, trace2], layout);
+}
+
+carregar();
+</script>
+
+</body>
+</html>
