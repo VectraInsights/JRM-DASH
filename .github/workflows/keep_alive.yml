@@ -2,8 +2,8 @@ name: Keep Render Alive
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Roda a cada 3 horas
-  workflow_dispatch:      # Permite rodar manualmente
+    - cron: '*/14 * * * *'
+  workflow_dispatch:      # Permite rodar manualmente para testar
 
 jobs:
   ping:
@@ -17,4 +17,5 @@ jobs:
             echo "Erro: A variável RENDER_APP_URL não está configurada nos Secrets."
             exit 1
           fi
-          curl -I "$APP_URL"
+          # O parâmetro -s (silent) e -L (segue redirects) ajuda na performance do log
+          curl -sL -I "$APP_URL" | grep "HTTP/"
