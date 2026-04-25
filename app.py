@@ -229,21 +229,30 @@ if p_total or r_total or saldo_bancos_total != 0:
             mode='lines+markers'
         ))
 
+    # ... (restante do código acima permanece igual)
+
+    # 1. Calcule o dtick ANTES de configurar o layout do gráfico
+    diff = (data_fim - data_ini).days
+    dtick_val = 86400000.0 if diff <= 15 else None
+
+    # 2. Configure e exiba o gráfico
     fig.update_layout(
-        barmode='relative', # Habilita o empilhamento relativo (positivo/negativo)
+        barmode='relative',
         hovermode="x unified",
-        xaxis=dict(tickformat='%d/%m', showgrid=False),
+        xaxis=dict(
+            tickformat='%d/%m', 
+            dtick=dtick_val, # Agora a variável está definida e aplicada
+            tickmode='linear' if dtick_val else 'auto',
+            showgrid=False
+        ),
         yaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='white', showgrid=True),
         margin=dict(l=10, r=10, t=10, b=80),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        # Legendas na parte inferior
         legend=dict(orientation="h", y=-0.4, x=0.5, xanchor="center")
     )
+    
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-
-    diff = (data_fim - data_ini).days
-    dtick = 86400000.0 if diff <= 15 else None
 
 else:
     st.info("Nenhum dado encontrado para os filtros selecionados.")
