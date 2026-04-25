@@ -45,7 +45,14 @@ st.markdown("""
 def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds_dict = st.secrets["google_sheets"]
+        
+        # Tenta pegar das variáveis de ambiente (Render) ou do st.secrets (Local)
+        creds_raw = os.environ.get("GOOGLE_SHEETS_JSON") or st.secrets.get("google_sheets")
+        
+        if isinstance(creds_raw, str):
+            creds_dict = json.loads(creds_raw)
+        else:
+            creds_dict = dict(creds_raw)
 
         key = creds_dict["private_key"].strip()
         if "\\n" in key:
@@ -193,26 +200,50 @@ if p_total or r_total or saldo_bancos_total != 0:
 
     # Gráfico
     fig = go.Figure()
+    
     if exibir_receitas:
-        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Receber'], name='Receitas', marker_color='#2ecc71'))
+        fig.add_trace(go.Bar(
+            x=df_plot['data'], 
+            y=df_plot['Receber'], 
+            name='Receitas', 
+            marker_color='#2ecc71',
+            hovertemplate='Receitas: %{y:,.2f}<extra></extra>'
+        ))
+    
     if exibir_despesas:
-        fig.add_trace(go.Bar(x=df_plot['data'], y=df_plot['Pagar'], name='Despesas', marker_color='#e74c3c'))
+        # Valores negativos para ficarem abaixo do zero
+        fig.add_trace(go.Bar(
+            x=df_plot['data'], 
+            y=-df_plot['Pagar'], 
+            name='Despesas', 
+            marker_color='#e74c3c',
+            hovertemplate='Despesas: %{y:,.2f}<extra></extra>'
+        ))
+    
     if exibir_saldo_periodo:
-        fig.add_trace(go.Scatter(x=df_plot['data'], y=df_plot['Saldo'], name='Saldo Diário', line=dict(color='#3498db', width=3), mode='lines+markers'))
+        fig.add_trace(go.Scatter(
+            x=df_plot['data'], 
+            y=df_plot['Saldo'], 
+            name='Saldo Diário', 
+            line=dict(color='#3498db', width=3), 
+            mode='lines+markers'
+        ))
+
+    fig.update_layout(
+        barmode='relative', # Habilita o empilhamento relativo (positivo/negativo)
+        hovermode="x unified",
+        xaxis=dict(tickformat='%d/%m', showgrid=False),
+        yaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='white', showgrid=True),
+        margin=dict(l=10, r=10, t=10, b=80),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        # Legendas na parte inferior
+        legend=dict(orientation="h", y=-0.4, x=0.5, xanchor="center")
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
     diff = (data_fim - data_ini).days
     dtick = 86400000.0 if diff <= 15 else None
 
-    fig.update_layout(
-        hovermode="x unified",
-        xaxis=dict(tickformat='%d/%m', dtick=dtick, tickmode='linear' if dtick else 'auto', showgrid=False),
-        yaxis=dict(showgrid=False),
-        margin=dict(l=10, r=10, t=10, b=50),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        # Legendas posicionadas abaixo do gráfico (horizontal)
-        legend=dict(orientation="h", y=-0.3, x=0.5, xanchor="center")
-    )
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
     st.info("Nenhum dado encontrado para os filtros selecionados.")
