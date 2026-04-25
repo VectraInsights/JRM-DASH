@@ -19,6 +19,14 @@ st.markdown("""
         [data-testid="stToolbarActionButtonIcon"],
         button[data-testid="stBaseButton-header"],
         [data-testid="stViewerBadge"], footer { display: none !important; }
+        [data-testid="stStatusWidget"], 
+        .stSpinner, 
+        [data-testid="stNotificationContent"] {
+        display: none !important;
+        }
+        .stApp > header {
+        display: none !important;
+        }
 
         .card-container {
             background-color: var(--secondary-background-color); 
