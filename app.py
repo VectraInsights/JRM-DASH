@@ -200,11 +200,29 @@ if p_total or r_total or saldo_bancos_total != 0:
         cols[2].markdown(f'<div class="card-container border-pagar"><div class="card-title">A Pagar</div><div class="card-value" style="color:#e74c3c">{format_br(-df_plot["Pagar"].sum())}</div></div>', unsafe_allow_html=True)
     
     if exibir_saldo_periodo:
-        res_per = df_plot['Saldo'].sum()
-        cor = "#2ecc71" if res_per >= 0 else "#e74c3c"
-        cols[3].markdown(f'<div class="card-container border-saldo"><div class="card-title">Resultado Período</div><div class="card-value" style="color:{cor}">{format_br(res_per)}</div></div>', unsafe_allow_html=True)
-
+    # Pegamos o último valor da coluna acumulada que calculamos anteriormente
+    # saldo_final = Saldo Bancário Inicial + Sum(Receitas - Despesas)
+    saldo_final = df_plot['Saldo_Acumulado'].iloc[-1]
+    
+    # Define a cor baseada no saldo total (positivo ou negativo)
+    cor = "#2ecc71" if saldo_final >= 0 else "#e74c3c"
+    
+    cols[3].markdown(f'''
+        <div class="card-container border-saldo">
+            <div class="card-title">Saldo Final Projetado</div>
+            <div class="card-value" style="color:{cor}">{format_br(saldo_final)}</div>
+        </div>
+    ''', unsafe_allow_html=True)
+    
     st.write("---")
+
+    # CÁLCULO DO ACUMULADO:
+    # 1. Calculamos o lucro/prejuízo diário
+    df_plot['Variacao_Diaria'] = df_plot['Receber'] - df_plot['Pagar']
+    
+    # 2. Criamos a coluna acumulada partindo do saldo do banco
+    # O cumsum() soma os valores dia a dia
+    df_plot['Saldo_Acumulado'] = saldo_bancos_total + df_plot['Variacao_Diaria'].cumsum()
 
     # Gráfico
     fig = go.Figure()
@@ -229,13 +247,14 @@ if p_total or r_total or saldo_bancos_total != 0:
         ))
     
     if exibir_saldo_periodo:
-        fig.add_trace(go.Scatter(
-            x=df_plot['data'], 
-            y=df_plot['Saldo'], 
-            name='Saldo Diário', 
-            line=dict(color='#3498db', width=3), 
-            mode='lines+markers'
-        ))
+    fig.add_trace(go.Scatter(
+        x=df_plot['data'], 
+        y=df_plot['Saldo_Acumulado'], # Usando a nova coluna acumulada
+        name='Saldo Acumulado', 
+        line=dict(color='#3498db', width=4, shape='spline'), # 'spline' deixa a curva suave
+        mode='lines+markers',
+        hovertemplate='Saldo Projetado: %{y:,.2f}<extra></extra>'
+    ))
 
     # ... (restante do código acima permanece igual)
 
