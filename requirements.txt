@@ -1,4 +1,4 @@
-streamlit
+fastapi
 requests
 pandas
 gspread
