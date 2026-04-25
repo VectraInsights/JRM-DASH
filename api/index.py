@@ -10,7 +10,10 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 app = FastAPI()
-
+@app.get("/")
+def home():
+    return {"status": "ok"}
+    
 # 🔥 CACHE SIMPLES (substitui st.cache_resource)
 sheet_cache = {"conn": None, "time": None}
 
