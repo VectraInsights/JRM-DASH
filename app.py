@@ -200,9 +200,7 @@ if p_total or r_total or saldo_bancos_total != 0:
         cols[2].markdown(f'<div class="card-container border-pagar"><div class="card-title">A Pagar</div><div class="card-value" style="color:#e74c3c">{format_br(-df_plot["Pagar"].sum())}</div></div>', unsafe_allow_html=True)
     
     if exibir_saldo_periodo:
-    # Pegamos o último valor da coluna acumulada que calculamos anteriormente
-    # saldo_final = Saldo Bancário Inicial + Sum(Receitas - Despesas)
-    saldo_final = df_plot['Saldo_Acumulado'].iloc[-1]
+        saldo_final = df_plot['Saldo_Acumulado'].iloc[-1]
     
     # Define a cor baseada no saldo total (positivo ou negativo)
     cor = "#2ecc71" if saldo_final >= 0 else "#e74c3c"
