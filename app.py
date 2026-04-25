@@ -76,16 +76,24 @@ def obter_token(empresa_nome):
     try:
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
-        ca = st.secrets["conta_azul"]
-        auth_b64 = base64.b64encode(f"{ca['client_id']}:{ca['client_secret']}".encode()).decode()
+        
+        # BUSCA NO RENDER OU NO LOCAL
+        client_id = os.environ.get("CONTA_AZUL_CLIENT_ID") or st.secrets["conta_azul"]["client_id"]
+        client_secret = os.environ.get("CONTA_AZUL_CLIENT_SECRET") or st.secrets["conta_azul"]["client_secret"]
+        
+        auth_b64 = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
         res = requests.post("https://auth.contaazul.com/oauth2/token", 
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "refresh_token", "refresh_token": rt})
+            
         if res.status_code == 200:
             dados = res.json()
-            if dados.get('refresh_token'): sh.update_cell(cell.row, 2, dados['refresh_token'])
+            if dados.get('refresh_token'): 
+                sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
-    except: pass
+    except Exception as e:
+        # Remova o 'pass' temporariamente para ver o erro se persistir
+        st.sidebar.error(f"Erro Token: {e}") 
     return None
 
 def buscar_v2(endpoint, token, params):
