@@ -5,7 +5,6 @@ import pandas as pd
 import gspread
 import plotly.graph_objects as go
 import os
-import toml
 import json
 import unicodedata
 from datetime import datetime, timedelta
@@ -45,8 +44,6 @@ st.markdown("""
 def get_sheet():
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        
-        # Tenta pegar das variáveis de ambiente (Render) ou do st.secrets (Local)
         creds_raw = os.environ.get("GOOGLE_SHEETS_JSON") or st.secrets.get("google_sheets")
         
         if isinstance(creds_raw, str):
@@ -54,9 +51,7 @@ def get_sheet():
         else:
             creds_dict = dict(creds_raw)
 
-        key = creds_dict["private_key"].strip()
-        if "\\n" in key:
-            key = key.replace("\\n", "\n")
+        key = creds_dict["private_key"].strip().replace("\\n", "\n")
         creds_dict["private_key"] = key
 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -77,7 +72,6 @@ def obter_token(empresa_nome):
         cell = sh.find(empresa_nome)
         rt = sh.cell(cell.row, 2).value
         
-        # BUSCA NO RENDER OU NO LOCAL
         client_id = os.environ.get("CONTA_AZUL_CLIENT_ID") or st.secrets["conta_azul"]["client_id"]
         client_secret = os.environ.get("CONTA_AZUL_CLIENT_SECRET") or st.secrets["conta_azul"]["client_secret"]
         
@@ -92,8 +86,7 @@ def obter_token(empresa_nome):
                 sh.update_cell(cell.row, 2, dados['refresh_token'])
             return dados['access_token']
     except Exception as e:
-        # Remova o 'pass' temporariamente para ver o erro se persistir
-        st.sidebar.error(f"Erro Token: {e}") 
+        st.sidebar.error(f"Erro Token ({empresa_nome}): {e}") 
     return None
 
 def buscar_v2(endpoint, token, params):
@@ -177,6 +170,7 @@ with st.spinner("Sincronizando dados..."):
             r_total.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", tk, api_p.copy()))
 
 if p_total or r_total or saldo_bancos_total != 0:
+    # --- PREPARAÇÃO DE DADOS ---
     df_plot = pd.DataFrame({'data': pd.date_range(data_ini, data_fim)})
     df_plot['data_str'] = df_plot['data'].dt.strftime('%Y-%m-%d')
     
@@ -185,9 +179,12 @@ if p_total or r_total or saldo_bancos_total != 0:
     
     df_plot['Pagar'] = df_plot['data_str'].map(val_p).fillna(0)
     df_plot['Receber'] = df_plot['data_str'].map(val_r).fillna(0)
-    df_plot['Saldo'] = df_plot['Receber'] - df_plot['Pagar']
+    
+    # CÁLCULO DO ACUMULADO (Mova para antes dos cards para evitar erro de variável)
+    df_plot['Variacao_Diaria'] = df_plot['Receber'] - df_plot['Pagar']
+    df_plot['Saldo_Acumulado'] = saldo_bancos_total + df_plot['Variacao_Diaria'].cumsum()
 
-    # Cards principais
+    # --- CARDS PRINCIPAIS ---
     cols = st.columns(4)
     
     if exibir_bancos:
@@ -197,32 +194,22 @@ if p_total or r_total or saldo_bancos_total != 0:
         cols[1].markdown(f'<div class="card-container border-receber"><div class="card-title">A Receber</div><div class="card-value" style="color:#2ecc71">{format_br(df_plot["Receber"].sum())}</div></div>', unsafe_allow_html=True)
     
     if exibir_despesas:
+        # Note o sinal de negativo para exibir o valor de saída
         cols[2].markdown(f'<div class="card-container border-pagar"><div class="card-title">A Pagar</div><div class="card-value" style="color:#e74c3c">{format_br(-df_plot["Pagar"].sum())}</div></div>', unsafe_allow_html=True)
     
     if exibir_saldo_periodo:
         saldo_final = df_plot['Saldo_Acumulado'].iloc[-1]
-    
-    # Define a cor baseada no saldo total (positivo ou negativo)
-    cor = "#2ecc71" if saldo_final >= 0 else "#e74c3c"
-    
-    cols[3].markdown(f'''
-        <div class="card-container border-saldo">
-            <div class="card-title">Saldo Final Projetado</div>
-            <div class="card-value" style="color:{cor}">{format_br(saldo_final)}</div>
-        </div>
-    ''', unsafe_allow_html=True)
+        cor = "#2ecc71" if saldo_final >= 0 else "#e74c3c"
+        cols[3].markdown(f'''
+            <div class="card-container border-saldo">
+                <div class="card-title">Saldo Final Projetado</div>
+                <div class="card-value" style="color:{cor}">{format_br(saldo_final)}</div>
+            </div>
+        ''', unsafe_allow_html=True)
     
     st.write("---")
 
-    # CÁLCULO DO ACUMULADO:
-    # 1. Calculamos o lucro/prejuízo diário
-    df_plot['Variacao_Diaria'] = df_plot['Receber'] - df_plot['Pagar']
-    
-    # 2. Criamos a coluna acumulada partindo do saldo do banco
-    # O cumsum() soma os valores dia a dia
-    df_plot['Saldo_Acumulado'] = saldo_bancos_total + df_plot['Variacao_Diaria'].cumsum()
-
-    # Gráfico
+    # --- GRÁFICO ---
     fig = go.Figure()
     
     if exibir_receitas:
@@ -235,7 +222,6 @@ if p_total or r_total or saldo_bancos_total != 0:
         ))
     
     if exibir_despesas:
-        # Valores negativos para ficarem abaixo do zero
         fig.add_trace(go.Bar(
             x=df_plot['data'], 
             y=-df_plot['Pagar'], 
@@ -245,28 +231,25 @@ if p_total or r_total or saldo_bancos_total != 0:
         ))
     
     if exibir_saldo_periodo:
-    fig.add_trace(go.Scatter(
-        x=df_plot['data'], 
-        y=df_plot['Saldo_Acumulado'], # Usando a nova coluna acumulada
-        name='Saldo Acumulado', 
-        line=dict(color='#3498db', width=4, shape='spline'), # 'spline' deixa a curva suave
-        mode='lines+markers',
-        hovertemplate='Saldo Projetado: %{y:,.2f}<extra></extra>'
-    ))
+        fig.add_trace(go.Scatter(
+            x=df_plot['data'], 
+            y=df_plot['Saldo_Acumulado'],
+            name='Saldo Acumulado', 
+            line=dict(color='#3498db', width=4, shape='spline'),
+            mode='lines+markers',
+            hovertemplate='Saldo Projetado: %{y:,.2f}<extra></extra>'
+        ))
 
-    # ... (restante do código acima permanece igual)
-
-    # 1. Calcule o dtick ANTES de configurar o layout do gráfico
+    # Configuração de escala do eixo X
     diff = (data_fim - data_ini).days
     dtick_val = 86400000.0 if diff <= 15 else None
 
-    # 2. Configure e exiba o gráfico
     fig.update_layout(
         barmode='relative',
         hovermode="x unified",
         xaxis=dict(
             tickformat='%d/%m', 
-            dtick=dtick_val, # Agora a variável está definida e aplicada
+            dtick=dtick_val,
             tickmode='linear' if dtick_val else 'auto',
             showgrid=False
         ),
