@@ -2,43 +2,32 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Fluxo de Caixa | Dashboard JRM</title>
+    <title>Dashboard Financeiro JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #f4f7f9; --side: #ffffff; --card: #ffffff; --txt: #1e293b; --border: #e2e8f0; --accent: #ef4444; }
+        :root { --bg: #f8f9fc; --side: #ffffff; --card: #ffffff; --txt: #1e293b; --border: #e2e8f0; --accent: #ef4444; }
         .dark-theme { --bg: #0f172a; --side: #1e293b; --card: #1e293b; --txt: #f8fafc; --border: #334155; }
-
         body { font-family: 'Inter', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--txt); height: 100vh; overflow: hidden; }
-        
-        .sidebar { width: 300px; background: var(--side); padding: 2rem 1.5rem; border-right: 1px solid var(--border); box-sizing: border-box; }
+        .sidebar { width: 300px; background: var(--side); padding: 2rem 1.5rem; border-right: 1px solid var(--border); }
         .main { flex: 1; padding: 2rem 3rem; overflow-y: auto; }
-
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-        h1 { margin: 0; font-size: 2rem; font-weight: 700; border-left: 5px solid var(--accent); padding-left: 15px; }
-        
-        .theme-toggle { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px; cursor: pointer; font-size: 1.2rem; }
-
-        .field { margin-bottom: 1.5rem; }
+        .field { margin-bottom: 1.2rem; }
         label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; opacity: 0.6; display: block; margin-bottom: 0.5rem; }
-        select, input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; outline: none; }
-
-        .btn { background: var(--accent); color: #fff; border: none; padding: 15px; width: 100%; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s; }
-        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-        
+        select, input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; }
+        .btn { background: var(--accent); color: #fff; border: none; padding: 14px; width: 100%; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
-        .card { background: var(--card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-        .val { font-size: 1.4rem; font-weight: 700; margin-top: 8px; }
-
+        .card { background: var(--card); padding: 18px; border-radius: 12px; border: 1px solid var(--border); }
+        .val { font-size: 1.3rem; font-weight: 700; margin-top: 5px; }
         .chart-box { background: var(--card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); height: 450px; }
-        #custom-dates { display: none; margin-top: 10px; }
+        #custom-range { display: none; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
     <div class="field">
-        <label>Empresa Selecionada</label>
+        <label>Unidade de Negócio</label>
         <select id="emp">
             <option value="Juvenal Transportes">Juvenal Transportes</option>
             <option value="JRM Transportes">JRM Transportes</option>
@@ -47,118 +36,89 @@
         </select>
     </div>
     <div class="field">
-        <label>Período de Análise</label>
-        <select id="per" onchange="toggleCustom(this.value)">
-            <option value="7">Próximos 7 dias</option>
-            <option value="15">Próximos 15 dias</option>
-            <option value="30">Próximos 30 dias</option>
-            <option value="custom">Intervalo Personalizado</option>
+        <label>Período</label>
+        <select id="per" onchange="checkPer(this.value)">
+            <option value="7">7 dias</option>
+            <option value="15">15 dias</option>
+            <option value="30">30 dias</option>
+            <option value="custom">Personalizado</option>
         </select>
-        <div id="custom-dates">
+        <div id="custom-range">
             <input type="date" id="d1" style="margin-bottom:5px">
             <input type="date" id="d2">
         </div>
     </div>
-    <button class="btn" onclick="fetchData()">Sincronizar Dados</button>
+    <button class="btn" onclick="update()">Sincronizar</button>
 </div>
 
 <div class="main">
     <div class="header">
-        <h1>Fluxo de Caixa</h1>
-        <button class="theme-toggle" onclick="toggleTheme()" id="tIcon">🌙</button>
+        <h1 style="margin:0; font-size: 1.8rem">Fluxo de Caixa</h1>
+        <button style="background:none; border:none; cursor:pointer; font-size:1.5rem" onclick="toggleT()">🌙</button>
     </div>
-
     <div class="grid">
-        <div class="card"><label>Disponibilidade</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
+        <div class="card"><label>Disponível</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
         <div class="card"><label>Receitas</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
         <div class="card"><label>Despesas</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
         <div class="card"><label>Projeção</label><div id="v4" class="val">R$ 0,00</div></div>
     </div>
-
-    <div class="chart-box"><canvas id="mainChart"></canvas></div>
+    <div class="chart-box"><canvas id="chart"></canvas></div>
 </div>
 
 <script>
     let chart = null;
+    function toggleT() { document.body.classList.toggle('dark-theme'); if(chart) update(); }
+    function checkPer(v) { document.getElementById('custom-range').style.display = v === 'custom' ? 'block' : 'none'; }
 
-    function toggleTheme() {
-        document.body.classList.toggle('dark-theme');
-        document.getElementById('tIcon').innerText = document.body.classList.contains('dark-theme') ? "☀️" : "🌙";
-        if(chart) fetchData();
-    }
-
-    function toggleCustom(v) { document.getElementById('custom-dates').style.display = v === 'custom' ? 'block' : 'none'; }
-
-    async function fetchData() {
-        const p = document.getElementById('per').value;
-        let start, end;
-
-        if(p === 'custom') {
-            start = document.getElementById('d1').value;
-            end = document.getElementById('d2').value;
+    async function update() {
+        const per = document.getElementById('per').value;
+        const emp = encodeURIComponent(document.getElementById('emp').value);
+        let url = `/api/dados?empresa=${emp}`;
+        
+        if(per === 'custom') {
+            const s = document.getElementById('d1').value;
+            const e = document.getElementById('d2').value;
+            if(!s || !e) return alert("Selecione as datas");
+            url += `&data_inicio=${s}&data_fim=${e}`;
         } else {
-            const today = new Date();
-            start = today.toISOString().split('T')[0];
-            today.setDate(today.getDate() + parseInt(p));
-            end = today.toISOString().split('T')[0];
+            url += `&dias=${per}`;
         }
 
-        if(!start || !end) return;
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        const f = (n) => "R$ " + n.toLocaleString('pt-BR', {minimumFractionDigits:2});
+        document.getElementById('v1').innerText = f(data.saldo_bancos);
+        document.getElementById('v2').innerText = f(data.total_receber);
+        document.getElementById('v3').innerText = f(data.total_pagar);
+        const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
+        document.getElementById('v4').innerText = f(proj);
+        document.getElementById('v4').style.color = proj >= 0 ? "#10b981" : "#ef4444";
 
-        try {
-            const emp = encodeURIComponent(document.getElementById('emp').value);
-            const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=${start}&data_fim=${end}`);
-            const data = await res.json();
-
-            const fmt = (v) => "R$ " + v.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-            document.getElementById('v1').innerText = fmt(data.saldo_bancos);
-            document.getElementById('v2').innerText = fmt(data.total_receber);
-            document.getElementById('v3').innerText = fmt(data.total_pagar);
-            
-            const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
-            const v4 = document.getElementById('v4');
-            v4.innerText = fmt(proj);
-            v4.style.color = proj >= 0 ? "#10b981" : "#ef4444";
-
-            renderChart(data);
-        } catch (e) {
-            console.error("Erro na busca:", e);
-        }
-    }
-
-    function renderChart(data) {
-        const ctx = document.getElementById('mainChart').getContext('2d');
+        const ctx = document.getElementById('chart').getContext('2d');
         if(chart) chart.destroy();
-
-        const isDark = document.body.classList.contains('dark-theme');
+        const isD = document.body.classList.contains('dark-theme');
 
         chart = new Chart(ctx, {
             data: {
                 labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
                 datasets: [
-                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981', borderRadius: 4 },
-                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444', borderRadius: 4 },
-                    { type: 'line', label: 'Saldo Projetado', data: data.acumulado, borderColor: '#3b82f6', borderWidth: 3, tension: 0.3, pointRadius: 3 }
+                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981' },
+                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444' },
+                    { type: 'line', label: 'Projeção', data: data.acumulado, borderColor: '#3b82f6', tension: 0.3, fill: false }
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom', // Legenda na parte inferior
-                        labels: { color: isDark ? '#cbd5e1' : '#475569', font: { size: 12, weight: '600' } }
-                    }
-                },
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: isD ? '#fff' : '#333' } } },
                 scales: {
-                    x: { ticks: { color: isDark ? '#94a3b8' : '#64748b' }, grid: { display: false } },
-                    y: { ticks: { color: isDark ? '#94a3b8' : '#64748b' }, grid: { color: isDark ? '#334155' : '#f1f5f9' } }
+                    x: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { display: false } },
+                    y: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { color: isD ? '#334155' : '#f1f5f9' } }
                 }
             }
         });
     }
-
-    window.onload = fetchData;
+    window.onload = update;
 </script>
 </body>
 </html>
