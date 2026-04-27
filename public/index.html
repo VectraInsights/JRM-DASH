@@ -102,43 +102,89 @@
         }
     }
 
+    <script>
+    let chart;
+
     async function sincronizar() {
         const emp = document.getElementById('empresa').value;
+        // Faz a chamada para a API (as datas podem ser dinâmicas se você tiver inputs para elas)
         const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=2026-04-27&data_fim=2026-05-12`);
         const data = await res.json();
 
-        // Update Cards
+        // 1. Atualiza os Cards de Resumo
         const fmt = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        
         document.getElementById('v-banco').innerText = fmt(data.resumo.banco);
         document.getElementById('v-rec').innerText = fmt(data.resumo.total_rec);
         document.getElementById('v-desp').innerText = fmt(data.resumo.total_desp);
-        document.getElementById('v-proj').innerText = fmt(data.resumo.banco + data.resumo.total_rec - data.resumo.total_desp);
+        
+        // O Saldo Projetado final é o último valor da lista de saldo acumulado
+        const saldoFinal = data.saldo[data.saldo.length - 1];
+        document.getElementById('v-proj').innerText = fmt(saldoFinal);
 
-        // Update Chart
+        // 2. Atualiza o Gráfico (Chart.js)
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
+        
         chart = new Chart(ctx, {
             data: {
                 labels: data.labels,
                 datasets: [
-                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', order: 2 },
-                    { type: 'bar', label: 'Despesas', data: data.despesas, backgroundColor: '#e74c3c', order: 2 },
-                    { type: 'line', label: 'Saldo', data: data.saldo, borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.2, order: 1 }
+                    { 
+                        type: 'bar', 
+                        label: 'Receitas', 
+                        data: data.receitas, 
+                        backgroundColor: '#2ecc71', 
+                        stack: 'stack1' // Garante o empilhamento
+                    },
+                    { 
+                        type: 'bar', 
+                        label: 'Despesas', 
+                        data: data.despesas, 
+                        backgroundColor: '#e74c3c', 
+                        stack: 'stack1' // Garante o empilhamento
+                    },
+                    { 
+                        type: 'line', 
+                        label: 'Saldo Acumulado', 
+                        data: data.saldo, 
+                        borderColor: '#3498db', 
+                        borderWidth: 3, 
+                        pointRadius: 4, 
+                        tension: 0.1,
+                        fill: false
+                    }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: '#a3aed0' } } },
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: { 
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { color: '#a3aed0', padding: 20 } 
+                    } 
+                },
                 scales: {
-                    x: { stacked: true, grid: { display: false } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' } }
+                    x: { 
+                        stacked: true, // Empilha as barras no eixo X
+                        grid: { display: false },
+                        ticks: { color: '#a3aed0' }
+                    },
+                    y: { 
+                        stacked: false, // O Saldo (linha) não deve ser empilhado, apenas as barras
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#a3aed0' }
+                    }
                 }
             }
         });
     }
 
+    // Sincroniza ao carregar a página
     window.onload = sincronizar;
 </script>
-</body>
-</html>
