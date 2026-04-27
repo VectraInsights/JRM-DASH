@@ -1,76 +1,3 @@
-<!DOCTYPE html>
-
-<html lang="pt-br">
-<head>
-  <meta charset="UTF-8">
-  <title>Fluxo de Caixa JRM</title>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-
-  <style>
-    body {
-      font-family: Arial;
-      background: #0f172a;
-      color: white;
-      margin: 20px;
-    }
-
-    select, button {
-      padding: 10px;
-      margin: 5px;
-      border-radius: 8px;
-      border: none;
-    }
-
-    button {
-      background: #2563eb;
-      color: white;
-      cursor: pointer;
-    }
-
-    .cards {
-      display: flex;
-      gap: 10px;
-      margin-top: 20px;
-    }
-
-    .card {
-      background: #1e293b;
-      padding: 15px;
-      border-radius: 10px;
-      flex: 1;
-    }
-
-    .valor {
-      font-size: 20px;
-      font-weight: bold;
-    }
-  </style>
-
-</head>
-
-<body>
-
-<h2>💰 Fluxo de Caixa</h2>
-
-<select id="empresa"></select>
-
-<select id="dias">
-  <option value="7">7 dias</option>
-  <option value="15">15 dias</option>
-  <option value="30">30 dias</option>
-</select>
-
-<button onclick="carregar()">Carregar</button>
-
-<div class="cards">
-  <div class="card">
-    <div>Saldo Atual</div>
-    <div id="saldo" class="valor">-</div>
-  </div>
-</div>
-
-<div id="grafico" style="margin-top:30px;"></div>
-
 <script>
 const API = "/api";
 
@@ -78,59 +5,89 @@ const API = "/api";
 // 🔹 Carregar empresas
 // ---------------------------
 async function loadClientes() {
-  const res = await fetch(`${API}/clientes`);
-  const data = await res.json();
+  try {
+    const res = await fetch(`${API}/clientes`);
 
-  const select = document.getElementById("empresa");
+    if (!res.ok) throw new Error("Erro API clientes");
 
-  data.forEach(emp => {
-    const opt = document.createElement("option");
-    opt.value = emp;
-    opt.innerText = emp;
-    select.appendChild(opt);
-  });
+    const data = await res.json();
+
+    console.log("CLIENTES:", data);
+
+    const select = document.getElementById("empresa");
+    select.innerHTML = "";
+
+    if (!data || data.length === 0) {
+      select.innerHTML = "<option>Nenhuma empresa</option>";
+      return;
+    }
+
+    data.forEach(emp => {
+      const opt = document.createElement("option");
+      opt.value = emp;
+      opt.innerText = emp;
+      select.appendChild(opt);
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("Erro ao carregar empresas");
+  }
 }
 
 // ---------------------------
 // 🔹 Buscar dados
 // ---------------------------
 async function carregar() {
-  const empresa = document.getElementById("empresa").value;
-  const dias = document.getElementById("dias").value;
+  try {
+    const empresa = document.getElementById("empresa").value;
+    const dias = document.getElementById("dias").value;
 
-  const res = await fetch(`${API}/dados?empresa=${empresa}&dias=${dias}`);
-  const data = await res.json();
+    const res = await fetch(`${API}/dados?empresa=${encodeURIComponent(empresa)}&dias=${dias}`);
 
-  document.getElementById("saldo").innerText =
-    "R$ " + data.saldo.toLocaleString("pt-BR");
+    if (!res.ok) throw new Error("Erro API dados");
 
-  const trace1 = {
-    x: data.datas,
-    y: data.receber,
-    type: 'bar',
-    name: 'Receber'
-  };
+    const data = await res.json();
 
-  const trace2 = {
-    x: data.datas,
-    y: data.pagar.map(v => -v),
-    type: 'bar',
-    name: 'Pagar'
-  };
+    console.log("DADOS:", data);
 
-  const trace3 = {
-    x: data.datas,
-    y: data.acumulado,
-    type: 'scatter',
-    name: 'Saldo'
-  };
+    if (!data || data.erro) {
+      alert("Erro ao buscar dados");
+      return;
+    }
 
-  Plotly.newPlot('grafico', [trace1, trace2, trace3]);
+    document.getElementById("saldo").innerText =
+      "R$ " + Number(data.saldo || 0).toLocaleString("pt-BR");
+
+    const trace1 = {
+      x: data.datas,
+      y: data.receber,
+      type: 'bar',
+      name: 'Receber'
+    };
+
+    const trace2 = {
+      x: data.datas,
+      y: data.pagar.map(v => -v),
+      type: 'bar',
+      name: 'Pagar'
+    };
+
+    const trace3 = {
+      x: data.datas,
+      y: data.acumulado,
+      type: 'scatter',
+      name: 'Saldo'
+    };
+
+    Plotly.newPlot('grafico', [trace1, trace2, trace3]);
+
+  } catch (err) {
+    console.error(err);
+    alert("Erro ao carregar dados");
+  }
 }
 
 // inicia
 loadClientes();
 </script>
-
-</body>
-</html>
