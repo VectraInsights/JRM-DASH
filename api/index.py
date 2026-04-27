@@ -11,10 +11,11 @@ from supabase import create_client
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Configuração do Supabase (Certifique-se de ter as Env Vars configuradas)
+# Configuração do Supabase
 supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
 
 def remover_acentos(texto):
+    if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def obter_token(empresa_nome):
@@ -30,7 +31,8 @@ def obter_token(empresa_nome):
         r = requests.post(
             "https://auth.contaazul.com/oauth2/token",
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "refresh_token", "refresh_token": res.data["refresh_token"]}
+            data={"grant_type": "refresh_token", "refresh_token": res.data["refresh_token"]},
+            timeout=10
         )
         
         if r.status_code == 200:
@@ -45,23 +47,26 @@ def buscar_v2(endpoint, token, params):
     """Busca dados paginados na API v2 filtrando por saldo em aberto"""
     itens_acumulados = []
     headers = {"Authorization": f"Bearer {token}"}
-    params.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
+    p = params.copy()
+    p.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
     
     while True:
-        res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params)
-        if res.status_code != 200: break
-        
-        dados = res.json()
-        itens = dados.get('itens', [])
-        if not itens: break
-        
-        for i in itens:
-            saldo = i.get('total', 0) - i.get('pago', 0)
-            if saldo > 0:
-                itens_acumulados.append({"data": i.get("data_vencimento")[:10], "valor": saldo})
-        
-        if len(itens) < 100: break
-        params["pagina"] += 1
+        try:
+            res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=p, timeout=15)
+            if res.status_code != 200: break
+            
+            dados = res.json()
+            itens = dados.get('itens', [])
+            if not itens: break
+            
+            for i in itens:
+                saldo = i.get('total', 0) - i.get('pago', 0)
+                if saldo > 0:
+                    itens_acumulados.append({"data": i.get("data_vencimento")[:10], "valor": saldo})
+            
+            if len(itens) < 100: break
+            p["pagina"] += 1
+        except: break
     return itens_acumulados
 
 def buscar_saldos_bancarios(token):
@@ -76,51 +81,70 @@ def buscar_saldos_bancarios(token):
                 nome = remover_acentos(conta.get('nome', '')).upper()
                 if any(banco in nome for banco in bancos_permitidos):
                     id_c = conta.get('id')
-                    r_s = requests.get(f"https://api-v2.contaazul.com/v1/conta-financeira/{id_c}/saldo-atual", headers=headers)
+                    r_s = requests.get(f"https://api-v2.contaazul.com/v1/conta-financeira/{id_c}/saldo-atual", headers=headers, timeout=10)
                     if r_s.status_code == 200:
                         saldo_total += r_s.json().get('saldo_atual', 0)
     except: pass
     return saldo_total
 
+@app.get("/api/empresas")
+def listar_empresas():
+    """Retorna a lista de empresas para o dropdown do HTML"""
+    try:
+        res = supabase.table("tokens").select("empresa").execute()
+        # Retorna lista de objetos formatada para o JS: [{"nome": "Empresa A"}, ...]
+        return [{"nome": row["empresa"]} for row in res.data]
+    except:
+        return []
+
 @app.get("/api/dados")
 def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
-    token = obter_token(empresa)
-    if not token: return {"erro": "Falha na autenticação"}
-    
-    saldo_banco = buscar_saldos_bancarios(token)
-    
-    # Busca na Conta Azul
-    api_params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
-    receitas = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, api_params.copy())
-    despesas = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, api_params.copy())
-    
-    # CORREÇÃO PANDAS: Criando o intervalo de datas já como texto (String)
+    # Lista de empresas para processar
+    empresas_para_processar = []
+    if empresa == "todas":
+        res_emp = supabase.table("tokens").select("empresa").execute()
+        empresas_para_processar = [r["empresa"] for r in res_emp.data]
+    else:
+        empresas_para_processar = [empresa]
+
+    total_saldo_banco = 0
+    todas_receitas = []
+    todas_despesas = []
+
+    # Itera sobre as empresas (se for "todas", soma os resultados)
+    for emp_nome in empresas_para_processar:
+        token = obter_token(emp_nome)
+        if not token: continue
+        
+        total_saldo_banco += buscar_saldos_bancarios(token)
+        
+        api_params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
+        todas_receitas.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, api_params))
+        todas_despesas.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, api_params))
+
+    # Processamento com Pandas (Garante o range de datas mesmo se não houver dados)
     df_range = pd.date_range(data_inicio, data_fim).strftime('%Y-%m-%d')
     df = pd.DataFrame(index=df_range).assign(receitas=0.0, despesas=0.0)
     
-    # Mapeando os valores corretamente pelo texto da data
-    if receitas:
-        df_r = pd.DataFrame(receitas).groupby("data")["valor"].sum()
+    if todas_receitas:
+        df_r = pd.DataFrame(todas_receitas).groupby("data")["valor"].sum()
         df["receitas"] = df.index.map(df_r).fillna(0)
         
-    if despesas:
-        df_p = pd.DataFrame(despesas).groupby("data")["valor"].sum()
+    if todas_despesas:
+        df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
         df["despesas"] = df.index.map(df_p).fillna(0)
 
-    # Cálculo Acumulado (Saldo Bancário + Acúmulo de Receitas - Despesas do período)
-    df["saldo_projetado"] = saldo_banco + (df["receitas"] - df["despesas"]).cumsum()
-
-    # Formatação de saída
-    from datetime import datetime
+    # Cálculo Acumulado
+    df["saldo_projetado"] = total_saldo_banco + (df["receitas"] - df["despesas"]).cumsum()
     labels_formatadas = [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index]
 
     return {
         "labels": labels_formatadas,
         "receitas": df["receitas"].tolist(),
         "despesas": df["despesas"].tolist(),
-        "saldo": df["saldo_projetado"].tolist(), # Envia a linha acumulada
+        "saldo": df["saldo_projetado"].tolist(),
         "resumo": {
-            "banco": saldo_banco,
+            "banco": total_saldo_banco,
             "total_rec": float(df["receitas"].sum()),
             "total_desp": float(df["despesas"].sum())
         }
