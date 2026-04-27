@@ -1,93 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard JRM - Fluxo de Caixa</title>
+    <style>
+        :root { --primary: #2c3e50; --success: #27ae60; --danger: #e74c3c; --bg: #f8f9fa; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1000px; margin: auto; }
+        
+        /* Cabeçalho e Controles */
+        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .controls { display: flex; gap: 15px; align-items: center; }
+        select, input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        button { padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { opacity: 0.9; }
+
+        /* Card de Saldo */
+        .balance-card { background: white; padding: 25px; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border-left: 6px solid var(--success); }
+        .balance-card h2 { margin: 0; font-size: 16px; text-transform: uppercase; color: #7f8c8d; }
+        .balance-card p { margin: 10px 0 0; font-size: 32px; font-weight: bold; color: var(--primary); }
+
+        /* Tabela Financeira */
+        .table-container { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: var(--primary); color: white; padding: 15px; font-weight: 500; }
+        td { padding: 15px; border-bottom: 1px solid #eee; font-size: 14px; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background: #fcfcfc; }
+
+        .val-positive { color: var(--success); font-weight: 600; }
+        .val-negative { color: var(--danger); font-weight: 600; }
+        .val-neutral { font-weight: bold; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1 style="margin:0; font-size: 20px;">Fluxo de Caixa Operacional</h1>
+        <div class="controls">
+            <select id="empresa"></select>
+            <input type="number" id="dias" value="7" style="width: 60px;">
+            <button onclick="carregar()">Atualizar</button>
+        </div>
+    </div>
+
+    <div class="balance-card">
+        <h2>Saldo Atual Disponível</h2>
+        <p id="saldo">R$ 0,00</p>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data de Vencimento</th>
+                    <th>Contas a Receber</th>
+                    <th>Contas a Pagar</th>
+                    <th>Saldo Acumulado</th>
+                </tr>
+            </thead>
+            <tbody id="tabela-corpo">
+                </tbody>
+        </table>
+    </div>
+</div>
+
 <script>
 const API = "/api";
 
-// ---------------------------
-// 🔹 Carregar empresas
-// ---------------------------
 async function loadClientes() {
-  try {
-    const res = await fetch(`${API}/clientes`);
+    try {
+        const res = await fetch(`${API}/clientes`);
+        const data = await res.json();
+        const select = document.getElementById("empresa");
+        
+        if (!data || data.length === 0) {
+            select.innerHTML = "<option>Nenhuma empresa</option>";
+            return;
+        }
 
-    if (!res.ok) throw new Error("Erro API clientes");
-
-    const data = await res.json();
-
-    console.log("CLIENTES:", data);
-
-    const select = document.getElementById("empresa");
-    select.innerHTML = "";
-
-    if (!data || data.length === 0) {
-      select.innerHTML = "<option>Nenhuma empresa</option>";
-      return;
+        select.innerHTML = data.map(emp => `<option value="${emp}">${emp}</option>`).join('');
+        carregar(); // Carrega os dados da primeira empresa automaticamente
+    } catch (err) {
+        console.error(err);
     }
-
-    data.forEach(emp => {
-      const opt = document.createElement("option");
-      opt.value = emp;
-      opt.innerText = emp;
-      select.appendChild(opt);
-    });
-
-  } catch (err) {
-    console.error(err);
-    alert("Erro ao carregar empresas");
-  }
 }
 
-// ---------------------------
-// 🔹 Buscar dados
-// ---------------------------
+function formatBRL(valor) {
+    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 async function carregar() {
-  try {
-    const empresa = document.getElementById("empresa").value;
-    const dias = document.getElementById("dias").value;
+    const btn = document.querySelector('button');
+    btn.innerText = "Buscando...";
+    btn.disabled = true;
 
-    const res = await fetch(`${API}/dados?empresa=${encodeURIComponent(empresa)}&dias=${dias}`);
+    try {
+        const empresa = document.getElementById("empresa").value;
+        const dias = document.getElementById("dias").value;
+        const res = await fetch(`${API}/dados?empresa=${encodeURIComponent(empresa)}&dias=${dias}`);
+        const data = await res.json();
 
-    if (!res.ok) throw new Error("Erro API dados");
+        if (data.erro) {
+            alert("Erro no Token: Verifique o Supabase/Conta Azul");
+            return;
+        }
 
-    const data = await res.json();
+        // 1. Atualiza o Card de Saldo
+        document.getElementById("saldo").innerText = formatBRL(data.saldo);
 
-    console.log("DADOS:", data);
+        // 2. Preenche a Tabela
+        const corpo = document.getElementById("tabela-corpo");
+        corpo.innerHTML = "";
 
-    if (!data || data.erro) {
-      alert("Erro ao buscar dados");
-      return;
+        data.datas.forEach((dt, i) => {
+            const tr = document.createElement("tr");
+            
+            // Formatar data para padrão brasileiro
+            const dataBr = dt.split('-').reverse().join('/');
+
+            tr.innerHTML = `
+                <td>${dataBr}</td>
+                <td class="val-positive">${formatBRL(data.receber[i])}</td>
+                <td class="val-negative">${formatBRL(data.pagar[i])}</td>
+                <td class="val-neutral">${formatBRL(data.acumulado[i])}</td>
+            `;
+            corpo.appendChild(tr);
+        });
+
+    } catch (err) {
+        console.error(err);
+        alert("Erro de conexão com o servidor.");
+    } finally {
+        btn.innerText = "Atualizar";
+        btn.disabled = false;
     }
-
-    document.getElementById("saldo").innerText =
-      "R$ " + Number(data.saldo || 0).toLocaleString("pt-BR");
-
-    const trace1 = {
-      x: data.datas,
-      y: data.receber,
-      type: 'bar',
-      name: 'Receber'
-    };
-
-    const trace2 = {
-      x: data.datas,
-      y: data.pagar.map(v => -v),
-      type: 'bar',
-      name: 'Pagar'
-    };
-
-    const trace3 = {
-      x: data.datas,
-      y: data.acumulado,
-      type: 'scatter',
-      name: 'Saldo'
-    };
-
-    Plotly.newPlot('grafico', [trace1, trace2, trace3]);
-
-  } catch (err) {
-    console.error(err);
-    alert("Erro ao carregar dados");
-  }
 }
 
-// inicia
 loadClientes();
 </script>
+
+</body>
+</html>
