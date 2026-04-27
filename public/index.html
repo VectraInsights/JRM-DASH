@@ -3,104 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fluxo de Caixa - JRM</title>
+    <title>Dashboard Financeiro JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg-dark: #0e1117;
-            --sidebar-bg: #262730;
-            --text-main: #ffffff;
-            --text-sub: #a3aed0;
-            --accent-red: #ff4b4b;
-            --accent-green: #00c092;
-            --accent-blue: #3b82f6;
+            --bg: #0e1117;
+            --sidebar: #262730;
+            --text: #ffffff;
+            --subtext: #a3aed0;
+            --red: #ff4b4b;
+            --green: #00c092;
+            --blue: #3b82f6;
+            --purple: #8b5cf6;
         }
 
         body {
-            font-family: "Source Sans Pro", sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-main);
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             display: flex;
             height: 100vh;
             overflow: hidden;
         }
 
-        /* BARRA LATERAL */
+        /* Sidebar */
         .sidebar {
-            width: 320px;
-            background-color: var(--sidebar-bg);
-            padding: 40px 20px;
+            width: 300px;
+            background-color: var(--sidebar);
+            padding: 30px 20px;
+            border-right: 1px solid rgba(255,255,255,0.1);
             display: flex;
             flex-direction: column;
-            border-right: 1px solid rgba(255,255,255,0.1);
         }
 
-        .sidebar h1 {
-            font-size: 1.5rem;
-            margin-bottom: 30px;
-            color: var(--accent-red);
-        }
-
-        .form-group {
-            margin-bottom: 25px;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: 0.9rem;
+        label {
+            font-size: 0.85rem;
+            color: var(--subtext);
             margin-bottom: 8px;
-            color: var(--text-sub);
+            display: block;
         }
 
         select, input {
             width: 100%;
+            background: var(--bg);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
             padding: 12px;
             border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.2);
-            background-color: var(--bg-dark);
-            color: white;
+            margin-bottom: 25px;
             font-size: 1rem;
         }
 
         .btn-sync {
-            background-color: var(--accent-red);
+            background-color: var(--red);
             color: white;
             border: none;
             padding: 15px;
             border-radius: 8px;
             font-weight: bold;
             cursor: pointer;
-            transition: 0.3s;
-            margin-top: 10px;
+            transition: opacity 0.2s;
         }
 
-        .btn-sync:hover {
-            opacity: 0.8;
-            transform: translateY(-2px);
-        }
+        .btn-sync:hover { opacity: 0.8; }
 
-        /* ÁREA PRINCIPAL */
-        .content {
+        /* Main Content */
+        .main {
             flex: 1;
             padding: 40px;
             overflow-y: auto;
         }
 
-        .header {
-            margin-bottom: 40px;
-        }
-
-        .header h2 {
+        h2 {
             font-size: 2rem;
-            margin: 0;
-            border-bottom: 2px solid var(--accent-red);
+            margin: 0 0 30px 0;
+            border-bottom: 2px solid var(--red);
             display: inline-block;
             padding-bottom: 5px;
         }
 
-        /* CARDS */
-        .dashboard-grid {
+        /* Dashboard Cards */
+        .cards-container {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 20px;
@@ -108,34 +92,34 @@
         }
 
         .card {
-            background-color: var(--sidebar-bg);
+            background-color: var(--sidebar);
             padding: 20px;
             border-radius: 12px;
             border-left: 5px solid #464855;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
-        .card.banco { border-left-color: #8b5cf6; }
-        .card.receita { border-left-color: var(--accent-green); }
-        .card.despesa { border-left-color: var(--accent-red); }
-        .card.resultado { border-left-color: var(--accent-blue); }
+        .card.banco { border-left-color: var(--purple); }
+        .card.receita { border-left-color: var(--green); }
+        .card.despesa { border-left-color: var(--red); }
+        .card.resultado { border-left-color: var(--blue); }
 
-        .card-title {
-            font-size: 0.8rem;
-            text-transform: uppercase;
+        .card-label {
+            font-size: 0.75rem;
             font-weight: bold;
-            color: var(--text-sub);
+            color: var(--subtext);
+            text-transform: uppercase;
         }
 
         .card-value {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: bold;
             margin-top: 10px;
         }
 
-        /* GRÁFICO */
-        .chart-box {
-            background-color: var(--sidebar-bg);
+        /* Chart Area */
+        .chart-wrapper {
+            background-color: var(--sidebar);
             padding: 30px;
             border-radius: 15px;
             height: 500px;
@@ -145,157 +129,128 @@
 <body>
 
 <aside class="sidebar">
-    <h1>Fluxo de Caixa JRM</h1>
-    
-    <div class="form-group">
-        <label>Selecione a Empresa</label>
-        <select id="empresa">
-            <option value="Juvenal Transportes">Juvenal Transportes</option>
-            <option value="JRM Transportes">JRM Transportes</option>
-            <option value="LGP">LGP</option>
-            <option value="ROSE">Rosângela Transportes</option>
-        </select>
+    <label>Selecione a Empresa</label>
+    <select id="empresa">
+        <option value="Juvenal Transportes">Juvenal Transportes</option>
+        <option value="JRM Transportes">JRM Transportes</option>
+        <option value="LGP">LGP</option>
+        <option value="ROSE">Rosângela Transportes</option>
+    </select>
+
+    <label>Escolha o intervalo</label>
+    <select id="intervalo" onchange="toggleCustom()">
+        <option value="7">Próximos 7 dias</option>
+        <option value="15">Próximos 15 dias</option>
+        <option value="30">Próximos 30 dias</option>
+        <option value="custom">Personalizado</option>
+    </select>
+
+    <div id="custom-dates" style="display: none;">
+        <label>Início</label>
+        <input type="date" id="d_inicio">
+        <label>Fim</label>
+        <input type="date" id="d_fim">
     </div>
 
-    <div class="form-group">
-        <label>Escolha o intervalo</label>
-        <select id="intervalo" onchange="checkCustom()">
-            <option value="7">Próximos 7 dias</option>
-            <option value="15">Próximos 15 dias</option>
-            <option value="30">Próximos 30 dias</option>
-            <option value="custom">Personalizado</option>
-        </select>
-    </div>
-
-    <div id="custom-range" style="display: none;">
-        <div class="form-group">
-            <label>Data Inicial</label>
-            <input type="date" id="data_ini">
-        </div>
-        <div class="form-group">
-            <label>Data Final</label>
-            <input type="date" id="data_fim">
-        </div>
-    </div>
-
-    <button class="btn-sync" onclick="fetchData()">Sincronizar Dados</button>
+    <button class="btn-sync" onclick="carregarDados()">Sincronizar Dados</button>
 </aside>
 
-<main class="content">
-    <div class="header">
-        <h2>Fluxo de Caixa</h2>
-    </div>
-
-    <div class="dashboard-grid">
+<main class="main">
+    <h2>Fluxo de Caixa</h2>
+    
+    <div class="cards-container">
         <div class="card banco">
-            <div class="card-title">Saldo em Banco</div>
-            <div id="card-saldo-banco" class="card-value">R$ 0,00</div>
+            <div class="card-label">Saldo em Banco</div>
+            <div id="v-banco" class="card-value">R$ 0,00</div>
         </div>
         <div class="card receita">
-            <div class="card-title">Receitas</div>
-            <div id="card-receitas" class="card-value" style="color: var(--accent-green);">R$ 0,00</div>
+            <div class="card-label">Receitas</div>
+            <div id="v-receitas" class="card-value" style="color: var(--green);">R$ 0,00</div>
         </div>
         <div class="card despesa">
-            <div class="card-title">Despesas</div>
-            <div id="card-despesas" class="card-value" style="color: var(--accent-red);">R$ 0,00</div>
+            <div class="card-label">Despesas</div>
+            <div id="v-despesas" class="card-value" style="color: var(--red);">R$ 0,00</div>
         </div>
         <div class="card resultado">
-            <div class="card-title">Resultado Período</div>
-            <div id="card-resultado" class="card-value">R$ 0,00</div>
+            <div class="card-label">Resultado Período</div>
+            <div id="v-resultado" class="card-value">R$ 0,00</div>
         </div>
     </div>
 
-    <div class="chart-box">
-        <canvas id="fluxoChart"></canvas>
+    <div class="chart-wrapper">
+        <canvas id="mainChart"></canvas>
     </div>
 </main>
 
 <script>
-    let myChart = null;
+    let meuGrafico = null;
 
-    function checkCustom() {
-        const isCustom = document.getElementById('intervalo').value === 'custom';
-        document.getElementById('custom-range').style.display = isCustom ? 'block' : 'none';
+    function toggleCustom() {
+        const display = document.getElementById('intervalo').value === 'custom' ? 'block' : 'none';
+        document.getElementById('custom-dates').style.display = display;
     }
 
-    async function fetchData() {
+    async function carregarDados() {
         const empresa = document.getElementById('empresa').value;
-        const intervalo = document.getElementById('intervalo').value;
-        let d_ini, d_fim;
+        const inter = document.getElementById('intervalo').value;
+        let d1, d2;
 
-        if (intervalo === 'custom') {
-            d_ini = document.getElementById('data_ini').value;
-            d_fim = document.getElementById('data_fim').value;
+        if (inter === 'custom') {
+            d1 = document.getElementById('d_inicio').value;
+            d2 = document.getElementById('d_fim').value;
         } else {
             const hoje = new Date();
             const fim = new Date();
-            fim.setDate(hoje.getDate() + parseInt(intervalo));
-            d_ini = hoje.toISOString().split('T')[0];
-            d_fim = fim.toISOString().split('T')[0];
+            fim.setDate(hoje.getDate() + parseInt(inter));
+            d1 = hoje.toISOString().split('T')[0];
+            d2 = fim.toISOString().split('T')[0];
         }
 
-        if (!d_ini || !d_fim) return alert("Selecione as datas corretamente.");
+        if (!d1 || !d2) return alert("Selecione as datas corretamente.");
 
-        const response = await fetch(`/api/dados?empresa=${encodeURIComponent(empresa)}&data_inicio=${d_ini}&data_fim=${d_fim}`);
-        const data = await response.json();
+        try {
+            const res = await fetch(`/api/dados?empresa=${encodeURIComponent(empresa)}&data_inicio=${d1}&data_fim=${d2}`);
+            const data = await res.json();
 
-        // Atualizar Cards
-        const fmt = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        document.getElementById('card-saldo-banco').innerText = fmt(data.cards.saldo_banco);
-        document.getElementById('card-receitas').innerText = fmt(data.cards.total_receitas);
-        document.getElementById('card-despesas').innerText = fmt(data.cards.total_despesas);
-        document.getElementById('card-resultado').innerText = fmt(data.cards.resultado_periodo);
+            // Atualiza os valores nos Cards
+            const formatar = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            document.getElementById('v-banco').innerText = formatar(data.resumo.banco);
+            document.getElementById('v-receitas').innerText = formatar(data.resumo.total_rec);
+            document.getElementById('v-despesas').innerText = formatar(data.resumo.total_desp);
+            document.getElementById('v-resultado').innerText = formatar(data.resumo.total_rec - data.resumo.total_desp);
 
-        // Atualizar Gráfico
-        const ctx = document.getElementById('fluxoChart').getContext('2d');
-        if (myChart) myChart.destroy();
+            // Renderiza o Gráfico
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            if (meuGrafico) meuGrafico.destroy();
 
-        myChart = new Chart(ctx, {
-            data: {
-                labels: data.labels,
-                datasets: [
-                    {
-                        type: 'bar',
-                        label: 'Receitas',
-                        data: data.receitas,
-                        backgroundColor: '#00c092',
-                        borderRadius: 5
-                    },
-                    {
-                        type: 'bar',
-                        label: 'Despesas',
-                        data: data.despesas,
-                        backgroundColor: '#ff4b4b',
-                        borderRadius: 5
-                    },
-                    {
-                        type: 'line',
-                        label: 'Saldo Projetado',
-                        data: data.saldo_projetado,
-                        borderColor: '#3b82f6',
-                        borderWidth: 3,
-                        pointRadius: 4,
-                        tension: 0.3,
-                        fill: false
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#a3aed0' } },
-                    x: { grid: { display: false }, ticks: { color: '#a3aed0' } }
+            meuGrafico = new Chart(ctx, {
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#00c092' },
+                        { type: 'bar', label: 'Despesas', data: data.despesas, backgroundColor: '#ff4b4b' },
+                        { type: 'line', label: 'Saldo Projetado', data: data.saldo, borderColor: '#3b82f6', tension: 0.3, fill: false, borderWidth: 3 }
+                    ]
                 },
-                plugins: {
-                    legend: { position: 'top', labels: { color: 'white', font: { weight: 'bold' } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: 'white', font: { size: 12 } } }
+                    },
+                    scales: {
+                        y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#a3aed0' } },
+                        x: { grid: { display: false }, ticks: { color: '#a3aed0' } }
+                    }
                 }
-            }
-        });
+            });
+        } catch (e) {
+            console.error("Erro ao carregar dados:", e);
+        }
     }
 
-    // Carregamento inicial
-    window.onload = fetchData;
+    // Inicializa ao carregar a página
+    window.onload = carregarDados;
 </script>
 </body>
 </html>
