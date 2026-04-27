@@ -26,7 +26,6 @@
             overflow: hidden;
         }
 
-        /* Barra Lateral Estilo Streamlit */
         .sidebar { 
             width: 280px; 
             padding: 40px 20px; 
@@ -53,10 +52,8 @@
             font-size: 0.9rem;
         }
 
-        /* Container para esconder/mostrar datas */
         #container-datas { display: none; }
 
-        /* Área Principal */
         .main { 
             flex: 1; 
             margin-left: 280px; 
@@ -64,10 +61,8 @@
             overflow-y: auto;
         }
 
-        /* CORREÇÃO 4: Título sem 'Projetado' */
         h1 { margin-top: 0; font-size: 2.2rem; margin-bottom: 30px; border-bottom: 2px solid var(--red); display: inline-block; padding-bottom: 5px;}
 
-        /* Grid de Cards */
         .cards { 
             display: grid; 
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
@@ -83,7 +78,6 @@
             box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
         }
 
-        /* CORREÇÃO 3: Nomes dos Cards iguais à Imagem 2 */
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; font-weight: bold;}
         .card-val { font-size: 1.5rem; font-weight: 600; }
 
@@ -117,8 +111,8 @@
     <h3>Filtros</h3>
     
     <label>Selecione a empresa</label>
-    <select id="empresa">
-        <option value="Juvenal Transportes">Juvenal Transportes</option>
+    <select id="empresa" onchange="sincronizar()">
+        <option value="todas" selected>Todas as Empresas</option>
     </select>
 
     <label>Selecione o intervalo</label>
@@ -132,7 +126,6 @@
     <div id="container-datas">
         <label>Data Início</label>
         <input type="date" id="data_inicio">
-
         <label>Data Fim</label>
         <input type="date" id="data_fim">
     </div>
@@ -170,6 +163,26 @@
 <script>
     let chart;
 
+    // Busca as empresas cadastradas no banco para popular o dropdown
+    async function carregarEmpresas() {
+        try {
+            const res = await fetch('/api/empresas');
+            if (!res.ok) throw new Error();
+            
+            const empresas = await res.json();
+            const select = document.getElementById('empresa');
+            
+            empresas.forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp.nome;
+                opt.innerText = emp.nome;
+                select.appendChild(opt);
+            });
+        } catch (err) {
+            console.error("Erro ao carregar empresas. Verifique se o endpoint /api/empresas existe.");
+        }
+    }
+
     function ajustarDatas() {
         const intervaloSelect = document.getElementById('intervalo');
         const containerDatas = document.getElementById('container-datas');
@@ -179,7 +192,6 @@
             containerDatas.style.display = 'block';
         } else {
             containerDatas.style.display = 'none';
-            
             const dias = parseInt(valor);
             const hoje = new Date();
             const futuro = new Date();
@@ -204,112 +216,69 @@
             if (!res.ok) throw new Error("Erro na API");
             
             const data = await res.json();
-            const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            renderizarDashboard(data);
 
-            document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
-            document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
-            
-            // CORREÇÃO: Despesas mostradas como negativo no card (opcional, mas igual à Imagem 2)
-            document.getElementById('v-desp').innerText = fmt(-Math.abs(data.resumo?.total_desp));
-            
-            // O Saldo Projetado final é o último valor da lista de saldo acumulado
-            const saldoFinal = data.saldo?.length > 0 ? data.saldo[data.saldo.length - 1] : 0;
-            const elRes = document.getElementById('v-res');
-            elRes.innerText = fmt(saldoFinal);
-            elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
-
-            // CORREÇÃO 1: Preparar despesas negativas para o gráfico
-            const despesasNegativas = data.despesas.map(d => -Math.abs(d));
-
-            if(chart) chart.destroy();
-            const ctx = document.getElementById('mainChart').getContext('2d');
-            
-            chart = new Chart(ctx, {
-                data: {
-                    labels: data.labels,
-                    datasets: [
-                        { 
-                            type: 'bar', 
-                            label: 'Receitas', 
-                            data: data.receitas, 
-                            backgroundColor: '#2ecc71', 
-                            stack: 'stack1',
-                            order: 2 
-                        },
-                        { 
-                            type: 'bar', 
-                            label: 'Despesas', 
-                            data: despesasNegativas, // Usa os valores negativos
-                            backgroundColor: '#ff4b4b', 
-                            stack: 'stack1',
-                            order: 2
-                        },
-                        { 
-                            type: 'line', 
-                            label: 'Saldo Acumulado', 
-                            data: data.saldo, 
-                            borderColor: '#3498db', 
-                            borderWidth: 3, 
-                            pointRadius: 4, 
-                            tension: 0.1, 
-                            fill: false,
-                            order: 1 // Linha fica sobre as barras
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    // CORREÇÃO 2: Habilitar tooltip unificado (modo index) para exibir todos os dados
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    plugins: { 
-                        legend: { labels: { color: '#ffffff' }, position: 'bottom' },
-                        // Formatação do Tooltip para mostrar valores corretos
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) { label += ': '; }
-                                    if (context.parsed.y !== null) {
-                                        // Formata de volta para positivo se for despesa no tooltip unificado
-                                        const valorFormatar = (context.dataset.label === 'Despesas') ? Math.abs(context.parsed.y) : context.parsed.y;
-                                        label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorFormatar);
-                                    }
-                                    return label;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: { 
-                            stacked: true, // Barras empilhadas
-                            ticks: { color: '#ffffff' }, 
-                            grid: { display: false } 
-                        },
-                        y: { 
-                            stacked: false, // Eixo Y não empilhado para a linha de saldo funcionar
-                            ticks: { 
-                                color: '#ffffff',
-                                // Callback para formatar o eixo Y com valores positivos e negativos
-                                callback: function(value) {
-                                    return value.toLocaleString('pt-BR');
-                                }
-                            }, 
-                            grid: { color: 'rgba(255,255,255,0.05)' } 
-                        }
-                    }
-                }
-            });
         } catch (err) {
             console.error("Erro na sincronização:", err);
         }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-        ajustarDatas();
+    function renderizarDashboard(data) {
+        const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
+        document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
+        document.getElementById('v-desp').innerText = fmt(-Math.abs(data.resumo?.total_desp));
+        
+        const saldoFinal = data.saldo?.length > 0 ? data.saldo[data.saldo.length - 1] : 0;
+        const elRes = document.getElementById('v-res');
+        elRes.innerText = fmt(saldoFinal);
+        elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
+
+        const despesasNegativas = data.despesas.map(d => -Math.abs(d));
+
+        if(chart) chart.destroy();
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        
+        chart = new Chart(ctx, {
+            data: {
+                labels: data.labels,
+                datasets: [
+                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1', order: 2 },
+                    { type: 'bar', label: 'Despesas', data: despesasNegativas, backgroundColor: '#ff4b4b', stack: 'stack1', order: 2 },
+                    { type: 'line', label: 'Saldo Acumulado', data: data.saldo, borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.1, fill: false, order: 1 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { 
+                    legend: { labels: { color: '#ffffff' }, position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                const valorFormatar = (context.dataset.label === 'Despesas') ? Math.abs(context.parsed.y) : context.parsed.y;
+                                label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorFormatar);
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { stacked: true, ticks: { color: '#ffffff' }, grid: { display: false } },
+                    y: { stacked: false, ticks: { color: '#ffffff', callback: v => v.toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                }
+            }
+        });
+    }
+
+    // Inicialização ao carregar a página
+    document.addEventListener('DOMContentLoaded', async () => {
+        await carregarEmpresas();
+        ajustarDatas(); // Isso dispara o primeiro sincronizar() com 'todas' e '7 dias'
     });
 </script>
 </body>
