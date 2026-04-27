@@ -110,8 +110,8 @@ def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
     return {
         "labels": df.index.strftime("%d/%m").tolist(),
-        "receitas": df["receitas"].tolist(),
-        "despesas": df["despesas"].tolist(),
+        "receitas": df["receitas"].tolist(), # Lista de números
+        "despesas": df["despesas"].tolist(), # Lista de números
         "saldo": df["saldo_projetado"].tolist(),
         "resumo": {
             "banco": saldo_banco,
