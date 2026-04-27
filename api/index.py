@@ -19,7 +19,6 @@ def remover_acentos(texto):
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def obter_token(empresa_nome):
-    """Busca o refresh_token no Supabase e renova o acesso na Conta Azul"""
     try:
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).single().execute()
         if not res.data: return None
@@ -44,7 +43,6 @@ def obter_token(empresa_nome):
     except: return None
 
 def buscar_v2(endpoint, token, params):
-    """Busca dados paginados na API v2 filtrando por saldo em aberto"""
     itens_acumulados = []
     headers = {"Authorization": f"Bearer {token}"}
     p = params.copy()
@@ -67,7 +65,6 @@ def buscar_v2(endpoint, token, params):
     return itens_acumulados
 
 def buscar_saldos_bancarios(token):
-    """Soma saldos das contas ITAU, BRADESCO ou SICOOB"""
     headers = {"Authorization": f"Bearer {token}"}
     saldo_total = 0
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB"]
@@ -86,19 +83,23 @@ def buscar_saldos_bancarios(token):
 
 @app.get("/api/empresas")
 def listar_empresas():
-    """Retorna a lista de empresas ordenada"""
+    """Retorna a lista de empresas ORDENADA ALFABETICAMENTE"""
     try:
+        # O .order("empresa") garante a ordem vindo do banco
         res = supabase.table("tokens").select("empresa").order("empresa").execute()
         return [{"nome": row["empresa"]} for row in res.data]
-    except: return []
+    except:
+        return []
 
 @app.get("/api/dados")
 def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     empresas_para_processar = []
     if empresa == "todas":
         res_emp = supabase.table("tokens").select("empresa").execute()
+        # Ordenamos a lista em Python como redundância de segurança
         empresas_para_processar = sorted([r["empresa"] for r in res_emp.data])
     else:
+        # Se for uma empresa só, a ordem é irrelevante
         empresas_para_processar = [empresa]
 
     total_saldo_banco = 0
@@ -108,7 +109,9 @@ def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     for emp_nome in empresas_para_processar:
         token = obter_token(emp_nome)
         if not token: continue
+        
         total_saldo_banco += buscar_saldos_bancarios(token)
+        
         api_params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
         todas_receitas.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, api_params))
         todas_despesas.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, api_params))
@@ -119,6 +122,7 @@ def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     if todas_receitas:
         df_r = pd.DataFrame(todas_receitas).groupby("data")["valor"].sum()
         df["receitas"] = df.index.map(df_r).fillna(0)
+        
     if todas_despesas:
         df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
         df["despesas"] = df.index.map(df_p).fillna(0)
