@@ -3,124 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Financeiro | JRM</title>
+    <title>Fluxo de Caixa JRM</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary-color: #FF4B4B;
-            --background-color: #f0f2f6;
-            --sidebar-color: #f8f9fb;
-            --text-color: #31333F;
-            --card-bg: #ffffff;
+            --bg-sidebar: #f0f2f6;
+            --bg-card: #ffffff;
+            --text-main: #31333F;
+            --primary-red: #FF4B4B;
         }
 
         body {
             font-family: 'Source Sans Pro', sans-serif;
-            background-color: var(--background-color);
-            color: var(--text-color);
             margin: 0;
             display: flex;
-            min-height: 100vh;
+            background-color: #ffffff;
+            color: var(--text-main);
         }
 
-        /* Sidebar Estilo Streamlit */
+        /* --- SIDEBAR --- */
         .sidebar {
             width: 300px;
-            background-color: var(--sidebar-color);
-            padding: 40px 20px;
-            border-right: 1px solid #e6e9ef;
-            position: fixed;
+            background-color: var(--bg-sidebar);
             height: 100vh;
-            overflow-y: auto;
+            position: fixed;
+            padding: 2rem 1.5rem;
+            border-right: 1px solid #e6e9ef;
+            box-sizing: border-box;
         }
 
-        .sidebar h2 { font-size: 1.2rem; margin-bottom: 25px; color: #555; }
-
-        .form-group { margin-bottom: 20px; }
+        .sidebar h1 { font-size: 1.4rem; margin-bottom: 2rem; opacity: 0.8; }
         
-        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.9rem; }
-
+        .widget-box { margin-bottom: 1.5rem; }
+        label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 0.5rem; }
+        
         select, input {
             width: 100%;
             padding: 10px;
+            border-radius: 8px;
             border: 1px solid #dcdde1;
-            border-radius: 5px;
             background: white;
             font-size: 1rem;
-            color: var(--text-color);
+            margin-bottom: 0.5rem;
         }
 
-        button {
-            width: 100%;
-            padding: 12px;
+        .btn-sync {
             background-color: white;
-            color: var(--primary-color);
-            border: 1px solid var(--primary-color);
-            border-radius: 5px;
-            cursor: pointer;
+            color: var(--primary-red);
+            border: 1px solid var(--primary-red);
+            padding: 10px;
+            width: 100%;
+            border-radius: 8px;
             font-weight: 600;
-            transition: all 0.3s;
-            margin-top: 10px;
+            cursor: pointer;
+            transition: 0.2s;
         }
 
-        button:hover {
-            background-color: var(--primary-color);
-            color: white;
-        }
+        .btn-sync:hover { background-color: var(--primary-red); color: white; }
 
-        /* Conteúdo Principal */
+        /* --- CONTEÚDO PRINCIPAL --- */
         .main-content {
-            margin-left: 340px;
-            padding: 40px;
+            margin-left: 300px;
+            padding: 3rem;
             flex: 1;
-            max-width: 1100px;
+            max-width: 1200px;
         }
 
-        h1 { margin-top: 0; font-size: 2.2rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; margin-bottom: 30px; }
+        .main-content h1 { font-size: 2.5rem; margin-bottom: 2rem; font-weight: 700; }
 
-        /* Cards de Métricas */
-        .metrics-container { margin-bottom: 30px; }
-
-        .metric-card {
-            background: var(--card-bg);
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border-left: 5px solid var(--primary-color);
+        /* --- CARDS (ESTILO STREAMLIT) --- */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2.5rem;
         }
 
-        .metric-label { font-size: 0.9rem; color: #5f6368; text-transform: uppercase; letter-spacing: 1px; }
-        .metric-value { font-size: 2.4rem; font-weight: 700; margin-top: 10px; }
-
-        /* Tabela */
-        .table-container {
-            background: var(--card-bg);
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            overflow: hidden;
+        .card-container {
+            background-color: #f8f9fb;
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 5px solid #34495e;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
         }
 
-        table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { background: #f8f9fb; padding: 15px; font-weight: 600; color: #5f6368; border-bottom: 1px solid #eee; }
-        td { padding: 15px; border-bottom: 1px solid #f1f1f1; font-size: 0.95rem; }
-        
-        .pos { color: #09ab3b; font-weight: 600; }
-        .neg { color: #ff4b4b; font-weight: 600; }
-        .total-row { font-weight: 700; background-color: #fafafa; }
+        .card-title { font-size: 13px; opacity: 0.7; font-weight: 600; text-transform: uppercase; }
+        .card-value { font-size: 24px; font-weight: 700; margin-top: 8px; }
 
-        @media (max-width: 768px) {
-            body { flex-direction: column; }
-            .sidebar { width: 100%; height: auto; position: relative; padding: 20px; }
-            .main-content { margin-left: 0; padding: 20px; }
+        /* Cores de borda do seu código original */
+        .border-banco { border-left-color: #9b59b6 !important; }
+        .border-receber { border-left-color: #2ecc71 !important; }
+        .border-pagar { border-left-color: #e74c3c !important; }
+        .border-saldo { border-left-color: #3498db !important; }
+
+        /* --- ÁREA DO GRÁFICO --- */
+        .chart-section {
+            background: white;
+            padding: 10px;
+            border-radius: 12px;
+            height: 450px;
         }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>Configurações</h2>
-        <div class="form-group">
-            <label for="empresa">Selecione a Empresa</label>
+        <h1>Fluxo de Caixa JRM</h1>
+        
+        <div class="widget-box">
+            <label>Selecione a Empresa</label>
             <select id="empresa">
                 <option value="Juvenal Transportes">Juvenal Transportes</option>
                 <option value="JRM Transportes">JRM Transportes</option>
@@ -129,94 +121,132 @@
             </select>
         </div>
 
-        <div class="form-group">
-            <label for="dias">Período (Próximos Dias)</label>
+        <div class="widget-box">
+            <label>Próximos Dias</label>
             <input type="number" id="dias" value="7" min="1" max="30">
         </div>
 
-        <button onclick="carregarDados()">Rodar Dashboard</button>
+        <button class="btn-sync" onclick="atualizarDashboard()">Sincronizar Dados</button>
     </div>
 
     <div class="main-content">
-        <h1>Fluxo de Caixa Operacional</h1>
+        <h1>Fluxo de Caixa</h1>
 
-        <div class="metrics-container">
-            <div class="metric-card">
-                <div class="metric-label">Saldo Atual Consolidado</div>
-                <div class="metric-value" id="saldo-display">R$ 0,00</div>
+        <div class="metrics-grid">
+            <div class="card-container border-banco">
+                <div class="card-title">SALDO EM BANCO</div>
+                <div class="card-value" id="val-banco" style="color: #9b59b6;">R$ 0,00</div>
+            </div>
+            <div class="card-container border-receber">
+                <div class="card-title">RECEITAS</div>
+                <div class="card-value" id="val-receitas" style="color: #2ecc71;">R$ 0,00</div>
+            </div>
+            <div class="card-container border-pagar">
+                <div class="card-title">DESPESAS</div>
+                <div class="card-value" id="val-despesas" style="color: #e74c3c;">R$ 0,00</div>
+            </div>
+            <div class="card-container border-saldo">
+                <div class="card-title">RESULTADO</div>
+                <div class="card-value" id="val-resultado">R$ 0,00</div>
             </div>
         </div>
 
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Data</th>
-                        <th>A Receber</th>
-                        <th>A Pagar</th>
-                        <th>Saldo Previsto</th>
-                    </tr>
-                </thead>
-                <tbody id="tabela-corpo">
-                    </tbody>
-            </table>
+        <div class="chart-section">
+            <canvas id="financeChart"></canvas>
         </div>
     </div>
 
     <script>
-        const API_BASE = window.location.origin + "/api";
+        let myChart = null;
 
-        async function carregarDados() {
-            const btn = document.querySelector('button');
-            const emp = document.getElementById("empresa").value;
-            const dias = document.getElementById("dias").value;
+        async function atualizarDashboard() {
+            const empresa = document.getElementById('empresa').value;
+            const dias = document.getElementById('dias').value;
+            const btn = document.querySelector('.btn-sync');
             
-            btn.innerText = "Carregando...";
-            btn.disabled = true;
-
+            btn.innerText = "Sincronizando...";
+            
             try {
-                const response = await fetch(`${API_BASE}/dados?empresa=${encodeURIComponent(emp)}&dias=${dias}`);
+                // Rota da sua API na Vercel
+                const response = await fetch(`/api/dados?empresa=${encodeURIComponent(empresa)}&dias=${dias}`);
                 const data = await response.json();
 
-                if (data.error || !data.saldo && data.saldo !== 0) {
-                    alert("Erro ao buscar dados: " + (data.error || "Formato de resposta inválido"));
-                    return;
-                }
+                // 1. Atualizar Cards
+                document.getElementById('val-banco').innerText = formatCurrency(data.saldo_bancos);
+                document.getElementById('val-receitas').innerText = formatCurrency(data.total_receber);
+                document.getElementById('val-despesas').innerText = formatCurrency(-data.total_pagar);
+                
+                const resultado = data.saldo_bancos + data.total_receber - data.total_pagar;
+                const resField = document.getElementById('val-resultado');
+                resField.innerText = formatCurrency(resultado);
+                resField.style.color = resultado >= 0 ? "#2ecc71" : "#e74c3c";
 
-                // Atualiza Card de Saldo
-                document.getElementById("saldo-display").innerText = 
-                    "R$ " + data.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-
-                // Atualiza Tabela
-                const corpo = document.getElementById("tabela-corpo");
-                corpo.innerHTML = ""; // Limpa tabela anterior
-
-                data.datas.forEach((dataStr, i) => {
-                    const row = document.createElement("tr");
-                    
-                    // Formata data de YYYY-MM-DD para DD/MM/YYYY
-                    const dataFormatada = dataStr.split('-').reverse().join('/');
-                    
-                    row.innerHTML = `
-                        <td>${dataFormatada}</td>
-                        <td class="pos">R$ ${data.receber[i].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        <td class="neg">R$ ${data.pagar[i].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        <td class="total-row">R$ ${data.acumulado[i].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                    `;
-                    corpo.appendChild(row);
-                });
+                // 2. Atualizar Gráfico
+                renderChart(data);
 
             } catch (error) {
-                console.error("Erro na requisição:", error);
-                alert("Falha de conexão com a API da Vercel.");
+                console.error("Erro:", error);
+                alert("Erro ao carregar dados. Verifique o console.");
             } finally {
-                btn.innerText = "Rodar Dashboard";
-                btn.disabled = false;
+                btn.innerText = "Sincronizar Dados";
             }
         }
 
-        // Carrega automaticamente ao abrir
-        window.onload = carregarDados;
+        function formatCurrency(valor) {
+            return "R$ " + (valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function renderChart(data) {
+            const ctx = document.getElementById('financeChart').getContext('2d');
+            
+            if (myChart) myChart.destroy();
+
+            myChart = new Chart(ctx, {
+                data: {
+                    labels: data.datas.map(d => d.split('-').reverse().join('/')),
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Receitas',
+                            data: data.receber,
+                            backgroundColor: '#2ecc71',
+                            borderRadius: 4
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Despesas',
+                            data: data.pagar,
+                            backgroundColor: '#e74c3c',
+                            borderRadius: 4
+                        },
+                        {
+                            type: 'line',
+                            label: 'Saldo Acumulado',
+                            data: data.acumulado,
+                            borderColor: '#3498db',
+                            borderWidth: 3,
+                            fill: false,
+                            tension: 0.2,
+                            pointRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    },
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { grid: { color: '#f0f0f0' }, border: { display: false } }
+                    }
+                }
+            });
+        }
+
+        // Iniciar ao carregar
+        window.onload = atualizarDashboard;
     </script>
 </body>
 </html>
