@@ -150,14 +150,6 @@ def buscar_saldo(token):
 
 
 # -----------------------------
-# 🧪 ROOT (DEBUG)
-# -----------------------------
-@app.get("/")
-def root():
-    return {"status": "ok"}
-
-
-# -----------------------------
 # 📋 ENDPOINTS (COM /api)
 # -----------------------------
 @app.get("/api/clientes")
