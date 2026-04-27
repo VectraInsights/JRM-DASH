@@ -2,32 +2,40 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard Financeiro JRM</title>
+    <title>Fluxo de Caixa JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #f8f9fc; --side: #ffffff; --card: #ffffff; --txt: #1e293b; --border: #e2e8f0; --accent: #ef4444; }
+        :root { --bg: #f8fafc; --side: #ffffff; --card: #ffffff; --txt: #0f172a; --border: #e2e8f0; --accent: #ef4444; }
         .dark-theme { --bg: #0f172a; --side: #1e293b; --card: #1e293b; --txt: #f8fafc; --border: #334155; }
+        
         body { font-family: 'Inter', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--txt); height: 100vh; overflow: hidden; }
-        .sidebar { width: 300px; background: var(--side); padding: 2rem 1.5rem; border-right: 1px solid var(--border); }
-        .main { flex: 1; padding: 2rem 3rem; overflow-y: auto; }
+        .sidebar { width: 280px; background: var(--side); padding: 2rem 1.2rem; border-right: 1px solid var(--border); box-sizing: border-box; }
+        .main { flex: 1; padding: 2rem 2.5rem; overflow-y: auto; }
+        
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        h1 { margin: 0; font-size: 1.7rem; font-weight: 700; color: var(--accent); }
+        
         .field { margin-bottom: 1.2rem; }
-        label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; opacity: 0.6; display: block; margin-bottom: 0.5rem; }
-        select, input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; }
-        .btn { background: var(--accent); color: #fff; border: none; padding: 14px; width: 100%; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+        label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; opacity: 0.6; display: block; margin-bottom: 0.4rem; }
+        select, input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; }
+        
+        .btn { background: var(--accent); color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: 700; cursor: pointer; transition: 0.2s; margin-top: 10px; }
+        .btn:hover { filter: brightness(0.9); }
+        
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
-        .card { background: var(--card); padding: 18px; border-radius: 12px; border: 1px solid var(--border); }
-        .val { font-size: 1.3rem; font-weight: 700; margin-top: 5px; }
-        .chart-box { background: var(--card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); height: 450px; }
-        #custom-range { display: none; margin-top: 10px; }
+        .card { background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .val { font-size: 1.2rem; font-weight: 700; margin-top: 5px; }
+        
+        .chart-box { background: var(--card); padding: 20px; border-radius: 10px; border: 1px solid var(--border); height: 440px; }
+        #custom-area { display: none; margin-top: 8px; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
     <div class="field">
-        <label>Unidade de Negócio</label>
+        <label>Empresa</label>
         <select id="emp">
             <option value="Juvenal Transportes">Juvenal Transportes</option>
             <option value="JRM Transportes">JRM Transportes</option>
@@ -37,65 +45,69 @@
     </div>
     <div class="field">
         <label>Período</label>
-        <select id="per" onchange="checkPer(this.value)">
-            <option value="7">7 dias</option>
-            <option value="15">15 dias</option>
-            <option value="30">30 dias</option>
+        <select id="per" onchange="toggleC(this.value)">
+            <option value="7">Próximos 7 dias</option>
+            <option value="15">Próximos 15 dias</option>
+            <option value="30">Próximos 30 dias</option>
             <option value="custom">Personalizado</option>
         </select>
-        <div id="custom-range">
+        <div id="custom-area">
             <input type="date" id="d1" style="margin-bottom:5px">
             <input type="date" id="d2">
         </div>
     </div>
-    <button class="btn" onclick="update()">Sincronizar</button>
+    <button class="btn" onclick="load()">Sincronizar</button>
 </div>
 
 <div class="main">
     <div class="header">
-        <h1 style="margin:0; font-size: 1.8rem">Fluxo de Caixa</h1>
-        <button style="background:none; border:none; cursor:pointer; font-size:1.5rem" onclick="toggleT()">🌙</button>
+        <h1>Fluxo de Caixa</h1>
+        <button style="background:none; border:none; cursor:pointer; font-size:1.2rem" onclick="toggleTheme()">🌙</button>
     </div>
     <div class="grid">
-        <div class="card"><label>Disponível</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
-        <div class="card"><label>Receitas</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
-        <div class="card"><label>Despesas</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
-        <div class="card"><label>Projeção</label><div id="v4" class="val">R$ 0,00</div></div>
+        <div class="card"><label>Saldo Bancos</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
+        <div class="card"><label>A Receber</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
+        <div class="card"><label>A Pagar</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
+        <div class="card"><label>Saldo Projetado</label><div id="v4" class="val">R$ 0,00</div></div>
     </div>
-    <div class="chart-box"><canvas id="chart"></canvas></div>
+    <div class="chart-box"><canvas id="canvas"></canvas></div>
 </div>
 
 <script>
     let chart = null;
-    function toggleT() { document.body.classList.toggle('dark-theme'); if(chart) update(); }
-    function checkPer(v) { document.getElementById('custom-range').style.display = v === 'custom' ? 'block' : 'none'; }
+    function toggleTheme() { document.body.classList.toggle('dark-theme'); if(chart) load(); }
+    function toggleC(v) { document.getElementById('custom-area').style.display = v === 'custom' ? 'block' : 'none'; }
 
-    async function update() {
-        const per = document.getElementById('per').value;
-        const emp = encodeURIComponent(document.getElementById('emp').value);
-        let url = `/api/dados?empresa=${emp}`;
-        
-        if(per === 'custom') {
-            const s = document.getElementById('d1').value;
-            const e = document.getElementById('d2').value;
-            if(!s || !e) return alert("Selecione as datas");
-            url += `&data_inicio=${s}&data_fim=${e}`;
+    async function load() {
+        const p = document.getElementById('per').value;
+        let s, e;
+        if(p === 'custom') {
+            s = document.getElementById('d1').value;
+            e = document.getElementById('d2').value;
         } else {
-            url += `&dias=${per}`;
+            const d = new Date();
+            s = d.toISOString().split('T')[0];
+            d.setDate(d.getDate() + parseInt(p));
+            e = d.toISOString().split('T')[0];
         }
 
-        const res = await fetch(url);
-        const data = await res.json();
+        if(!s || !e) return;
         
-        const f = (n) => "R$ " + n.toLocaleString('pt-BR', {minimumFractionDigits:2});
-        document.getElementById('v1').innerText = f(data.saldo_bancos);
-        document.getElementById('v2').innerText = f(data.total_receber);
-        document.getElementById('v3').innerText = f(data.total_pagar);
-        const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
-        document.getElementById('v4').innerText = f(proj);
-        document.getElementById('v4').style.color = proj >= 0 ? "#10b981" : "#ef4444";
+        const emp = encodeURIComponent(document.getElementById('emp').value);
+        const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=${s}&data_fim=${e}`);
+        const data = await res.json();
 
-        const ctx = document.getElementById('chart').getContext('2d');
+        const fmt = (n) => "R$ " + n.toLocaleString('pt-BR', {minimumFractionDigits:2});
+        document.getElementById('v1').innerText = fmt(data.saldo_bancos);
+        document.getElementById('v2').innerText = fmt(data.total_receber);
+        document.getElementById('v3').innerText = fmt(data.total_pagar);
+        
+        const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
+        const v4 = document.getElementById('v4');
+        v4.innerText = fmt(proj);
+        v4.style.color = proj >= 0 ? "#10b981" : "#ef4444";
+
+        const ctx = document.getElementById('canvas').getContext('2d');
         if(chart) chart.destroy();
         const isD = document.body.classList.contains('dark-theme');
 
@@ -103,9 +115,9 @@
             data: {
                 labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
                 datasets: [
-                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981' },
-                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444' },
-                    { type: 'line', label: 'Projeção', data: data.acumulado, borderColor: '#3b82f6', tension: 0.3, fill: false }
+                    { type: 'bar', label: 'Receber', data: data.receber, backgroundColor: '#10b981' },
+                    { type: 'bar', label: 'Pagar', data: data.pagar, backgroundColor: '#ef4444' },
+                    { type: 'line', label: 'Acumulado', data: data.acumulado, borderColor: '#3b82f6', tension: 0.2, fill: false }
                 ]
             },
             options: {
@@ -118,7 +130,7 @@
             }
         });
     }
-    window.onload = update;
+    window.onload = load;
 </script>
 </body>
 </html>
