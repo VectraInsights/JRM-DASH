@@ -11,6 +11,13 @@ from supabase import create_client
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # -----------------------------
 # 🔥 SUPABASE CLIENT
 # -----------------------------
