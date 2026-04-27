@@ -1,7 +1,6 @@
 fastapi
+uvicorn
 requests
 pandas
-gspread
-oauth2client
-plotly
 supabase
+python-multipart
