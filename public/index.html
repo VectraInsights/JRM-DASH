@@ -2,353 +2,150 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fluxo de Caixa Profissional | JRM</title>
+    <title>Fluxo de Caixa JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg-body: #f4f7f9;
-            --bg-side: #ffffff;
-            --bg-card: #ffffff;
-            --text-main: #1a1c21;
-            --text-sub: #64748b;
-            --border: #e2e8f0;
-            --accent: #FF4B4B;
-            --success: #10b981;
-            --danger: #ef4444;
-            --info: #3b82f6;
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
+        :root { --bg: #f8f9fb; --side: #ffffff; --card: #ffffff; --txt: #31333F; --border: #e6e9ef; --accent: #FF4B4B; }
+        .dark-theme { --bg: #0e1117; --side: #262730; --card: #262730; --txt: #fafafa; --border: #434343; }
 
-        .dark-theme {
-            --bg-body: #0f172a;
-            --bg-side: #1e293b;
-            --bg-card: #1e293b;
-            --text-main: #f8fafc;
-            --text-sub: #94a3b8;
-            --border: #334155;
-            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            display: flex;
-            background-color: var(--bg-body);
-            color: var(--text-main);
-            height: 100vh;
-            overflow: hidden;
-            transition: background 0.3s, color 0.3s;
-        }
-
-        /* --- SIDEBAR --- */
-        .sidebar {
-            width: 340px;
-            background-color: var(--bg-side);
-            padding: 2.5rem 1.5rem;
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            gap: 2rem;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
-            z-index: 10;
-        }
-
-        .logo-area {
-            font-weight: 700;
-            font-size: 1.2rem;
-            color: var(--accent);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 1rem;
-        }
-
-        .form-group { display: flex; flex-direction: column; gap: 0.6rem; }
-        label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-sub); letter-spacing: 0.05em; }
+        body { font-family: 'Source Sans Pro', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--txt); height: 100vh; overflow: hidden; }
         
-        select, input {
-            padding: 12px 16px;
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            background: var(--bg-body);
-            color: var(--text-main);
-            font-size: 0.95rem;
-            outline: none;
-            transition: border 0.2s;
-        }
-        select:focus, input:focus { border-color: var(--accent); }
+        .sidebar { width: 320px; background: var(--side); padding: 2.5rem 1.5rem; border-right: 1px solid var(--border); box-sizing: border-box; }
+        .main-content { flex: 1; padding: 2.5rem 3.5rem; overflow-y: auto; }
 
-        .btn-update {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 16px;
-            border-radius: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            box-shadow: 0 4px 14px rgba(255, 75, 75, 0.3);
-            transition: transform 0.2s, filter 0.2s;
-        }
-        .btn-update:hover { transform: translateY(-2px); filter: brightness(1.1); }
-        .btn-update:active { transform: translateY(0); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        h1 { margin: 0; font-size: 2.2rem; font-weight: 700; position: relative; }
+        h1::after { content: ''; display: block; width: 50px; height: 4px; background: var(--accent); margin-top: 5px; }
+        
+        .theme-toggle { background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 45px; height: 45px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
-        /* --- MAIN --- */
-        .main {
-            flex: 1;
-            padding: 2.5rem 4rem;
-            overflow-y: auto;
-            position: relative;
-        }
+        .field { margin-bottom: 1.5rem; }
+        label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--txt); opacity: 0.6; display: block; margin-bottom: 0.6rem; }
+        select, input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; }
 
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 3rem;
-        }
+        .btn { background: var(--accent); color: #fff; border: none; padding: 16px; width: 100%; border-radius: 10px; font-weight: 700; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+        .btn:hover { filter: brightness(1.1); }
+        
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-bottom: 2.5rem; }
+        .card { background: var(--card); padding: 22px; border-radius: 15px; border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+        .val { font-size: 1.5rem; font-weight: 700; margin-top: 10px; }
 
-        h1 {
-            margin: 0;
-            font-size: 2.4rem;
-            font-weight: 800;
-            position: relative;
-        }
-        h1::after {
-            content: '';
-            position: absolute;
-            bottom: -10px;
-            left: 0;
-            width: 60px;
-            height: 5px;
-            background: var(--accent);
-            border-radius: 10px;
-        }
-
-        .theme-btn {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            width: 48px;
-            height: 48px;
-            border-radius: 14px;
-            cursor: pointer;
-            font-size: 1.4rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: var(--shadow);
-            transition: 0.2s;
-        }
-
-        /* --- CARDS --- */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 3rem;
-        }
-
-        .card {
-            background: var(--bg-card);
-            padding: 24px;
-            border-radius: 20px;
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
-        }
-        .card::before {
-            content: '';
-            position: absolute;
-            left: 0; top: 0; bottom: 0;
-            width: 6px;
-            background: var(--border);
-        }
-
-        .card.purple::before { background: #8b5cf6; }
-        .card.green::before { background: var(--success); }
-        .card.red::before { background: var(--danger); }
-        .card.blue::before { background: var(--info); }
-
-        .card-label { font-size: 0.8rem; font-weight: 600; color: var(--text-sub); }
-        .card-val { font-size: 1.6rem; font-weight: 700; margin-top: 12px; }
-
-        /* --- CHART --- */
-        .canvas-container {
-            background: var(--bg-card);
-            padding: 30px;
-            border-radius: 24px;
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow);
-            height: 500px;
-        }
-
-        #custom-fields { display: none; margin-top: 1rem; }
+        .chart-container { background: var(--card); padding: 25px; border-radius: 15px; border: 1px solid var(--border); height: 480px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+        #custom-range { display: none; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-<aside class="sidebar">
-    <div class="logo-area">📊 BPO Financeiro</div>
-    
-    <div class="form-group">
+<div class="sidebar">
+    <div class="field">
         <label>Unidade de Negócio</label>
-        <select id="selEmpresa">
+        <select id="emp">
             <option value="Juvenal Transportes">Juvenal Transportes</option>
             <option value="JRM Transportes">JRM Transportes</option>
             <option value="LGP">LGP</option>
             <option value="ROSE">Rosângela Transportes</option>
         </select>
     </div>
-
-    <div class="form-group">
+    <div class="field">
         <label>Horizonte Temporal</label>
-        <select id="selPeriodo" onchange="checkCustom(this.value)">
+        <select id="per" onchange="checkPer(this.value)">
             <option value="7">Próximos 7 dias</option>
             <option value="15">Próximos 15 dias</option>
             <option value="30">Próximos 30 dias</option>
-            <option value="custom">Período Customizado</option>
+            <option value="custom">Período Personalizado</option>
         </select>
-        
-        <div id="custom-fields">
-            <input type="date" id="dateIni" style="margin-bottom:8px">
-            <input type="date" id="dateFim">
+        <div id="custom-range">
+            <input type="date" id="ini" style="margin-bottom:8px">
+            <input type="date" id="fim">
         </div>
     </div>
+    <button class="btn" onclick="load()">Sincronizar Dados</button>
+</div>
 
-    <button class="btn-update" onclick="sincronizar()" id="btnSync">Sincronizar Agora</button>
-</aside>
-
-<main class="main">
-    <header class="top-bar">
+<div class="main-content">
+    <div class="header">
         <h1>Fluxo de Caixa</h1>
-        <button class="theme-btn" onclick="toggleTheme()" id="themeIcon">🌙</button>
-    </header>
+        <button class="theme-toggle" onclick="toggleT()" id="tIcon">🌙</button>
+    </div>
 
-    <section class="stats">
-        <div class="card purple">
-            <div class="card-label">Disponibilidade Imediata</div>
-            <div id="m1" class="card-val" style="color:#8b5cf6">R$ 0,00</div>
-        </div>
-        <div class="card green">
-            <div class="card-label">Entradas Previstas</div>
-            <div id="m2" class="card-val" style="color:var(--success)">R$ 0,00</div>
-        </div>
-        <div class="card red">
-            <div class="card-label">Saídas Previstas</div>
-            <div id="m3" class="card-val" style="color:var(--danger)">R$ 0,00</div>
-        </div>
-        <div class="card blue" id="cardProj">
-            <div class="card-label">Saldo Projetado</div>
-            <div id="m4" class="card-val">R$ 0,00</div>
-        </div>
-    </section>
+    <div class="grid">
+        <div class="card" style="border-top: 4px solid #8b5cf6;"><label>Saldo em Bancos</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
+        <div class="card" style="border-top: 4px solid #10b981;"><label>Receitas</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
+        <div class="card" style="border-top: 4px solid #ef4444;"><label>Despesas</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
+        <div class="card" id="c4" style="border-top: 4px solid #3b82f6;"><label>Projeção Final</label><div id="v4" class="val">R$ 0,00</div></div>
+    </div>
 
-    <section class="canvas-container">
-        <canvas id="chartMain"></canvas>
-    </section>
-</main>
+    <div class="chart-container"><canvas id="chart"></canvas></div>
+</div>
 
 <script>
-    let myChart = null;
-
-    function toggleTheme() {
+    let chart = null;
+    function toggleT() {
         document.body.classList.toggle('dark-theme');
-        const isDark = document.body.classList.contains('dark-theme');
-        document.getElementById('themeIcon').innerText = isDark ? "☀️" : "🌙";
-        if(myChart) sincronizar(); // Recarrega o gráfico para ajustar cores das fontes
+        document.getElementById('tIcon').innerText = document.body.classList.contains('dark-theme') ? "☀️" : "🌙";
+        if(chart) load();
     }
 
-    function checkCustom(val) {
-        document.getElementById('custom-fields').style.display = val === 'custom' ? 'block' : 'none';
-    }
+    function checkPer(v) { document.getElementById('custom-range').style.display = v === 'custom' ? 'block' : 'none'; }
 
-    async function sincronizar() {
-        const btn = document.getElementById('btnSync');
-        btn.innerText = "Processando...";
-        btn.disabled = true;
-
-        const per = document.getElementById('selPeriodo').value;
+    async function load() {
+        const p = document.getElementById('per').value;
         let d1, d2;
-
-        if(per === 'custom') {
-            d1 = document.getElementById('dateIni').value;
-            d2 = document.getElementById('dateFim').value;
+        if(p === 'custom') {
+            d1 = document.getElementById('ini').value;
+            d2 = document.getElementById('fim').value;
         } else {
-            const start = new Date();
-            d1 = start.toISOString().split('T')[0];
-            start.setDate(start.getDate() + parseInt(per));
-            d2 = start.toISOString().split('T')[0];
+            const d = new Date();
+            d1 = d.toISOString().split('T')[0];
+            d.setDate(d.getDate() + parseInt(p));
+            d2 = d.toISOString().split('T')[0];
         }
 
-        if(!d1 || !d2) {
-            btn.innerText = "Sincronizar Agora";
-            btn.disabled = false;
-            return alert("Por favor, selecione o intervalo de datas.");
-        }
+        if(!d1 || !d2) return;
 
-        try {
-            const empresa = encodeURIComponent(document.getElementById('selEmpresa').value);
-            const response = await fetch(`/api/dados?empresa=${empresa}&data_inicio=${d1}&data_fim=${d2}`);
-            const res = await response.json();
+        const res = await fetch(`/api/dados?empresa=${encodeURIComponent(document.getElementById('emp').value)}&data_inicio=${d1}&data_fim=${d2}`);
+        const data = await res.json();
 
-            if(res.erro) throw new Error(res.erro);
+        const f = (v) => "R$ " + v.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+        document.getElementById('v1').innerText = f(data.saldo_bancos);
+        document.getElementById('v2').innerText = f(data.total_receber);
+        document.getElementById('v3').innerText = f(data.total_pagar);
+        
+        const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
+        const v4 = document.getElementById('v4');
+        v4.innerText = f(proj);
+        v4.style.color = proj >= 0 ? "#10b981" : "#ef4444";
 
-            // Atualização Numérica
-            const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-            document.getElementById('m1').innerText = brl(res.saldo_bancos);
-            document.getElementById('m2').innerText = brl(res.total_receber);
-            document.getElementById('m3').innerText = brl(res.total_pagar);
-            
-            const projeção = res.saldo_bancos + res.total_receber - res.total_pagar;
-            const m4 = document.getElementById('m4');
-            m4.innerText = brl(projeção);
-            m4.style.color = projeção >= 0 ? "var(--success)" : "var(--danger)";
-            document.getElementById('cardProj').style.borderColor = projeção >= 0 ? "var(--success)" : "var(--danger)";
+        const ctx = document.getElementById('chart').getContext('2d');
+        if(chart) chart.destroy();
+        const isD = document.body.classList.contains('dark-theme');
 
-            render(res);
-        } catch (err) {
-            alert("Erro na Sincronização: " + err.message);
-        } finally {
-            btn.innerText = "Sincronizar Agora";
-            btn.disabled = false;
-        }
-    }
-
-    function render(data) {
-        const ctx = document.getElementById('chartMain').getContext('2d');
-        if(myChart) myChart.destroy();
-
-        const isDark = document.body.classList.contains('dark-theme');
-        const colorTxt = isDark ? '#94a3b8' : '#64748b';
-        const colorGrid = isDark ? '#334155' : '#f1f5f9';
-
-        myChart = new Chart(ctx, {
+        chart = new Chart(ctx, {
             data: {
                 labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
                 datasets: [
-                    { type: 'bar', label: 'Entradas', data: data.receber, backgroundColor: '#10b981', borderRadius: 6, barThickness: 20 },
-                    { type: 'bar', label: 'Saídas', data: data.pagar, backgroundColor: '#ef4444', borderRadius: 6, barThickness: 20 },
-                    { type: 'line', label: 'Saldo Projetado', data: data.acumulado, borderColor: '#3b82f6', borderWidth: 4, tension: 0.4, fill: false, pointRadius: 0 }
+                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981', borderRadius: 5 },
+                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444', borderRadius: 5 },
+                    { type: 'line', label: 'Saldo Acumulado', data: data.acumulado, borderColor: '#3b82f6', borderWidth: 3, tension: 0.4, fill: false, pointRadius: 2 }
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'top', labels: { color: colorTxt, font: { weight: '600' }, padding: 20 } },
-                    tooltip: { backgroundColor: isDark ? '#1e293b' : '#fff', titleColor: isDark ? '#fff' : '#1e293b', bodyColor: isDark ? '#cbd5e1' : '#475569', borderColor: colorGrid, borderWidth: 1, padding: 15 }
+                responsive: true, maintainAspectRatio: false,
+                plugins: { 
+                    legend: { 
+                        position: 'bottom', // Legenda movida para baixo
+                        labels: { color: isD ? '#fff' : '#333', padding: 20 } 
+                    } 
                 },
                 scales: {
-                    x: { grid: { display: false }, ticks: { color: colorTxt } },
-                    y: { grid: { color: colorGrid }, ticks: { color: colorTxt, callback: (v) => 'R$ ' + v.toLocaleString('pt-BR') } }
+                    x: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { display: false } },
+                    y: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { color: isD ? '#334155' : '#f1f5f9' } }
                 }
             }
         });
     }
-
-    window.onload = sincronizar;
+    window.onload = load;
 </script>
 </body>
 </html>
