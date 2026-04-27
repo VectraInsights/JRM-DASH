@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fluxo de Caixa JRM</title>
+    <title>Fluxo de Caixa JRM - Vercel</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            /* Light Mode Vars */
             --bg-main: #ffffff;
             --bg-sidebar: #f8f9fb;
             --bg-card: #f8f9fb;
@@ -19,7 +18,6 @@
         }
 
         .dark-theme {
-            /* Dark Mode Vars */
             --bg-main: #0e1117;
             --bg-sidebar: #262730;
             --bg-card: #262730;
@@ -35,6 +33,8 @@
             background-color: var(--bg-main);
             color: var(--text-main);
             transition: background 0.3s ease;
+            height: 100vh;
+            overflow: hidden;
         }
 
         /* --- SIDEBAR --- */
@@ -42,89 +42,88 @@
             width: 300px;
             background-color: var(--bg-sidebar);
             height: 100vh;
-            position: fixed;
             padding: 2rem 1.5rem;
             border-right: 1px solid var(--border-color);
             box-sizing: border-box;
-            z-index: 100;
+            overflow-y: auto;
         }
 
-        .sidebar h1 { font-size: 1.4rem; margin-bottom: 2rem; opacity: 0.8; }
+        .sidebar h1 { font-size: 1.2rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary-red); padding-bottom: 10px; }
         
         .widget-box { margin-bottom: 1.5rem; }
         label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 0.5rem; color: var(--text-secondary); }
         
-        select {
+        select, input {
             width: 100%;
             padding: 10px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
             background: var(--bg-main);
             color: var(--text-main);
-            font-size: 1rem;
-            margin-bottom: 1rem;
-            cursor: pointer;
+            font-size: 0.9rem;
+            box-sizing: border-box;
+        }
+
+        #custom-date-container {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.05);
+            border-radius: 8px;
         }
 
         .btn-sync {
-            background-color: transparent;
-            color: var(--primary-red);
-            border: 1px solid var(--primary-red);
-            padding: 10px;
+            background-color: var(--primary-red);
+            color: white;
+            border: none;
+            padding: 12px;
             width: 100%;
             border-radius: 8px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
             transition: 0.2s;
-            margin-top: 1rem;
+            margin-top: 10px;
         }
 
-        .btn-sync:hover { background-color: var(--primary-red); color: white; }
+        .btn-sync:hover { filter: brightness(1.1); }
 
-        .theme-toggle {
+        .theme-btn {
             background: none;
             border: 1px solid var(--border-color);
             color: var(--text-main);
-            padding: 8px;
-            border-radius: 5px;
+            padding: 5px 10px;
+            border-radius: 20px;
             cursor: pointer;
-            font-size: 0.8rem;
-            width: 100%;
-            margin-bottom: 2rem;
+            font-size: 0.75rem;
+            margin-bottom: 20px;
         }
 
-        /* --- CONTEÚDO PRINCIPAL --- */
+        /* --- MAIN CONTENT --- */
         .main-content {
-            margin-left: 300px;
-            padding: 3rem;
             flex: 1;
-            max-width: 1200px;
+            padding: 2rem;
+            overflow-y: auto;
         }
 
-        /* --- CARDS --- */
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
-            margin-bottom: 2.5rem;
+            gap: 1.2rem;
+            margin-bottom: 2rem;
         }
 
-        .card-container {
+        .card {
             background-color: var(--bg-card);
             padding: 20px;
             border-radius: 12px;
             border-left: 5px solid #34495e;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
-        .card-title { font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; }
-        .card-value { font-size: 22px; font-weight: 700; margin-top: 8px; }
+        .card-title { font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; }
+        .card-value { font-size: 1.4rem; font-weight: 700; margin-top: 10px; }
 
-        .border-banco { border-left-color: #9b59b6 !important; }
-        .border-receber { border-left-color: #2ecc71 !important; }
-        .border-pagar { border-left-color: #e74c3c !important; }
-        .border-saldo { border-left-color: #3498db !important; }
-
-        .chart-section {
+        .chart-container {
             background: var(--bg-card);
             padding: 20px;
             border-radius: 12px;
@@ -136,9 +135,8 @@
 <body>
 
     <div class="sidebar">
-        <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Modo Escuro</button>
-        
-        <h1>Fluxo de Caixa JRM</h1>
+        <button class="theme-btn" onclick="toggleTheme()" id="themeBtn">🌙 Modo Escuro</button>
+        <h1>Fluxo Financeiro JRM</h1>
         
         <div class="widget-box">
             <label>Empresa</label>
@@ -151,154 +149,173 @@
         </div>
 
         <div class="widget-box">
-            <label>Período de Análise</label>
-            <select id="dias">
-                <option value="1">Hoje</option>
-                <option value="7" selected>7 dias</option>
-                <option value="15">15 dias</option>
-                <option value="30">30 dias</option>
+            <label>Intervalo de Datas</label>
+            <select id="periodoPre" onchange="toggleDateInputs(this.value)">
+                <option value="0">Hoje</option>
+                <option value="7" selected>Próximos 7 dias</option>
+                <option value="15">Próximos 15 dias</option>
+                <option value="30">Próximos 30 dias</option>
+                <option value="custom">📅 Personalizado...</option>
+            </select>
+
+            <div id="custom-date-container">
+                <label>Data Início</label>
+                <input type="date" id="data_ini">
+                <label style="margin-top: 10px;">Data Fim</label>
+                <input type="date" id="data_fim">
+            </div>
+        </div>
+
+        <div class="widget-box">
+            <label>Status</label>
+            <select id="status">
+                <option value="EM_ABERTO" selected>Em Aberto</option>
+                <option value="PAGO">Liquidados (Pagos)</option>
+                <option value="TODOS">Todos</option>
             </select>
         </div>
 
-        <button class="btn-sync" onclick="atualizarDashboard()">Sincronizar Dados</button>
+        <button class="btn-sync" onclick="sincronizar()" id="btnSync">Sincronizar Dados</button>
     </div>
 
     <div class="main-content">
         <div class="metrics-grid">
-            <div class="card-container border-banco">
-                <div class="card-title">Saldo em Banco</div>
-                <div class="card-value" id="val-banco" style="color: #9b59b6;">R$ 0,00</div>
+            <div class="card" style="border-left-color: #9b59b6;">
+                <div class="card-title">Saldo em Bancos</div>
+                <div class="card-value" id="res-banco" style="color: #9b59b6;">R$ 0,00</div>
             </div>
-            <div class="card-container border-receber">
-                <div class="card-title">Total a Receber</div>
-                <div class="card-value" id="val-receitas" style="color: #2ecc71;">R$ 0,00</div>
+            <div class="card" style="border-left-color: #2ecc71;">
+                <div class="card-title">Receitas no Período</div>
+                <div class="card-value" id="res-receber" style="color: #2ecc71;">R$ 0,00</div>
             </div>
-            <div class="card-container border-pagar">
-                <div class="card-title">Total a Pagar</div>
-                <div class="card-value" id="val-despesas" style="color: #e74c3c;">R$ 0,00</div>
+            <div class="card" style="border-left-color: #e74c3c;">
+                <div class="card-title">Despesas no Período</div>
+                <div class="card-value" id="res-pagar" style="color: #e74c3c;">R$ 0,00</div>
             </div>
-            <div class="card-container border-saldo">
-                <div class="card-title">Saldo Projetado</div>
-                <div class="card-value" id="val-resultado">R$ 0,00</div>
+            <div class="card" id="card-projecao">
+                <div class="card-title">Projeção Final</div>
+                <div class="card-value" id="res-projecao">R$ 0,00</div>
             </div>
         </div>
 
-        <div class="chart-section">
-            <canvas id="financeChart"></canvas>
+        <div class="chart-container">
+            <canvas id="meuGrafico"></canvas>
         </div>
     </div>
 
     <script>
-        let myChart = null;
+        let dashboardChart = null;
 
-        // --- Lógica de Tema ---
         function toggleTheme() {
-            const body = document.body;
-            const btn = document.getElementById('themeBtn');
-            body.classList.toggle('dark-theme');
+            document.body.classList.toggle('dark-theme');
+            const isDark = document.body.classList.contains('dark-theme');
+            document.getElementById('themeBtn').innerText = isDark ? "☀️ Modo Claro" : "🌙 Modo Escuro";
+            if(dashboardChart) sincronizar(); // Redesenha para ajustar cores
+        }
+
+        function toggleDateInputs(val) {
+            document.getElementById('custom-date-container').style.display = (val === 'custom') ? 'block' : 'none';
+        }
+
+        function getDates() {
+            const p = document.getElementById('periodoPre').value;
+            let dIni, dFim;
+
+            if(p === 'custom') {
+                dIni = document.getElementById('data_ini').value;
+                dFim = document.getElementById('data_fim').value;
+            } else {
+                const hoje = new Date();
+                const futuro = new Date();
+                futuro.setDate(hoje.getDate() + parseInt(p));
+                dIni = hoje.toISOString().split('T')[0];
+                dFim = futuro.toISOString().split('T')[0];
+            }
+            return { dIni, dFim };
+        }
+
+        async function sincronizar() {
+            const btn = document.getElementById('btnSync');
+            btn.innerText = "⏳ Processando...";
             
-            const isDark = body.classList.contains('dark-theme');
-            localStorage.setItem('preferredTheme', isDark ? 'dark' : 'light');
-            btn.innerText = isDark ? "☀️ Modo Claro" : "🌙 Modo Escuro";
-            if(myChart) renderChart(lastData); // Redesenha para ajustar cores das linhas de grade
-        }
+            const { dIni, dFim } = getDates();
+            if(!dIni || !dFim) return alert("Por favor, selecione as datas!");
 
-        // Carregar tema salvo
-        if(localStorage.getItem('preferredTheme') === 'dark') {
-            document.body.classList.add('dark-theme');
-            document.getElementById('themeBtn').innerText = "☀️ Modo Claro";
-        }
-
-        let lastData = null;
-
-        async function atualizarDashboard() {
             const empresa = document.getElementById('empresa').value;
-            const dias = document.getElementById('dias').value;
-            const btn = document.querySelector('.btn-sync');
-            btn.innerText = "Sincronizando...";
-            
+            const status = document.getElementById('status').value;
+
             try {
-                const response = await fetch(`/api/dados?empresa=${encodeURIComponent(empresa)}&dias=${dias}`);
+                const url = `/api/dados?empresa=${encodeURIComponent(empresa)}&status=${status}&data_inicio=${dIni}&data_fim=${dFim}`;
+                const response = await fetch(url);
                 const data = await response.json();
-                lastData = data;
 
-                document.getElementById('val-banco').innerText = formatCurrency(data.saldo_bancos);
-                document.getElementById('val-receitas').innerText = formatCurrency(data.total_receber);
-                document.getElementById('val-despesas').innerText = formatCurrency(data.total_pagar);
+                // Atualiza Cards
+                const format = (v) => "R$ " + v.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+                document.getElementById('res-banco').innerText = format(data.saldo_bancos);
+                document.getElementById('res-receber').innerText = format(data.total_receber);
+                document.getElementById('res-pagar').innerText = format(data.total_pagar);
                 
-                const resultado = data.saldo_bancos + data.total_receber - data.total_pagar;
-                const resField = document.getElementById('val-resultado');
-                resField.innerText = formatCurrency(resultado);
-                resField.style.color = resultado >= 0 ? "#2ecc71" : "#e74c3c";
+                const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
+                const projEl = document.getElementById('res-projecao');
+                projEl.innerText = format(proj);
+                projEl.style.color = proj >= 0 ? '#2ecc71' : '#e74c3c';
+                document.getElementById('card-projecao').style.borderLeftColor = proj >= 0 ? '#2ecc71' : '#e74c3c';
 
-                renderChart(data);
-            } catch (error) {
-                console.error(error);
+                renderizarGrafico(data);
+            } catch (e) {
+                console.error(e);
+                alert("Erro ao buscar dados. Verifique os logs.");
             } finally {
                 btn.innerText = "Sincronizar Dados";
             }
         }
 
-        function formatCurrency(valor) {
-            return "R$ " + (valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-        }
-
-        function renderChart(data) {
-            const ctx = document.getElementById('financeChart').getContext('2d');
+        function renderizarGrafico(data) {
+            const ctx = document.getElementById('meuGrafico').getContext('2d');
             const isDark = document.body.classList.contains('dark-theme');
-            const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
-            const textColor = isDark ? '#bec0c5' : '#5e6066';
+            const colorText = isDark ? '#bec0c5' : '#5e6066';
+            const colorGrid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
 
-            if (myChart) myChart.destroy();
+            if (dashboardChart) dashboardChart.destroy();
 
-            myChart = new Chart(ctx, {
+            dashboardChart = new Chart(ctx, {
                 data: {
-                    labels: data.datas, // Formatação dd/mm feita no callback abaixo
+                    labels: data.datas,
                     datasets: [
-                        { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#2ecc71' },
-                        { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#e74c3c' },
+                        { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#2ecc71', borderRadius: 4 },
+                        { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#e74c3c', borderRadius: 4 },
                         { 
-                            type: 'line', 
-                            label: 'Saldo Acumulado', 
-                            data: data.acumulado, 
-                            borderColor: '#3498db', 
-                            borderWidth: 3, 
-                            pointRadius: 4, 
-                            tension: 0.2,
-                            fill: false 
+                            type: 'line', label: 'Saldo Acumulado', data: data.acumulado, 
+                            borderColor: '#3498db', borderWidth: 3, pointRadius: 2, tension: 0.3, fill: false 
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',     // 🔥 AGRUPA DADOS NO TOOLTIP
-                        intersect: false   // 🔥 APARECE MESMO SEM ESTAR EM CIMA DA BARRA
-                    },
+                    interaction: { mode: 'index', intersect: false },
                     plugins: {
-                        legend: { position: 'bottom', labels: { color: textColor } },
-                        tooltip: { backgroundColor: isDark ? '#1e1e1e' : '#fff', titleColor: isDark ? '#fff' : '#000', bodyColor: isDark ? '#fff' : '#000', borderColor: '#border-color', borderWidth: 1 }
+                        legend: { position: 'bottom', labels: { color: colorText, usePointStyle: true } },
+                        tooltip: { padding: 12, backgroundColor: isDark ? '#1e1e1e' : '#fff', titleColor: isDark ? '#fff' : '#000', bodyColor: isDark ? '#fff' : '#000' }
                     },
                     scales: {
                         x: { 
-                            grid: { display: false },
+                            grid: { display: false }, 
                             ticks: { 
-                                color: textColor,
-                                callback: function(val, index) {
-                                    const dateStr = this.getLabelForValue(val);
-                                    const parts = dateStr.split('-');
-                                    return `${parts[2]}/${parts[1]}`; // 🔥 FORMATO DD/MM
+                                color: colorText,
+                                callback: function(v, i) {
+                                    const d = this.getLabelForValue(v).split('-');
+                                    return d[2] + '/' + d[1];
                                 }
-                            }
+                            } 
                         },
-                        y: { grid: { color: gridColor }, ticks: { color: textColor } }
+                        y: { grid: { color: colorGrid }, ticks: { color: colorText } }
                     }
                 }
             });
         }
 
-        window.onload = atualizarDashboard;
+        window.onload = sincronizar;
     </script>
 </body>
 </html>
