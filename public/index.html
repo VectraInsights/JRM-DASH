@@ -103,9 +103,16 @@
             height: 480px; 
             border: 1px solid var(--border);
         }
+
+        /* Cole o código aqui, no final dos estilos existentes */
+        body.sidebar-closed .sidebar {
+            transform: translateX(-100%);
+        }
     </style>
 </head>
 <body>
+
+<button class="toggle-btn" onclick="toggleSidebar()">☰ Menu</button>
 
 <aside class="sidebar">
     <h3>Filtros</h3>
