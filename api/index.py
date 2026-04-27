@@ -48,72 +48,73 @@ def buscar_v2(endpoint, token, d_ini, d_fim):
     pagina = 1
     
     while True:
-        # CORREÇÃO CRÍTICA: Formato de data exigido pela API v2
-        params = {
-            "data_vencimento_de": f"{d_ini}T00:00:00Z",
-            "data_vencimento_ate": f"{d_fim}T23:59:59Z",
-            "status": "EM_ABERTO",
-            "tamanho_pagina": 100,
-            "pagina": pagina
-        }
+        # PARÂMETROS OBRIGATÓRIOS SEGUNDO SUA DOCUMENTAÇÃO
+        # Note: O status é enviado como uma lista
+        params = [
+            ('pagina', pagina),
+            ('tamanho_pagina', 100),
+            ('data_vencimento_de', f"{d_ini}T00:00:00"),
+            ('data_vencimento_ate', f"{d_fim}T23:59:59"),
+            ('status', 'EM_ABERTO') # O requests lida com múltiplos valores se necessário
+        ]
 
-        res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params, timeout=10)
-        if res.status_code != 200: break
+        res = requests.get(
+            f"https://api-v2.contaazul.com{endpoint}", 
+            headers=headers, 
+            params=params, 
+            timeout=12
+        )
         
-        itens = res.json().get("itens", [])
-        if not itens: break
+        if res.status_code != 200:
+            break
+        
+        dados = res.json()
+        itens = dados.get("itens", [])
+        if not itens:
+            break
         
         for i in itens:
-            saldo_item = i.get("total", 0) - i.get("pago", 0)
-            if saldo_item > 0:
-                # Normaliza a data para YYYY-MM-DD para o Pandas
+            # Cálculo do saldo pendente (Total - Pago)
+            valor_aberto = i.get("total", 0) - i.get("pago", 0)
+            if valor_aberto > 0:
                 dt = i.get("data_vencimento").split('T')[0]
-                itens_acum.append({"data": dt, "valor": saldo_item})
+                itens_acum.append({"data": dt, "valor": valor_aberto})
         
-        if len(itens) < 100: break
+        if len(itens) < 100:
+            break
         pagina += 1
+        
     return itens_acum
 
 def buscar_saldo(token):
     headers = {"Authorization": f"Bearer {token}"}
     total = 0
-    bancos = ["ITAU", "BRADESCO", "SICOOB"]
+    bancos_alvo = ["ITAU", "BRADESCO", "SICOOB"]
     norm = lambda t: "".join(c for c in unicodedata.normalize('NFD', t) if unicodedata.category(c) != 'Mn').upper()
 
     res = requests.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers, timeout=10)
     if res.status_code == 200:
         for conta in res.json().get("itens", []):
-            nome = norm(conta.get("nome", ""))
-            if any(b in nome for b in bancos):
+            if any(b in norm(conta.get("nome", "")) for b in bancos_alvo):
                 r = requests.get(f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual", headers=headers, timeout=5)
                 if r.status_code == 200:
                     total += r.json().get("saldo_atual", 0)
     return total
 
 @app.get("/api/dados")
-def dados(empresa: str, data_inicio: str = None, data_fim: str = None, dias: int = 7):
-    # Se não vier data do calendário, usa o padrão de dias
-    if not data_inicio or not data_fim:
-        hoje = datetime.now().date()
-        data_ini_str = hoje.isoformat()
-        data_fim_str = (hoje + timedelta(days=dias-1)).isoformat()
-    else:
-        data_ini_str = data_inicio
-        data_fim_str = data_fim
-
+def dados(empresa: str, data_inicio: str, data_fim: str):
     token = obter_token(empresa)
-    if not token: return {"erro": "token"}
+    if not token: return {"erro": "Falha na autenticação"}
 
     saldo_bancos = buscar_saldo(token)
-    pagar_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, data_ini_str, data_fim_str)
-    receber_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, data_ini_str, data_fim_str)
+    
+    # Busca usando os parâmetros obrigatórios validados
+    pagar_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, data_inicio, data_fim)
+    receber_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, data_inicio, data_fim)
 
-    total_receber = sum(i['valor'] for i in receber_raw)
-    total_pagar = sum(i['valor'] for i in pagar_raw)
-
-    idx = pd.date_range(data_ini_str, data_fim_str)
+    # Processamento com Pandas
+    idx = pd.date_range(data_inicio, data_fim)
     df = pd.DataFrame(index=idx)
-    df.index.name = 'data'
     
     df_p = pd.DataFrame(pagar_raw).groupby("data")["valor"].sum() if pagar_raw else pd.Series(dtype=float)
     df_r = pd.DataFrame(receber_raw).groupby("data")["valor"].sum() if receber_raw else pd.Series(dtype=float)
@@ -129,6 +130,6 @@ def dados(empresa: str, data_inicio: str = None, data_fim: str = None, dias: int
         "receber": df["receber"].tolist(),
         "acumulado": df["acumulado"].tolist(),
         "saldo_bancos": saldo_bancos,
-        "total_receber": total_receber,
-        "total_pagar": total_pagar
+        "total_receber": float(df["receber"].sum()),
+        "total_pagar": float(df["pagar"].sum())
     }
