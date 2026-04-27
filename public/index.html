@@ -2,224 +2,142 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fluxo de Caixa JRM</title>
+    <title>Fluxo de Caixa</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg: #0e1117;
-            --sidebar: #262730;
-            --text: #ffffff;
-            --subtext: #a3aed0;
-            --green: #2ecc71;
-            --red: #e74c3c;
-            --blue: #3498db;
-            --purple: #9b59b6;
+            --bg: #0e1117; --card: #262730; --text: #ffffff;
+            --green: #2ecc71; --red: #e74c3c; --blue: #3498db;
         }
-
-        body {
-            background-color: var(--bg);
-            color: var(--text);
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
+        [data-theme="light"] {
+            --bg: #f0f2f6; --card: #ffffff; --text: #31333f;
         }
-
-        /* Sidebar */
-        .sidebar {
-            width: 280px;
-            background-color: var(--sidebar);
-            padding: 25px;
-            border-right: 1px solid rgba(255,255,255,0.05);
-            display: flex;
-            flex-direction: column;
+        body { 
+            background-color: var(--bg); color: var(--text); 
+            font-family: sans-serif; margin: 0; display: flex; 
         }
-
-        .sidebar h2 { font-size: 1.2rem; margin-bottom: 30px; border-bottom: 2px solid var(--red); display: inline-block; padding-bottom: 5px; }
-
-        label { font-size: 0.8rem; color: var(--subtext); margin-bottom: 8px; display: block; font-weight: bold; }
-
-        select, input {
-            width: 100%;
-            background: var(--bg);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: white;
-            padding: 10px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            box-sizing: border-box;
+        .sidebar { width: 260px; padding: 20px; background: var(--card); height: 100vh; }
+        .main { flex: 1; padding: 30px; }
+        
+        /* Cabeçalho */
+        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { margin: 0; font-size: 2rem; border-bottom: 3px solid var(--red); padding-bottom: 5px; }
+        
+        .theme-toggle { 
+            cursor: pointer; font-size: 1.5rem; background: none; border: none; 
+            padding: 10px; border-radius: 50%; transition: 0.3s;
         }
+        .theme-toggle:hover { background: rgba(255,255,255,0.1); }
 
-        .btn-sync {
-            background-color: var(--red);
-            color: white;
-            border: none;
-            padding: 12px;
-            border-radius: 6px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            transition: 0.3s;
+        /* Cards */
+        .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
+        .card { 
+            background: var(--card); padding: 20px; border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #ccc;
         }
-        .btn-sync:hover { background-color: #ff3333; }
+        .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.8; margin-bottom: 8px; }
+        .card-val { font-size: 1.25rem; font-weight: bold; }
 
-        /* Main Content */
-        .main { flex: 1; padding: 40px; overflow-y: auto; }
-
-        /* Cards - Baseados no seu Streamlit */
-        .cards-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
-        .card {
-            background-color: var(--sidebar);
-            padding: 15px 20px;
-            border-radius: 10px;
-            border-left: 5px solid #34495e;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+        .btn-sync { 
+            width: 100%; padding: 12px; background: var(--red); color: white; 
+            border: none; border-radius: 5px; font-weight: bold; cursor: pointer; 
         }
-        .card-title { font-size: 11px; color: var(--subtext); font-weight: bold; text-transform: uppercase; margin-bottom: 5px; opacity: 0.8; }
-        .card-value { font-size: 1.4rem; font-weight: bold; }
-
-        .border-banco { border-left-color: var(--purple) !important; }
-        .border-receita { border-left-color: var(--green) !important; }
-        .border-despesa { border-left-color: var(--red) !important; }
-        .border-resultado { border-left-color: var(--blue) !important; }
-
-        .chart-box {
-            background-color: var(--sidebar);
-            padding: 25px;
-            border-radius: 12px;
-            height: 480px;
-        }
+        .chart-container { background: var(--card); padding: 20px; border-radius: 10px; height: 450px; }
     </style>
 </head>
 <body>
 
 <aside class="sidebar">
-    <h2>Filtros JRM</h2>
-    
+    <h3 style="color: var(--red)">Filtros</h3>
     <label>Empresa</label>
-    <select id="empresa">
+    <select id="empresa" style="width:100%; margin: 10px 0 20px;">
         <option value="Juvenal Transportes">Juvenal Transportes</option>
         <option value="JRM Transportes">JRM Transportes</option>
-        <option value="LGP">LGP</option>
-        <option value="ROSE">Rosângela Transportes</option>
     </select>
-
-    <label>Intervalo</label>
-    <select id="periodo" onchange="toggleDates(this.value)">
-        <option value="7">Próximos 7 dias</option>
-        <option value="15">Próximos 15 dias</option>
-        <option value="30" selected>Próximos 30 dias</option>
-        <option value="custom">Personalizado</option>
-    </select>
-
-    <div id="custom-area" style="display:none">
-        <label>Início</label>
-        <input type="date" id="data_ini">
-        <label>Fim</label>
-        <input type="date" id="data_fim">
-    </div>
-
     <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
 </aside>
 
 <main class="main">
-    <div class="cards-container">
-        <div class="card border-banco">
-            <div class="card-title">Saldo em Banco</div>
-            <div id="v-banco" class="card-value" style="color:var(--purple)">R$ 0,00</div>
+    <div class="header-row">
+        <h1>Fluxo de Caixa</h1>
+        <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">☀️</button>
+    </div>
+
+    <div class="cards">
+        <div class="card" style="border-color: #9b59b6">
+            <div class="card-label">Saldo em Bancos</div>
+            <div id="v-banco" class="card-val">R$ 0,00</div>
         </div>
-        <div class="card border-receita">
-            <div class="card-title">Receitas</div>
-            <div id="v-rec" class="card-value" style="color:var(--green)">R$ 0,00</div>
+        <div class="card" style="border-color: var(--green)">
+            <div class="card-label">Receitas</div>
+            <div id="v-rec" class="card-val" style="color:var(--green)">R$ 0,00</div>
         </div>
-        <div class="card border-despesa">
-            <div class="card-title">Despesas</div>
-            <div id="v-desp" class="card-value" style="color:var(--red)">R$ 0,00</div>
+        <div class="card" style="border-color: var(--red)">
+            <div class="card-label">Despesas</div>
+            <div id="v-desp" class="card-val" style="color:var(--red)">R$ 0,00</div>
         </div>
-        <div class="card border-resultado">
-            <div class="card-title">Resultado Final</div>
-            <div id="v-res" class="card-value">R$ 0,00</div>
+        <div class="card" style="border-color: var(--blue)">
+            <div class="card-label">Saldo Projetado</div>
+            <div id="v-proj" class="card-val">R$ 0,00</div>
         </div>
     </div>
 
-    <div class="chart-box">
-        <canvas id="fluxoChart"></canvas>
+    <div class="chart-container">
+        <canvas id="mainChart"></canvas>
     </div>
 </main>
 
 <script>
-    let myChart = null;
+    let chart = null;
 
-    function toggleDates(val) {
-        document.getElementById('custom-area').style.display = (val === 'custom') ? 'block' : 'none';
+    function toggleTheme() {
+        const body = document.body;
+        const btn = document.getElementById('themeBtn');
+        if(body.getAttribute('data-theme') === 'light') {
+            body.removeAttribute('data-theme');
+            btn.innerText = '☀️';
+        } else {
+            body.setAttribute('data-theme', 'light');
+            btn.innerText = '🌙';
+        }
     }
 
     async function sincronizar() {
         const emp = document.getElementById('empresa').value;
-        const per = document.getElementById('periodo').value;
-        let d1, d2;
+        const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=2026-04-27&data_fim=2026-05-12`);
+        const data = await res.json();
 
-        if(per === 'custom') {
-            d1 = document.getElementById('data_ini').value;
-            d2 = document.getElementById('data_fim').value;
-        } else {
-            const hoje = new Date();
-            const fim = new Date();
-            fim.setDate(hoje.getDate() + parseInt(per));
-            d1 = hoje.toISOString().split('T')[0];
-            d2 = fim.toISOString().split('T')[0];
-        }
+        // Update Cards
+        const fmt = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        document.getElementById('v-banco').innerText = fmt(data.resumo.banco);
+        document.getElementById('v-rec').innerText = fmt(data.resumo.total_rec);
+        document.getElementById('v-desp').innerText = fmt(data.resumo.total_desp);
+        document.getElementById('v-proj').innerText = fmt(data.resumo.banco + data.resumo.total_rec - data.resumo.total_desp);
 
-        if(!d1 || !d2) return alert("Defina as datas.");
-
-        try {
-            const res = await fetch(`/api/dados?empresa=${encodeURIComponent(emp)}&data_inicio=${d1}&data_fim=${d2}`);
-            const data = await res.json();
-
-            // Formatação Real
-            const fmt = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-            
-            document.getElementById('v-banco').innerText = fmt(data.resumo.banco);
-            document.getElementById('v-rec').innerText = fmt(data.resumo.total_rec);
-            document.getElementById('v-desp').innerText = fmt(-data.resumo.total_desp);
-            
-            const resFinal = data.resumo.banco + (data.resumo.total_rec - data.resumo.total_desp);
-            const elRes = document.getElementById('v-res');
-            elRes.innerText = fmt(resFinal);
-            elRes.style.color = resFinal >= 0 ? 'var(--green)' : 'var(--red)';
-
-            // Gráfico
-            if (myChart) myChart.destroy();
-            const ctx = document.getElementById('fluxoChart').getContext('2d');
-            myChart = new Chart(ctx, {
-                data: {
-                    labels: data.labels,
-                    datasets: [
-                        { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71' },
-                        { type: 'bar', label: 'Despesas', data: data.despesas, backgroundColor: '#e74c3c' },
-                        { type: 'line', label: 'Saldo Projetado', data: data.saldo, borderColor: '#3498db', tension: 0.3, pointRadius: 3 }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { color: 'white' } }
-                    },
-                    scales: {
-                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a3aed0' } },
-                        x: { grid: { display: false }, ticks: { color: '#a3aed0' } }
-                    }
+        // Update Chart
+        if(chart) chart.destroy();
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        chart = new Chart(ctx, {
+            data: {
+                labels: data.labels,
+                datasets: [
+                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', order: 2 },
+                    { type: 'bar', label: 'Despesas', data: data.despesas, backgroundColor: '#e74c3c', order: 2 },
+                    { type: 'line', label: 'Saldo', data: data.saldo, borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.2, order: 1 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: '#a3aed0' } } },
+                scales: {
+                    x: { stacked: true, grid: { display: false } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' } }
                 }
-            });
-        } catch (e) {
-            console.error("Erro na busca:", e);
-        }
+            }
+        });
     }
 
-    // Carregar ao iniciar
     window.onload = sincronizar;
 </script>
 </body>
