@@ -6,33 +6,22 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #f8fafc; --side: #ffffff; --card: #ffffff; --txt: #0f172a; --border: #e2e8f0; --accent: #ef4444; }
-        .dark-theme { --bg: #0f172a; --side: #1e293b; --card: #1e293b; --txt: #f8fafc; --border: #334155; }
-        
+        :root { --bg: #f8fafc; --side: #ffffff; --card: #ffffff; --txt: #1e293b; --border: #e2e8f0; --accent: #ef4444; }
+        .dark { --bg: #0f172a; --side: #1e293b; --card: #1e293b; --txt: #f8fafc; --border: #334155; }
         body { font-family: 'Inter', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--txt); height: 100vh; overflow: hidden; }
-        .sidebar { width: 280px; background: var(--side); padding: 2rem 1.2rem; border-right: 1px solid var(--border); box-sizing: border-box; }
+        .sidebar { width: 280px; background: var(--side); padding: 2rem 1.5rem; border-right: 1px solid var(--border); }
         .main { flex: 1; padding: 2rem 2.5rem; overflow-y: auto; }
-        
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-        h1 { margin: 0; font-size: 1.7rem; font-weight: 700; color: var(--accent); }
-        
         .field { margin-bottom: 1.2rem; }
         label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; opacity: 0.6; display: block; margin-bottom: 0.4rem; }
-        select, input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; }
-        
-        .btn { background: var(--accent); color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: 700; cursor: pointer; transition: 0.2s; margin-top: 10px; }
-        .btn:hover { filter: brightness(0.9); }
-        
+        select, input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); }
+        .btn { background: var(--accent); color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: 700; cursor: pointer; margin-top: 10px; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
-        .card { background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card { background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid var(--border); }
         .val { font-size: 1.2rem; font-weight: 700; margin-top: 5px; }
-        
-        .chart-box { background: var(--card); padding: 20px; border-radius: 10px; border: 1px solid var(--border); height: 440px; }
-        #custom-area { display: none; margin-top: 8px; }
+        .chart-box { background: var(--card); padding: 20px; border-radius: 10px; border: 1px solid var(--border); height: 420px; }
     </style>
 </head>
 <body>
-
 <div class="sidebar">
     <div class="field">
         <label>Empresa</label>
@@ -45,92 +34,69 @@
     </div>
     <div class="field">
         <label>Período</label>
-        <select id="per" onchange="toggleC(this.value)">
-            <option value="7">Próximos 7 dias</option>
-            <option value="15">Próximos 15 dias</option>
-            <option value="30">Próximos 30 dias</option>
-            <option value="custom">Personalizado</option>
-        </select>
-        <div id="custom-area">
-            <input type="date" id="d1" style="margin-bottom:5px">
-            <input type="date" id="d2">
-        </div>
+        <input type="date" id="d1" style="margin-bottom:5px">
+        <input type="date" id="d2">
     </div>
-    <button class="btn" onclick="load()">Sincronizar</button>
+    <button class="btn" onclick="atualizar()">Sincronizar Dados</button>
 </div>
-
 <div class="main">
-    <div class="header">
-        <h1>Fluxo de Caixa</h1>
-        <button style="background:none; border:none; cursor:pointer; font-size:1.2rem" onclick="toggleTheme()">🌙</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem">
+        <h1 style="margin:0; font-size:1.6rem">Fluxo de Caixa Projetado</h1>
+        <button onclick="document.body.classList.toggle('dark')" style="background:none; border:none; cursor:pointer; font-size:1.2rem">🌙</button>
     </div>
     <div class="grid">
         <div class="card"><label>Saldo Bancos</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
-        <div class="card"><label>A Receber</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
-        <div class="card"><label>A Pagar</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
-        <div class="card"><label>Saldo Projetado</label><div id="v4" class="val">R$ 0,00</div></div>
+        <div class="card"><label>Receitas</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
+        <div class="card"><label>Despesas</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
+        <div class="card"><label>Projeção</label><div id="v4" class="val">R$ 0,00</div></div>
     </div>
-    <div class="chart-box"><canvas id="canvas"></canvas></div>
+    <div class="chart-box"><canvas id="chart"></canvas></div>
 </div>
-
 <script>
-    let chart = null;
-    function toggleTheme() { document.body.classList.toggle('dark-theme'); if(chart) load(); }
-    function toggleC(v) { document.getElementById('custom-area').style.display = v === 'custom' ? 'block' : 'none'; }
+    let meuGrafico = null;
+    
+    // Inicializa com datas padrão (hoje + 15 dias)
+    const hoje = new Date();
+    document.getElementById('d1').value = hoje.toISOString().split('T')[0];
+    hoje.setDate(hoje.getDate() + 15);
+    document.getElementById('d2').value = hoje.toISOString().split('T')[0];
 
-    async function load() {
-        const p = document.getElementById('per').value;
-        let s, e;
-        if(p === 'custom') {
-            s = document.getElementById('d1').value;
-            e = document.getElementById('d2').value;
-        } else {
-            const d = new Date();
-            s = d.toISOString().split('T')[0];
-            d.setDate(d.getDate() + parseInt(p));
-            e = d.toISOString().split('T')[0];
-        }
-
-        if(!s || !e) return;
-        
+    async function atualizar() {
+        const s = document.getElementById('d1').value;
+        const e = document.getElementById('d2').value;
         const emp = encodeURIComponent(document.getElementById('emp').value);
+        
         const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=${s}&data_fim=${e}`);
         const data = await res.json();
-
-        const fmt = (n) => "R$ " + n.toLocaleString('pt-BR', {minimumFractionDigits:2});
-        document.getElementById('v1').innerText = fmt(data.saldo_bancos);
-        document.getElementById('v2').innerText = fmt(data.total_receber);
-        document.getElementById('v3').innerText = fmt(data.total_pagar);
+        
+        const f = (n) => "R$ " + n.toLocaleString('pt-BR', {minimumFractionDigits:2});
+        document.getElementById('v1').innerText = f(data.saldo_bancos);
+        document.getElementById('v2').innerText = f(data.total_receber);
+        document.getElementById('v3').innerText = f(data.total_pagar);
         
         const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
-        const v4 = document.getElementById('v4');
-        v4.innerText = fmt(proj);
-        v4.style.color = proj >= 0 ? "#10b981" : "#ef4444";
+        document.getElementById('v4').innerText = f(proj);
+        document.getElementById('v4').style.color = proj >= 0 ? "#10b981" : "#ef4444";
 
-        const ctx = document.getElementById('canvas').getContext('2d');
-        if(chart) chart.destroy();
-        const isD = document.body.classList.contains('dark-theme');
-
-        chart = new Chart(ctx, {
+        const ctx = document.getElementById('chart').getContext('2d');
+        if(meuGrafico) meuGrafico.destroy();
+        
+        meuGrafico = new Chart(ctx, {
             data: {
                 labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
                 datasets: [
-                    { type: 'bar', label: 'Receber', data: data.receber, backgroundColor: '#10b981' },
-                    { type: 'bar', label: 'Pagar', data: data.pagar, backgroundColor: '#ef4444' },
-                    { type: 'line', label: 'Acumulado', data: data.acumulado, borderColor: '#3b82f6', tension: 0.2, fill: false }
+                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981' },
+                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444' },
+                    { type: 'line', label: 'Saldo Projetado', data: data.acumulado, borderColor: '#3b82f6', tension: 0.3 }
                 ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: isD ? '#fff' : '#333' } } },
-                scales: {
-                    x: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { display: false } },
-                    y: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { color: isD ? '#334155' : '#f1f5f9' } }
-                }
+                plugins: { legend: { position: 'bottom' } } // Legenda embaixo
             }
         });
     }
-    window.onload = load;
+    window.onload = atualizar;
 </script>
 </body>
 </html>
