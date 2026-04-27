@@ -2,121 +2,221 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Fluxo de Caixa</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Financeiro | JRM</title>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-    :root {
-        --primary: #FF4B4B; /* Vermelho Streamlit */
-        --bg: #f0f2f6;
-        --sidebar: #f8f9fb;
-    }
-    body { font-family: 'Source Sans Pro', sans-serif; background: var(--bg); margin: 0; display: flex; }
-    
-    /* Barra Lateral */
-    .sidebar { width: 300px; background: var(--sidebar); height: 100vh; padding: 20px; border-right: 1px solid #ddd; }
-    
-    /* Área Principal */
-    .main-content { flex: 1; padding: 40px; }
-    
-    /* Cards de Saldo */
-    .metric-card {
-        background: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border-left: 5px solid var(--primary);
-    }
-    .metric-value { font-size: 2rem; font-weight: bold; color: #31333F; }
-    
-    /* Tabela */
-    table { width: 100%; background: white; border-collapse: collapse; margin-top: 20px; border-radius: 8px; overflow: hidden; }
-    th { background: #f0f2f6; text-align: left; padding: 12px; color: #555; }
-    td { padding: 12px; border-bottom: 1px solid #eee; }
-    .pos { color: #09ab3b; } /* Verde para Receber */
-    .neg { color: #ff4b4b; } /* Vermelho para Pagar */
-</style>
+        :root {
+            --primary-color: #FF4B4B;
+            --background-color: #f0f2f6;
+            --sidebar-color: #f8f9fb;
+            --text-color: #31333F;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Source Sans Pro', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Estilo Streamlit */
+        .sidebar {
+            width: 300px;
+            background-color: var(--sidebar-color);
+            padding: 40px 20px;
+            border-right: 1px solid #e6e9ef;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .sidebar h2 { font-size: 1.2rem; margin-bottom: 25px; color: #555; }
+
+        .form-group { margin-bottom: 20px; }
+        
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.9rem; }
+
+        select, input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #dcdde1;
+            border-radius: 5px;
+            background: white;
+            font-size: 1rem;
+            color: var(--text-color);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: white;
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        /* Conteúdo Principal */
+        .main-content {
+            margin-left: 340px;
+            padding: 40px;
+            flex: 1;
+            max-width: 1100px;
+        }
+
+        h1 { margin-top: 0; font-size: 2.2rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; margin-bottom: 30px; }
+
+        /* Cards de Métricas */
+        .metrics-container { margin-bottom: 30px; }
+
+        .metric-card {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border-left: 5px solid var(--primary-color);
+        }
+
+        .metric-label { font-size: 0.9rem; color: #5f6368; text-transform: uppercase; letter-spacing: 1px; }
+        .metric-value { font-size: 2.4rem; font-weight: 700; margin-top: 10px; }
+
+        /* Tabela */
+        .table-container {
+            background: var(--card-bg);
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #f8f9fb; padding: 15px; font-weight: 600; color: #5f6368; border-bottom: 1px solid #eee; }
+        td { padding: 15px; border-bottom: 1px solid #f1f1f1; font-size: 0.95rem; }
+        
+        .pos { color: #09ab3b; font-weight: 600; }
+        .neg { color: #ff4b4b; font-weight: 600; }
+        .total-row { font-weight: 700; background-color: #fafafa; }
+
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: relative; padding: 20px; }
+            .main-content { margin-left: 0; padding: 20px; }
+        }
+    </style>
 </head>
 <body>
 
-<div class="sidebar">
-    <h2>Configurações</h2>
-    <label>Selecione a Empresa</label>
-    <select id="empresa"><option>Carregando...</option></select>
-    
-    <label>Período (Dias)</label>
-    <input type="number" id="dias" value="7">
-    
-    <button onclick="carregar()">Rodar Dashboard</button>
-</div>
+    <div class="sidebar">
+        <h2>Configurações</h2>
+        <div class="form-group">
+            <label for="empresa">Selecione a Empresa</label>
+            <select id="empresa">
+                <option value="Juvenal Transportes">Juvenal Transportes</option>
+                <option value="JRM Transportes">JRM Transportes</option>
+                <option value="LGP">LGP</option>
+                <option value="ROSE">Rosângela Transportes</option>
+            </select>
+        </div>
 
-<div class="main">
-    <h1>Fluxo de Caixa Operacional</h1>
-    
-    <div class="st-card">
-        <div class="st-metric-label">Saldo Atual Consolidado</div>
-        <div class="st-metric-value" id="saldo">R$ 0,00</div>
+        <div class="form-group">
+            <label for="dias">Período (Próximos Dias)</label>
+            <input type="number" id="dias" value="7" min="1" max="30">
+        </div>
+
+        <button onclick="carregarDados()">Rodar Dashboard</button>
     </div>
 
-    <div class="st-card">
-        <h3>Detalhamento Diário</h3>
-        <table id="tabela">
-            <thead>
-                <tr>
-                    <th>Data</th>
-                    <th>Receber</th>
-                    <th>Pagar</th>
-                    <th>Saldo Previsto</th>
-                </tr>
-            </thead>
-            <tbody id="corpo"></tbody>
-        </table>
+    <div class="main-content">
+        <h1>Fluxo de Caixa Operacional</h1>
+
+        <div class="metrics-container">
+            <div class="metric-card">
+                <div class="metric-label">Saldo Atual Consolidado</div>
+                <div class="metric-value" id="saldo-display">R$ 0,00</div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>A Receber</th>
+                        <th>A Pagar</th>
+                        <th>Saldo Previsto</th>
+                    </tr>
+                </thead>
+                <tbody id="tabela-corpo">
+                    </tbody>
+            </table>
+        </div>
     </div>
-</div>
 
-<script>
-    // Se o seu site é https://jrm-dashboard.vercel.app, a API está em /api
-    const API_BASE = window.location.origin + "/api";
+    <script>
+        const API_BASE = window.location.origin + "/api";
 
-    async function init() {
-        try {
-            const res = await fetch(`${API_BASE}/clientes`);
-            const empresas = await res.json();
-            const select = document.getElementById("empresa");
-            select.innerHTML = empresas.map(e => `<option value="${e}">${e}</option>`).join('');
-            if(empresas.length > 0) carregar();
-        } catch(e) { console.error("Erro ao carregar empresas", e); }
-    }
+        async function carregarDados() {
+            const btn = document.querySelector('button');
+            const emp = document.getElementById("empresa").value;
+            const dias = document.getElementById("dias").value;
+            
+            btn.innerText = "Carregando...";
+            btn.disabled = true;
 
-    async function carregar() {
-    const emp = document.getElementById("empresa").value;
-    const dias = document.getElementById("dias").value;
-    
-    try {
-        const res = await fetch(`${API_BASE}/dados?empresa=${encodeURIComponent(emp)}&dias=${dias}`);
-        const data = await res.json();
+            try {
+                const response = await fetch(`${API_BASE}/dados?empresa=${encodeURIComponent(emp)}&dias=${dias}`);
+                const data = await response.json();
 
-        // Se a API retornar erro (Token expirado ou Supabase fora), avise aqui:
-        if (data.erro || !data.saldo) {
-            alert("Erro da API: " + (data.erro || "Dados não encontrados"));
-            return;
+                if (data.error || !data.saldo && data.saldo !== 0) {
+                    alert("Erro ao buscar dados: " + (data.error || "Formato de resposta inválido"));
+                    return;
+                }
+
+                // Atualiza Card de Saldo
+                document.getElementById("saldo-display").innerText = 
+                    "R$ " + data.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+                // Atualiza Tabela
+                const corpo = document.getElementById("tabela-corpo");
+                corpo.innerHTML = ""; // Limpa tabela anterior
+
+                data.datas.forEach((dataStr, i) => {
+                    const row = document.createElement("tr");
+                    
+                    // Formata data de YYYY-MM-DD para DD/MM/YYYY
+                    const dataFormatada = dataStr.split('-').reverse().join('/');
+                    
+                    row.innerHTML = `
+                        <td>${dataFormatada}</td>
+                        <td class="pos">R$ ${data.receber[i].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                        <td class="neg">R$ ${data.pagar[i].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                        <td class="total-row">R$ ${data.acumulado[i].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    `;
+                    corpo.appendChild(row);
+                });
+
+            } catch (error) {
+                console.error("Erro na requisição:", error);
+                alert("Falha de conexão com a API da Vercel.");
+            } finally {
+                btn.innerText = "Rodar Dashboard";
+                btn.disabled = false;
+            }
         }
 
-        document.getElementById("saldo").innerText = "R$ " + data.saldo.toLocaleString('pt-BR');
-        
-        const corpo = document.getElementById("corpo");
-        corpo.innerHTML = data.datas.map((d, i) => `
-            <tr>
-                <td>${d.split('-').reverse().join('/')}</td>
-                <td class="pos">R$ ${data.receber[i].toLocaleString('pt-BR')}</td>
-                <td class="neg">R$ ${data.pagar[i].toLocaleString('pt-BR')}</td>
-                <td style="font-weight:bold">R$ ${data.acumulado[i].toLocaleString('pt-BR')}</td>
-            </tr>
-        `).join('');
-    } catch (e) {
-        console.error("Erro na requisição:", e);
-        alert("Falha ao conectar na API. Verifique os logs da Vercel.");
-    }
-}
-    init();
-</script>
+        // Carrega automaticamente ao abrir
+        window.onload = carregarDados;
+    </script>
 </body>
 </html>
