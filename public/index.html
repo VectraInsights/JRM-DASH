@@ -78,10 +78,18 @@
     }
 
     async function carregar() {
-        const emp = document.getElementById("empresa").value;
-        const dias = document.getElementById("dias").value;
+    const emp = document.getElementById("empresa").value;
+    const dias = document.getElementById("dias").value;
+    
+    try {
         const res = await fetch(`${API_BASE}/dados?empresa=${encodeURIComponent(emp)}&dias=${dias}`);
         const data = await res.json();
+
+        // Se a API retornar erro (Token expirado ou Supabase fora), avise aqui:
+        if (data.erro || !data.saldo) {
+            alert("Erro da API: " + (data.erro || "Dados não encontrados"));
+            return;
+        }
 
         document.getElementById("saldo").innerText = "R$ " + data.saldo.toLocaleString('pt-BR');
         
@@ -94,7 +102,11 @@
                 <td style="font-weight:bold">R$ ${data.acumulado[i].toLocaleString('pt-BR')}</td>
             </tr>
         `).join('');
+    } catch (e) {
+        console.error("Erro na requisição:", e);
+        alert("Falha ao conectar na API. Verifique os logs da Vercel.");
     }
+}
     init();
 </script>
 </body>
