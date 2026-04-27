@@ -6,58 +6,40 @@ import os
 import json
 import unicodedata
 from datetime import datetime, timedelta
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+
+from supabase import create_client
 
 app = FastAPI()
-@app.get("/")
-def home():
-    return {"status": "ok"}
-    
-# 🔥 CACHE SIMPLES (substitui st.cache_resource)
-sheet_cache = {"conn": None, "time": None}
 
-def get_sheet():
-    global sheet_cache
+# 🔥 SUPABASE CLIENT
+supabase = create_client(
+    os.environ.get("SUPABASE_URL"),
+    os.environ.get("SUPABASE_KEY")  # ⚠️ usar SECRET KEY
+)
 
-    if sheet_cache["conn"]:
-        return sheet_cache["conn"]
-
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-
-    creds_raw = os.environ.get("GOOGLE_SHEETS_JSON")
-    creds_dict = json.loads(creds_raw)
-    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-
-    sheet = client.open_by_url(
-        "https://docs.google.com/spreadsheets/d/10vGoOF-_qGTrmoCrUipQC3pmSXkL8QeUk7AI0tVWjao/edit#gid=0"
-    ).sheet1
-
-    sheet_cache["conn"] = sheet
-    return sheet
-
-
-def listar_clientes():
-    sh = get_sheet()
-    rows = sh.get_all_values()
-    return [r[0] for r in rows[1:]]
-
-
+# -----------------------------
+# 🔐 TOKEN (AGORA VIA SUPABASE)
+# -----------------------------
 def obter_token(empresa_nome):
-    sh = get_sheet()
-    cell = sh.find(empresa_nome)
 
-    refresh_token = sh.cell(cell.row, 2).value
+    # 🔍 busca refresh_token no banco
+    res = supabase.table("tokens") \
+        .select("refresh_token") \
+        .eq("empresa", empresa_nome) \
+        .single() \
+        .execute()
+
+    if not res.data:
+        return None
+
+    refresh_token = res.data["refresh_token"]
 
     cid = os.environ.get("CONTA_AZUL_CLIENT_ID")
     cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
 
     auth = base64.b64encode(f"{cid}:{cs}".encode()).decode()
 
-    res = requests.post(
+    response = requests.post(
         "https://auth.contaazul.com/oauth2/token",
         headers={
             "Authorization": f"Basic {auth}",
@@ -70,17 +52,26 @@ def obter_token(empresa_nome):
         timeout=10
     )
 
-    if res.status_code == 200:
-        data = res.json()
+    if response.status_code == 200:
+        data = response.json()
 
+        # 🔥 atualiza refresh_token automaticamente
         if data.get("refresh_token"):
-            sh.update_cell(cell.row, 2, data["refresh_token"])
+            supabase.table("tokens") \
+                .update({
+                    "refresh_token": data["refresh_token"]
+                }) \
+                .eq("empresa", empresa_nome) \
+                .execute()
 
         return data["access_token"]
 
     return None
 
 
+# -----------------------------
+# 📡 API CONTA AZUL
+# -----------------------------
 def buscar_v2(endpoint, token, params):
     itens_acum = []
     headers = {"Authorization": f"Bearer {token}"}
@@ -157,9 +148,15 @@ def buscar_saldo(token):
     return total
 
 
+# -----------------------------
+# 📋 ENDPOINTS
+# -----------------------------
 @app.get("/clientes")
 def clientes():
-    return listar_clientes()
+    # 🔥 agora vem do supabase
+    res = supabase.table("tokens").select("empresa").execute()
+
+    return [r["empresa"] for r in res.data]
 
 
 @app.get("/dados")
@@ -205,18 +202,23 @@ def dados(
 
     if not df_p.empty:
         df_p = df_p.groupby("data")["valor"].sum()
+    else:
+        df_p = pd.Series(dtype=float)
+
     if not df_r.empty:
         df_r = df_r.groupby("data")["valor"].sum()
+    else:
+        df_r = pd.Series(dtype=float)
 
     df["pagar"] = df["data_str"].map(df_p).fillna(0)
     df["receber"] = df["data_str"].map(df_r).fillna(0)
 
-    df["acum"] = saldo + (df["receber"] - df["pagar"]).cumsum()
+    df["acumulado"] = saldo + (df["receber"] - df["pagar"]).cumsum()
 
     return {
         "datas": df["data_str"].tolist(),
         "pagar": df["pagar"].tolist(),
         "receber": df["receber"].tolist(),
-        "acumulado": df["acum"].tolist(),
+        "acumulado": df["acumulado"].tolist(),
         "saldo": saldo
     }
