@@ -1,193 +1,135 @@
 <!DOCTYPE html>
+
 <html lang="pt-br">
 <head>
-<meta charset="UTF-8">
-<title>Fluxo de Caixa JRM</title>
+  <meta charset="UTF-8">
+  <title>Fluxo de Caixa JRM</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      margin: 20px;
+    }
 
-<style>
-body {
-    font-family: Arial;
-    background: #0f172a;
-    color: #e2e8f0;
-    margin: 0;
-    padding: 20px;
-}
+    select, button {
+      padding: 10px;
+      margin: 5px;
+      border-radius: 8px;
+      border: none;
+    }
 
-.container {
-    max-width: 1200px;
-    margin: auto;
-}
+    button {
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+    }
 
-h1 {
-    margin-bottom: 20px;
-}
+    .cards {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
 
-.filtros {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-}
+    .card {
+      background: #1e293b;
+      padding: 15px;
+      border-radius: 10px;
+      flex: 1;
+    }
 
-select, button {
-    padding: 10px;
-    border-radius: 8px;
-    border: none;
-}
+    .valor {
+      font-size: 20px;
+      font-weight: bold;
+    }
+  </style>
 
-button {
-    background: #3b82f6;
-    color: white;
-    cursor: pointer;
-}
-
-.cards {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-    margin-bottom: 20px;
-}
-
-.card {
-    background: #1e293b;
-    padding: 15px;
-    border-radius: 12px;
-}
-
-.card-title {
-    font-size: 12px;
-    opacity: 0.7;
-}
-
-.card-value {
-    font-size: 22px;
-    font-weight: bold;
-}
-
-.green { color: #22c55e; }
-.red { color: #ef4444; }
-.blue { color: #3b82f6; }
-.purple { color: #a855f7; }
-
-#grafico {
-    background: #1e293b;
-    padding: 10px;
-    border-radius: 12px;
-}
-</style>
 </head>
 
 <body>
-<div class="container">
 
-<h1>Fluxo de Caixa</h1>
+<h2>💰 Fluxo de Caixa</h2>
 
-<div class="filtros">
-    <select id="empresa"></select>
+<select id="empresa"></select>
 
-    <select id="dias">
-        <option value="7">7 dias</option>
-        <option value="15">15 dias</option>
-        <option value="30">30 dias</option>
-    </select>
+<select id="dias">
+  <option value="7">7 dias</option>
+  <option value="15">15 dias</option>
+  <option value="30">30 dias</option>
+</select>
 
-    <button onclick="carregar()">Atualizar</button>
-</div>
+<button onclick="carregar()">Carregar</button>
 
 <div class="cards">
-    <div class="card">
-        <div class="card-title">Saldo Atual</div>
-        <div id="saldo" class="card-value purple">-</div>
-    </div>
-
-    <div class="card">
-        <div class="card-title">Receber</div>
-        <div id="receber" class="card-value green">-</div>
-    </div>
-
-    <div class="card">
-        <div class="card-title">Pagar</div>
-        <div id="pagar" class="card-value red">-</div>
-    </div>
-
-    <div class="card">
-        <div class="card-title">Projetado</div>
-        <div id="projetado" class="card-value blue">-</div>
-    </div>
+  <div class="card">
+    <div>Saldo Atual</div>
+    <div id="saldo" class="valor">-</div>
+  </div>
 </div>
 
-<div id="grafico"></div>
-
-</div>
+<div id="grafico" style="margin-top:30px;"></div>
 
 <script>
-function formatBR(v) {
-    return "R$ " + v.toFixed(2)
-        .replace(".", ",")
-        .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+const API = "/api";
+
+// ---------------------------
+// 🔹 Carregar empresas
+// ---------------------------
+async function loadClientes() {
+  const res = await fetch(`${API}/clientes`);
+  const data = await res.json();
+
+  const select = document.getElementById("empresa");
+
+  data.forEach(emp => {
+    const opt = document.createElement("option");
+    opt.value = emp;
+    opt.innerText = emp;
+    select.appendChild(opt);
+  });
 }
 
-async function carregarEmpresas() {
-    const res = await fetch("/api/clientes");
-    const empresas = await res.json();
-
-    const sel = document.getElementById("empresa");
-    sel.innerHTML = empresas.map(e => `<option>${e}</option>`).join("");
-}
-
+// ---------------------------
+// 🔹 Buscar dados
+// ---------------------------
 async function carregar() {
-    const empresa = document.getElementById("empresa").value;
-    const dias = document.getElementById("dias").value;
+  const empresa = document.getElementById("empresa").value;
+  const dias = document.getElementById("dias").value;
 
-    const res = await fetch(`/api/dados?empresa=${empresa}&dias=${dias}`);
-    const data = await res.json();
+  const res = await fetch(`${API}/dados?empresa=${empresa}&dias=${dias}`);
+  const data = await res.json();
 
-    if (data.erro) {
-        alert("Erro ao carregar dados");
-        return;
-    }
+  document.getElementById("saldo").innerText =
+    "R$ " + data.saldo.toLocaleString("pt-BR");
 
-    const totalReceber = data.receber.reduce((a,b)=>a+b,0);
-    const totalPagar = data.pagar.reduce((a,b)=>a+b,0);
-    const projetado = data.acumulado[data.acumulado.length - 1];
+  const trace1 = {
+    x: data.datas,
+    y: data.receber,
+    type: 'bar',
+    name: 'Receber'
+  };
 
-    document.getElementById("saldo").innerText = formatBR(data.saldo);
-    document.getElementById("receber").innerText = formatBR(totalReceber);
-    document.getElementById("pagar").innerText = formatBR(-totalPagar);
-    document.getElementById("projetado").innerText = formatBR(projetado);
+  const trace2 = {
+    x: data.datas,
+    y: data.pagar.map(v => -v),
+    type: 'bar',
+    name: 'Pagar'
+  };
 
-    const trace1 = {
-        x: data.datas,
-        y: data.receber,
-        name: "Receber",
-        type: "bar"
-    };
+  const trace3 = {
+    x: data.datas,
+    y: data.acumulado,
+    type: 'scatter',
+    name: 'Saldo'
+  };
 
-    const trace2 = {
-        x: data.datas,
-        y: data.pagar.map(v => -v),
-        name: "Pagar",
-        type: "bar"
-    };
-
-    const trace3 = {
-        x: data.datas,
-        y: data.acumulado,
-        name: "Saldo",
-        type: "scatter",
-        line: { width: 3 }
-    };
-
-    Plotly.newPlot("grafico", [trace1, trace2, trace3], {
-        barmode: "relative",
-        paper_bgcolor: "#1e293b",
-        plot_bgcolor: "#1e293b",
-        font: { color: "#e2e8f0" }
-    });
+  Plotly.newPlot('grafico', [trace1, trace2, trace3]);
 }
 
-carregarEmpresas().then(carregar);
+// inicia
+loadClientes();
 </script>
 
 </body>
