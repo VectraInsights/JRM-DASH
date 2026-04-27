@@ -88,103 +88,97 @@
 </main>
 
 <script>
-    let chart = null;
-
-    function toggleTheme() {
-        const body = document.body;
-        const btn = document.getElementById('themeBtn');
-        if(body.getAttribute('data-theme') === 'light') {
-            body.removeAttribute('data-theme');
-            btn.innerText = '☀️';
-        } else {
-            body.setAttribute('data-theme', 'light');
-            btn.innerText = '🌙';
-        }
-    }
-
-    <script>
+    // Variável global para o gráfico
     let chart;
 
     async function sincronizar() {
-        const emp = document.getElementById('empresa').value;
-        // Faz a chamada para a API (as datas podem ser dinâmicas se você tiver inputs para elas)
-        const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=2026-04-27&data_fim=2026-05-12`);
-        const data = await res.json();
+        console.log("Iniciando sincronização...");
+        try {
+            // Captura os elementos de forma segura
+            const elEmpresa = document.getElementById('empresa');
+            const elInicio = document.getElementById('data_inicio');
+            const elFim = document.getElementById('data_fim');
+            const elIntervalo = document.getElementById('intervalo'); // Para o select de 7/15/30 dias
 
-        // 1. Atualiza os Cards de Resumo
-        const fmt = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        
-        document.getElementById('v-banco').innerText = fmt(data.resumo.banco);
-        document.getElementById('v-rec').innerText = fmt(data.resumo.total_rec);
-        document.getElementById('v-desp').innerText = fmt(data.resumo.total_desp);
-        
-        // O Saldo Projetado final é o último valor da lista de saldo acumulado
-        const saldoFinal = data.saldo[data.saldo.length - 1];
-        document.getElementById('v-proj').innerText = fmt(saldoFinal);
+            // Define valores padrão caso os campos não existam na tela atual
+            const empresa = elEmpresa ? elEmpresa.value : 'Juvenal Transportes';
+            let data_inicio = elInicio ? elInicio.value : '2026-04-27';
+            let data_fim = elFim ? elFim.value : '2026-05-12';
+            
+            // Se houver um seletor de intervalo (Ex: Próximos 7 dias), você pode usar essa lógica no futuro
+            const queryParams = new URLSearchParams({
+                empresa: empresa,
+                data_inicio: data_inicio,
+                data_fim: data_fim
+            });
 
-        // 2. Atualiza o Gráfico (Chart.js)
-        if(chart) chart.destroy();
-        const ctx = document.getElementById('mainChart').getContext('2d');
-        
-        chart = new Chart(ctx, {
-            data: {
-                labels: data.labels,
-                datasets: [
-                    { 
-                        type: 'bar', 
-                        label: 'Receitas', 
-                        data: data.receitas, 
-                        backgroundColor: '#2ecc71', 
-                        stack: 'stack1' // Garante o empilhamento
-                    },
-                    { 
-                        type: 'bar', 
-                        label: 'Despesas', 
-                        data: data.despesas, 
-                        backgroundColor: '#e74c3c', 
-                        stack: 'stack1' // Garante o empilhamento
-                    },
-                    { 
-                        type: 'line', 
-                        label: 'Saldo Acumulado', 
-                        data: data.saldo, 
-                        borderColor: '#3498db', 
-                        borderWidth: 3, 
-                        pointRadius: 4, 
-                        tension: 0.1,
-                        fill: false
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
-                plugins: { 
-                    legend: { 
-                        position: 'bottom', 
-                        labels: { color: '#a3aed0', padding: 20 } 
-                    } 
-                },
-                scales: {
-                    x: { 
-                        stacked: true, // Empilha as barras no eixo X
-                        grid: { display: false },
-                        ticks: { color: '#a3aed0' }
-                    },
-                    y: { 
-                        stacked: false, // O Saldo (linha) não deve ser empilhado, apenas as barras
-                        grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#a3aed0' }
-                    }
-                }
+            console.log("Chamando API com:", queryParams.toString());
+
+            const res = await fetch(`/api/dados?${queryParams.toString()}`);
+            
+            if (!res.ok) {
+                const textoErro = await res.text();
+                throw new Error(`Erro na API (${res.status}): ${textoErro.substring(0, 100)}`);
             }
-        });
+
+            const data = await res.json();
+            console.log("Dados recebidos com sucesso:", data);
+
+            // Formatador de moeda (BRL)
+            const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+            // Atualiza os Cards (com verificação de existência do ID)
+            if(document.getElementById('v-banco')) document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
+            if(document.getElementById('v-rec')) document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
+            if(document.getElementById('v-desp')) document.getElementById('v-desp').innerText = fmt(data.resumo?.total_desp);
+            
+            if(document.getElementById('v-proj')) {
+                const saldoFinal = data.saldo && data.saldo.length > 0 ? data.saldo[data.saldo.length - 1] : 0;
+                document.getElementById('v-proj').innerText = fmt(saldoFinal);
+            }
+
+            // Atualiza o Gráfico
+            const chartEl = document.getElementById('mainChart');
+            if (chartEl && data.labels) {
+                if(chart) chart.destroy();
+                const ctx = chartEl.getContext('2d');
+                
+                chart = new Chart(ctx, {
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1' },
+                            { type: 'bar', label: 'Despesas', data: data.despesas, backgroundColor: '#e74c3c', stack: 'stack1' },
+                            { 
+                                type: 'line', 
+                                label: 'Saldo Projetado', 
+                                data: data.saldo, 
+                                borderColor: '#3498db', 
+                                borderWidth: 3, 
+                                pointRadius: 4, 
+                                tension: 0.1,
+                                fill: false 
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom', labels: { color: '#a3aed0' } } },
+                        scales: {
+                            x: { stacked: true, grid: { display: false }, ticks: { color: '#a3aed0' } },
+                            y: { stacked: false, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a3aed0' } }
+                        }
+                    }
+                });
+            }
+
+        } catch (err) {
+            console.error("Falha crítica no script:", err);
+            // Se der erro, não deixa os campos vazios, mostra o erro no console
+        }
     }
 
-    // Sincroniza ao carregar a página
-    window.onload = sincronizar;
+    // Executa ao carregar para não iniciar zerado
+    document.addEventListener('DOMContentLoaded', sincronizar);
 </script>
