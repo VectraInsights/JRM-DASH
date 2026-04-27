@@ -4,13 +4,13 @@ import requests
 import base64
 import pandas as pd
 import os
-import json
 import unicodedata
 from datetime import datetime, timedelta
 from supabase import create_client
 
 app = FastAPI()
 
+# Configuração de CORS para permitir que o Frontend acesse a API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,24 +18,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------
-# 🔥 SUPABASE CLIENT
-# -----------------------------
+# Inicialização do Supabase
 supabase = create_client(
-    os.environ.get("SUPABASE_URL"),
+    os.environ.get("SUPABASE_URL"), 
     os.environ.get("SUPABASE_KEY")
 )
 
-# -----------------------------
-# 🔐 TOKEN (SUPABASE)
-# -----------------------------
 def obter_token(empresa_nome):
-    res = supabase.table("tokens") \
-        .select("refresh_token") \
-        .eq("empresa", empresa_nome) \
-        .single() \
-        .execute()
-
+    """Busca o refresh_token no Supabase e gera um novo access_token da Conta Azul."""
+    res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).single().execute()
     if not res.data:
         return None
 
@@ -44,156 +35,133 @@ def obter_token(empresa_nome):
     cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
     auth = base64.b64encode(f"{cid}:{cs}".encode()).decode()
 
-    response = requests.post(
-        "https://auth.contaazul.com/oauth2/token",
-        headers={
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/x-www-form-urlencoded"
-        },
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token
-        },
-        timeout=10
-    )
-
-    if response.status_code == 200:
-        data = response.json()
-        if data.get("refresh_token"):
-            supabase.table("tokens") \
-                .update({"refresh_token": data["refresh_token"]}) \
-                .eq("empresa", empresa_nome) \
-                .execute()
-        return data["access_token"]
-    return None
-
-# -----------------------------
-# 📡 API CONTA AZUL
-# -----------------------------
-def buscar_v2(endpoint, token, params):
-    itens_acum = []
-    headers = {"Authorization": f"Bearer {token}"}
-    params.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
-
-    while True:
-        res = requests.get(
-            f"https://api-v2.contaazul.com{endpoint}",
-            headers=headers,
-            params=params,
+    try:
+        response = requests.post(
+            "https://auth.contaazul.com/oauth2/token",
+            headers={
+                "Authorization": f"Basic {auth}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token
+            },
             timeout=10
         )
+        if response.status_code == 200:
+            data = response.json()
+            # Atualiza o refresh_token no banco se a API enviar um novo
+            if data.get("refresh_token"):
+                supabase.table("tokens").update({"refresh_token": data["refresh_token"]}).eq("empresa", empresa_nome).execute()
+            return data["access_token"]
+    except Exception as e:
+        print(f"Erro ao obter token: {e}")
+    return None
+
+def buscar_v2(endpoint, token, params):
+    """Busca dados paginados na API v2 da Conta Azul."""
+    itens_acum = []
+    headers = {"Authorization": f"Bearer {token}"}
+    params.update({"tamanho_pagina": 100, "pagina": 1})
+
+    while True:
+        res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params, timeout=10)
         if res.status_code != 200:
             break
-        itens = res.json().get("itens", [])
+        
+        dados_json = res.json()
+        itens = dados_json.get("itens", [])
         if not itens:
             break
+            
         for i in itens:
-            saldo_item = i.get("total", 0) - i.get("pago", 0)
-            if saldo_item > 0:
+            # Lógica: Se estivermos buscando PAGOS, usamos o valor total. 
+            # Se for EM_ABERTO, usamos apenas o saldo restante.
+            valor = i.get("total", 0) if params.get("status") == "PAGO" else (i.get("total", 0) - i.get("pago", 0))
+            if valor > 0:
                 itens_acum.append({
                     "data": i.get("data_vencimento"),
-                    "valor": saldo_item
+                    "valor": valor
                 })
+        
         if len(itens) < 100:
             break
         params["pagina"] += 1
+        
     return itens_acum
 
 def buscar_saldo(token):
+    """Calcula o saldo somado das contas ITAU, BRADESCO e SICOOB."""
     headers = {"Authorization": f"Bearer {token}"}
     total = 0
-    bancos = ["ITAU", "BRADESCO", "SICOOB"]
-
+    bancos_alvo = ["ITAU", "BRADESCO", "SICOOB"]
+    
     def normalize(txt):
-        return "".join(
-            c for c in unicodedata.normalize('NFD', txt)
-            if unicodedata.category(c) != 'Mn'
-        )
+        return "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
 
-    res = requests.get(
-        "https://api-v2.contaazul.com/v1/conta-financeira",
-        headers=headers,
-        timeout=10
-    )
-
+    res = requests.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers, timeout=10)
     if res.status_code == 200:
         for conta in res.json().get("itens", []):
             nome = normalize(conta.get("nome", "")).upper()
-            if any(b in nome for b in bancos):
-                r = requests.get(
-                    f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual",
-                    headers=headers,
-                    timeout=5
-                )
+            if any(b in nome for b in bancos_alvo):
+                r = requests.get(f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual", headers=headers, timeout=5)
                 if r.status_code == 200:
                     total += r.json().get("saldo_atual", 0)
     return total
 
-# -----------------------------
-# 📋 ENDPOINTS
-# -----------------------------
-@app.get("/api/clientes")
-def clientes():
-    res = supabase.table("tokens").select("empresa").execute()
-    return [r["empresa"] for r in res.data]
-
 @app.get("/api/dados")
 def dados(
     empresa: str = Query(...),
-    dias: int = Query(7)
+    status: str = Query("EM_ABERTO"),
+    data_inicio: str = Query(...),
+    data_fim: str = Query(...)
 ):
-    hoje = datetime.now().date()
-    data_ini = hoje
-    data_fim = hoje + timedelta(days=dias-1)
-
     token = obter_token(empresa)
     if not token:
-        return {"erro": "token"}
+        return {"erro": "Falha ao autenticar com a Conta Azul"}
 
-    # 1. Saldo inicial (Card Roxo)
     saldo_bancos = buscar_saldo(token)
-
-    params = {
-        "data_vencimento_de": data_ini.isoformat(),
-        "data_vencimento_ate": data_fim.isoformat()
-    }
-
-    pagar_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, params.copy())
-    receber_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, params.copy())
-
-    # 2. Totais do período (Cards Verde e Vermelho)
-    total_receber = sum(item['valor'] for item in receber_raw)
-    total_pagar = sum(item['valor'] for item in pagar_raw)
-
-    # 3. Preparação do Gráfico
-    df = pd.DataFrame({"data": pd.date_range(data_ini, data_fim)})
-    df["data_str"] = df["data"].dt.strftime("%Y-%m-%d")
-
-    df_p = pd.DataFrame(pagar_raw)
-    df_r = pd.DataFrame(receber_raw)
-
-    if not df_p.empty:
-        df_p = df_p.groupby("data")["valor"].sum()
-    else:
-        df_p = pd.Series(dtype=float)
-
-    if not df_r.empty:
-        df_r = df_r.groupby("data")["valor"].sum()
-    else:
-        df_r = pd.Series(dtype=float)
-
-    df["pagar"] = df["data_str"].map(df_p).fillna(0)
-    df["receber"] = df["data_str"].map(df_r).fillna(0)
     
-    # Saldo acumulado partindo do saldo em banco atual
+    # Conversão das datas recebidas do Frontend
+    dt_ini = datetime.strptime(data_inicio, "%Y-%m-%d").date()
+    dt_fim = datetime.strptime(data_fim, "%Y-%m-%d").date()
+
+    params_base = {
+        "data_vencimento_de": dt_ini.isoformat(),
+        "data_vencimento_ate": dt_fim.isoformat()
+    }
+    
+    status_list = ["EM_ABERTO", "PAGO"] if status == "TODOS" else [status]
+    
+    pagar_raw = []
+    receber_raw = []
+    
+    for s in status_list:
+        p_params = {**params_base, "status": s}
+        pagar_raw.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, p_params))
+        receber_raw.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, p_params))
+
+    # Criação do DataFrame para garantir que todos os dias do intervalo apareçam no gráfico
+    idx = pd.date_range(dt_ini, dt_fim)
+    df = pd.DataFrame(index=idx)
+    df.index.name = 'data'
+    
+    df_p = pd.DataFrame(pagar_raw).groupby("data")["valor"].sum() if pagar_raw else pd.Series(dtype=float)
+    df_r = pd.DataFrame(receber_raw).groupby("data")["valor"].sum() if receber_raw else pd.Series(dtype=float)
+
+    df["pagar"] = df_p
+    df["receber"] = df_r
+    df = df.fillna(0)
+    
+    # Projeção de saldo acumulado
     df["acumulado"] = saldo_bancos + (df["receber"] - df["pagar"]).cumsum()
 
     return {
-        "datas": df["data_str"].tolist(),
+        "datas": df.index.strftime("%Y-%m-%d").tolist(),
         "pagar": df["pagar"].tolist(),
         "receber": df["receber"].tolist(),
         "acumulado": df["acumulado"].tolist(),
         "saldo_bancos": saldo_bancos,
-        "total_receber": total_receber,
-        "total_pagar": total_pagar
+        "total_receber": float(df["receber"].sum()),
+        "total_pagar": float(df["pagar"].sum())
     }
