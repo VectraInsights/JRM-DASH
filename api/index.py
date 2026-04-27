@@ -44,44 +44,42 @@ def obter_token(empresa_nome):
 
 def buscar_v2(endpoint, token, d_ini, d_fim):
     itens_acum = []
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     pagina = 1
     
     while True:
-        # PARÂMETROS OBRIGATÓRIOS SEGUNDO SUA DOCUMENTAÇÃO
-        # Note: O status é enviado como uma lista
-        params = [
-            ('pagina', pagina),
-            ('tamanho_pagina', 100),
-            ('data_vencimento_de', f"{d_ini}T00:00:00"),
-            ('data_vencimento_ate', f"{d_fim}T23:59:59"),
-            ('status', 'EM_ABERTO') # O requests lida com múltiplos valores se necessário
-        ]
+        # PARÂMETROS OBRIGATÓRIOS CONFORME DOCUMENTAÇÃO
+        # Alteração: enviando 'status' no formato que a API v2 costuma exigir para arrays
+        params = {
+            'pagina': pagina,
+            'tamanho_pagina': 100,
+            'data_vencimento_de': f"{d_ini}T00:00:00Z",
+            'data_vencimento_ate': f"{d_fim}T23:59:59Z",
+            'status': 'EM_ABERTO' 
+        }
 
-        res = requests.get(
-            f"https://api-v2.contaazul.com{endpoint}", 
-            headers=headers, 
-            params=params, 
-            timeout=12
-        )
+        res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=params, timeout=15)
         
+        # LOG DE DEPURAÇÃO: Se não puxar, olhe o terminal do seu computador
         if res.status_code != 200:
+            print(f"ERRO API {endpoint}: {res.status_code} - {res.text}")
             break
-        
+            
         dados = res.json()
         itens = dados.get("itens", [])
+        
         if not itens:
+            print(f"AVISO: Lista de itens vazia para {endpoint} entre {d_ini} e {d_fim}")
             break
         
         for i in itens:
-            # Cálculo do saldo pendente (Total - Pago)
-            valor_aberto = i.get("total", 0) - i.get("pago", 0)
-            if valor_aberto > 0:
+            # Garante que estamos pegando o valor líquido (total - pago)
+            valor = i.get("total", 0) - i.get("pago", 0)
+            if valor > 0:
                 dt = i.get("data_vencimento").split('T')[0]
-                itens_acum.append({"data": dt, "valor": valor_aberto})
+                itens_acum.append({"data": dt, "valor": float(valor)})
         
-        if len(itens) < 100:
-            break
+        if len(itens) < 100: break
         pagina += 1
         
     return itens_acum
@@ -89,13 +87,13 @@ def buscar_v2(endpoint, token, d_ini, d_fim):
 def buscar_saldo(token):
     headers = {"Authorization": f"Bearer {token}"}
     total = 0
-    bancos_alvo = ["ITAU", "BRADESCO", "SICOOB"]
+    bancos = ["ITAU", "BRADESCO", "SICOOB"]
     norm = lambda t: "".join(c for c in unicodedata.normalize('NFD', t) if unicodedata.category(c) != 'Mn').upper()
 
     res = requests.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers, timeout=10)
     if res.status_code == 200:
         for conta in res.json().get("itens", []):
-            if any(b in norm(conta.get("nome", "")) for b in bancos_alvo):
+            if any(b in norm(conta.get("nome", "")) for b in bancos):
                 r = requests.get(f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual", headers=headers, timeout=5)
                 if r.status_code == 200:
                     total += r.json().get("saldo_atual", 0)
@@ -104,20 +102,20 @@ def buscar_saldo(token):
 @app.get("/api/dados")
 def dados(empresa: str, data_inicio: str, data_fim: str):
     token = obter_token(empresa)
-    if not token: return {"erro": "Falha na autenticação"}
+    if not token: return {"erro": "Token inválido"}
 
     saldo_bancos = buscar_saldo(token)
     
-    # Busca usando os parâmetros obrigatórios validados
-    pagar_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, data_inicio, data_fim)
-    receber_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, data_inicio, data_fim)
+    # Busca real nos endpoints v2
+    pagar = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, data_inicio, data_fim)
+    receber = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, data_inicio, data_fim)
 
-    # Processamento com Pandas
+    # Consolidação dos dados para o gráfico
     idx = pd.date_range(data_inicio, data_fim)
     df = pd.DataFrame(index=idx)
     
-    df_p = pd.DataFrame(pagar_raw).groupby("data")["valor"].sum() if pagar_raw else pd.Series(dtype=float)
-    df_r = pd.DataFrame(receber_raw).groupby("data")["valor"].sum() if receber_raw else pd.Series(dtype=float)
+    df_p = pd.DataFrame(pagar).groupby("data")["valor"].sum() if pagar else pd.Series(dtype=float)
+    df_r = pd.DataFrame(receber).groupby("data")["valor"].sum() if receber else pd.Series(dtype=float)
 
     df["pagar"] = df_p
     df["receber"] = df_r
