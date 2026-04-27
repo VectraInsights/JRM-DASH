@@ -3,159 +3,198 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fluxo de Caixa - JRM</title>
+    <title>Fluxo de Caixa Profissional | JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-main: #ffffff;
-            --bg-sidebar: #f8f9fb;
+            --bg-body: #f4f7f9;
+            --bg-side: #ffffff;
             --bg-card: #ffffff;
-            --text-main: #31333F;
-            --text-secondary: #5e6066;
-            --border: #e6e9ef;
-            --primary-red: #FF4B4B;
+            --text-main: #1a1c21;
+            --text-sub: #64748b;
+            --border: #e2e8f0;
+            --accent: #FF4B4B;
+            --success: #10b981;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
         .dark-theme {
-            --bg-main: #0e1117;
-            --bg-sidebar: #262730;
-            --bg-card: #262730;
-            --text-main: #fafafa;
-            --text-secondary: #bec0c5;
-            --border: #434343;
+            --bg-body: #0f172a;
+            --bg-side: #1e293b;
+            --bg-card: #1e293b;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --border: #334155;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
         }
 
         body {
-            font-family: 'Source Sans Pro', sans-serif;
+            font-family: 'Inter', sans-serif;
             margin: 0;
             display: flex;
-            background-color: var(--bg-main);
+            background-color: var(--bg-body);
             color: var(--text-main);
             height: 100vh;
             overflow: hidden;
-            transition: 0.3s;
+            transition: background 0.3s, color 0.3s;
         }
 
-        /* SIDEBAR */
+        /* --- SIDEBAR --- */
         .sidebar {
-            width: 320px;
-            background-color: var(--bg-sidebar);
-            height: 100vh;
-            padding: 2rem 1.5rem;
+            width: 340px;
+            background-color: var(--bg-side);
+            padding: 2.5rem 1.5rem;
             border-right: 1px solid var(--border);
-            box-sizing: border-box;
             display: flex;
             flex-direction: column;
+            gap: 2rem;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            z-index: 10;
         }
 
-        .widget-box { margin-bottom: 1.5rem; }
-        label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 0.5rem; opacity: 0.8; }
+        .logo-area {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+
+        .form-group { display: flex; flex-direction: column; gap: 0.6rem; }
+        label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-sub); letter-spacing: 0.05em; }
         
         select, input {
-            width: 100%;
-            padding: 12px;
-            border-radius: 8px;
+            padding: 12px 16px;
+            border-radius: 10px;
             border: 1px solid var(--border);
-            background: var(--bg-main);
+            background: var(--bg-body);
             color: var(--text-main);
-            font-size: 1rem;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border 0.2s;
         }
+        select:focus, input:focus { border-color: var(--accent); }
 
-        .btn-sync {
-            background-color: var(--primary-red);
+        .btn-update {
+            background: var(--accent);
             color: white;
             border: none;
-            padding: 14px;
-            width: 100%;
-            border-radius: 8px;
+            padding: 16px;
+            border-radius: 12px;
             font-weight: 700;
             cursor: pointer;
-            transition: 0.2s;
-            margin-top: 1rem;
+            box-shadow: 0 4px 14px rgba(255, 75, 75, 0.3);
+            transition: transform 0.2s, filter 0.2s;
         }
-        .btn-sync:hover { filter: brightness(1.1); }
+        .btn-update:hover { transform: translateY(-2px); filter: brightness(1.1); }
+        .btn-update:active { transform: translateY(0); }
 
-        #custom-date-box {
-            display: none;
-            margin-top: 15px;
-            padding: 15px;
-            background: rgba(0,0,0,0.05);
-            border-radius: 10px;
-        }
-
-        /* MAIN CONTENT */
-        .main-content {
+        /* --- MAIN --- */
+        .main {
             flex: 1;
-            padding: 2rem 3.5rem;
+            padding: 2.5rem 4rem;
             overflow-y: auto;
+            position: relative;
         }
 
-        .header-row {
+        .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2.5rem;
+            margin-bottom: 3rem;
         }
 
         h1 {
             margin: 0;
-            font-size: 2.2rem;
-            font-weight: 700;
-            border-bottom: 4px solid var(--primary-red);
-            padding-bottom: 8px;
+            font-size: 2.4rem;
+            font-weight: 800;
+            position: relative;
+        }
+        h1::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            width: 60px;
+            height: 5px;
+            background: var(--accent);
+            border-radius: 10px;
         }
 
-        .theme-toggle {
-            background: none;
+        .theme-btn {
+            background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            font-size: 1.5rem;
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
             cursor: pointer;
+            font-size: 1.4rem;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-shadow: var(--shadow);
             transition: 0.2s;
         }
 
-        /* METRICS */
-        .metrics-grid {
+        /* --- CARDS --- */
+        .stats {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 1.5rem;
-            margin-bottom: 2.5rem;
+            margin-bottom: 3rem;
         }
 
         .card {
-            background-color: var(--bg-card);
-            padding: 22px;
-            border-radius: 15px;
-            border: 1px solid var(--border);
-            border-left: 6px solid #34495e;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-        }
-
-        .card-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; }
-        .card-value { font-size: 1.5rem; font-weight: 700; margin-top: 10px; }
-
-        .chart-section {
             background: var(--bg-card);
-            padding: 25px;
-            border-radius: 15px;
-            height: 480px;
+            padding: 24px;
+            border-radius: 20px;
             border: 1px solid var(--border);
-            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
         }
+        .card::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 6px;
+            background: var(--border);
+        }
+
+        .card.purple::before { background: #8b5cf6; }
+        .card.green::before { background: var(--success); }
+        .card.red::before { background: var(--danger); }
+        .card.blue::before { background: var(--info); }
+
+        .card-label { font-size: 0.8rem; font-weight: 600; color: var(--text-sub); }
+        .card-val { font-size: 1.6rem; font-weight: 700; margin-top: 12px; }
+
+        /* --- CHART --- */
+        .canvas-container {
+            background: var(--bg-card);
+            padding: 30px;
+            border-radius: 24px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            height: 500px;
+        }
+
+        #custom-fields { display: none; margin-top: 1rem; }
     </style>
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="widget-box">
-        <label>Empresa Selecionada</label>
-        <select id="empresa">
+<aside class="sidebar">
+    <div class="logo-area">📊 BPO Financeiro</div>
+    
+    <div class="form-group">
+        <label>Unidade de Negócio</label>
+        <select id="selEmpresa">
             <option value="Juvenal Transportes">Juvenal Transportes</option>
             <option value="JRM Transportes">JRM Transportes</option>
             <option value="LGP">LGP</option>
@@ -163,55 +202,53 @@
         </select>
     </div>
 
-    <div class="widget-box">
-        <label>Período de Análise</label>
-        <select id="periodo" onchange="toggleCustom(this.value)">
-            <option value="7" selected>Próximos 7 dias</option>
+    <div class="form-group">
+        <label>Horizonte Temporal</label>
+        <select id="selPeriodo" onchange="checkCustom(this.value)">
+            <option value="7">Próximos 7 dias</option>
             <option value="15">Próximos 15 dias</option>
             <option value="30">Próximos 30 dias</option>
-            <option value="custom">📅 Intervalo Personalizado</option>
+            <option value="custom">Período Customizado</option>
         </select>
         
-        <div id="custom-date-box">
-            <label>Início</label>
-            <input type="date" id="d_ini">
-            <label style="margin-top:10px">Fim</label>
-            <input type="date" id="d_fim">
+        <div id="custom-fields">
+            <input type="date" id="dateIni" style="margin-bottom:8px">
+            <input type="date" id="dateFim">
         </div>
     </div>
 
-    <button class="btn-sync" onclick="atualizar()" id="btnSync">Sincronizar Dados</button>
-</div>
+    <button class="btn-update" onclick="sincronizar()" id="btnSync">Sincronizar Agora</button>
+</aside>
 
-<div class="main-content">
-    <div class="header-row">
+<main class="main">
+    <header class="top-bar">
         <h1>Fluxo de Caixa</h1>
-        <button class="theme-toggle" onclick="toggleTheme()" id="tBtn">🌙</button>
-    </div>
+        <button class="theme-btn" onclick="toggleTheme()" id="themeIcon">🌙</button>
+    </header>
 
-    <div class="metrics-grid">
-        <div class="card" style="border-left-color: #9b59b6;">
-            <div class="card-title">Saldo Bancário Consolidado</div>
-            <div id="m1" class="card-value" style="color:#9b59b6">R$ 0,00</div>
+    <section class="stats">
+        <div class="card purple">
+            <div class="card-label">Disponibilidade Imediata</div>
+            <div id="m1" class="card-val" style="color:#8b5cf6">R$ 0,00</div>
         </div>
-        <div class="card" style="border-left-color: #2ecc71;">
-            <div class="card-title">Previsão de Receitas</div>
-            <div id="m2" class="card-value" style="color:#2ecc71">R$ 0,00</div>
+        <div class="card green">
+            <div class="card-label">Entradas Previstas</div>
+            <div id="m2" class="card-val" style="color:var(--success)">R$ 0,00</div>
         </div>
-        <div class="card" style="border-left-color: #e74c3c;">
-            <div class="card-title">Previsão de Despesas</div>
-            <div id="m3" class="card-value" style="color:#e74c3c">R$ 0,00</div>
+        <div class="card red">
+            <div class="card-label">Saídas Previstas</div>
+            <div id="m3" class="card-val" style="color:var(--danger)">R$ 0,00</div>
         </div>
-        <div class="card" id="c4">
-            <div class="card-title">Saldo Projetado Final</div>
-            <div id="m4" class="card-value">R$ 0,00</div>
+        <div class="card blue" id="cardProj">
+            <div class="card-label">Saldo Projetado</div>
+            <div id="m4" class="card-val">R$ 0,00</div>
         </div>
-    </div>
+    </section>
 
-    <div class="chart-section">
-        <canvas id="graficoPrincipal"></canvas>
-    </div>
-</div>
+    <section class="canvas-container">
+        <canvas id="chartMain"></canvas>
+    </section>
+</main>
 
 <script>
     let myChart = null;
@@ -219,98 +256,99 @@
     function toggleTheme() {
         document.body.classList.toggle('dark-theme');
         const isDark = document.body.classList.contains('dark-theme');
-        document.getElementById('tBtn').innerText = isDark ? "☀️" : "🌙";
-        if(myChart) atualizar(); 
+        document.getElementById('themeIcon').innerText = isDark ? "☀️" : "🌙";
+        if(myChart) sincronizar(); // Recarrega o gráfico para ajustar cores das fontes
     }
 
-    function toggleCustom(v) {
-        document.getElementById('custom-date-box').style.display = v === 'custom' ? 'block' : 'none';
+    function checkCustom(val) {
+        document.getElementById('custom-fields').style.display = val === 'custom' ? 'block' : 'none';
     }
 
-    async function atualizar() {
+    async function sincronizar() {
         const btn = document.getElementById('btnSync');
-        btn.innerText = "Sincronizando...";
-        
-        const p = document.getElementById('periodo').value;
-        let ini, fim;
+        btn.innerText = "Processando...";
+        btn.disabled = true;
 
-        if(p === 'custom') {
-            ini = document.getElementById('d_ini').value;
-            fim = document.getElementById('d_fim').value;
+        const per = document.getElementById('selPeriodo').value;
+        let d1, d2;
+
+        if(per === 'custom') {
+            d1 = document.getElementById('dateIni').value;
+            d2 = document.getElementById('dateFim').value;
         } else {
-            const d = new Date();
-            ini = d.toISOString().split('T')[0];
-            d.setDate(d.getDate() + parseInt(p));
-            fim = d.toISOString().split('T')[0];
+            const start = new Date();
+            d1 = start.toISOString().split('T')[0];
+            start.setDate(start.getDate() + parseInt(per));
+            d2 = start.toISOString().split('T')[0];
         }
 
-        if(!ini || !fim) {
-            btn.innerText = "Sincronizar Dados";
-            return alert("Selecione as datas corretamente.");
+        if(!d1 || !d2) {
+            btn.innerText = "Sincronizar Agora";
+            btn.disabled = false;
+            return alert("Por favor, selecione o intervalo de datas.");
         }
 
         try {
-            const empresa = encodeURIComponent(document.getElementById('empresa').value);
-            const response = await fetch(`/api/dados?empresa=${empresa}&data_inicio=${ini}&data_fim=${fim}`);
-            const data = await response.json();
+            const empresa = encodeURIComponent(document.getElementById('selEmpresa').value);
+            const response = await fetch(`/api/dados?empresa=${empresa}&data_inicio=${d1}&data_fim=${d2}`);
+            const res = await response.json();
 
-            if(data.erro) throw new Error(data.erro);
+            if(res.erro) throw new Error(res.erro);
 
-            // Formatação e preenchimento
-            const fmt = (v) => "R$ " + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2});
-            document.getElementById('m1').innerText = fmt(data.saldo_bancos);
-            document.getElementById('m2').innerText = fmt(data.total_receber);
-            document.getElementById('m3').innerText = fmt(data.total_pagar);
+            // Atualização Numérica
+            const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            document.getElementById('m1').innerText = brl(res.saldo_bancos);
+            document.getElementById('m2').innerText = brl(res.total_receber);
+            document.getElementById('m3').innerText = brl(res.total_pagar);
             
-            const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
+            const projeção = res.saldo_bancos + res.total_receber - res.total_pagar;
             const m4 = document.getElementById('m4');
-            m4.innerText = fmt(proj);
-            m4.style.color = proj >= 0 ? "#2ecc71" : "#e74c3c";
-            document.getElementById('c4').style.borderLeftColor = proj >= 0 ? "#2ecc71" : "#e74c3c";
+            m4.innerText = brl(projeção);
+            m4.style.color = projeção >= 0 ? "var(--success)" : "var(--danger)";
+            document.getElementById('cardProj').style.borderColor = projeção >= 0 ? "var(--success)" : "var(--danger)";
 
-            renderChart(data);
-        } catch (e) {
-            console.error(e);
-            alert("Erro ao carregar dados: " + e.message);
+            render(res);
+        } catch (err) {
+            alert("Erro na Sincronização: " + err.message);
         } finally {
-            btn.innerText = "Sincronizar Dados";
+            btn.innerText = "Sincronizar Agora";
+            btn.disabled = false;
         }
     }
 
-    function renderChart(data) {
-        const ctx = document.getElementById('graficoPrincipal').getContext('2d');
+    function render(data) {
+        const ctx = document.getElementById('chartMain').getContext('2d');
         if(myChart) myChart.destroy();
-        
+
         const isDark = document.body.classList.contains('dark-theme');
-        const colorText = isDark ? '#bec0c5' : '#5e6066';
-        const colorGrid = isDark ? '#434343' : '#f0f0f0';
+        const colorTxt = isDark ? '#94a3b8' : '#64748b';
+        const colorGrid = isDark ? '#334155' : '#f1f5f9';
 
         myChart = new Chart(ctx, {
             data: {
                 labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
                 datasets: [
-                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#2ecc71', borderRadius: 5 },
-                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#e74c3c', borderRadius: 5 },
-                    { type: 'line', label: 'Saldo Acumulado', data: data.acumulado, borderColor: '#3498db', borderWidth: 3, tension: 0.3, fill: false, pointRadius: 2 }
+                    { type: 'bar', label: 'Entradas', data: data.receber, backgroundColor: '#10b981', borderRadius: 6, barThickness: 20 },
+                    { type: 'bar', label: 'Saídas', data: data.pagar, backgroundColor: '#ef4444', borderRadius: 6, barThickness: 20 },
+                    { type: 'line', label: 'Saldo Projetado', data: data.acumulado, borderColor: '#3b82f6', borderWidth: 4, tension: 0.4, fill: false, pointRadius: 0 }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                scales: {
-                    x: { grid: { display: false }, ticks: { color: colorText } },
-                    y: { grid: { color: colorGrid }, ticks: { color: colorText } }
-                },
                 plugins: {
-                    legend: { position: 'bottom', labels: { color: colorText, padding: 20 } },
-                    tooltip: { padding: 15, backgroundColor: isDark ? '#1e1e1e' : '#fff', titleColor: isDark ? '#fff' : '#000', bodyColor: isDark ? '#fff' : '#000', borderColor: colorGrid, borderWidth: 1 }
+                    legend: { position: 'top', labels: { color: colorTxt, font: { weight: '600' }, padding: 20 } },
+                    tooltip: { backgroundColor: isDark ? '#1e293b' : '#fff', titleColor: isDark ? '#fff' : '#1e293b', bodyColor: isDark ? '#cbd5e1' : '#475569', borderColor: colorGrid, borderWidth: 1, padding: 15 }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: colorTxt } },
+                    y: { grid: { color: colorGrid }, ticks: { color: colorTxt, callback: (v) => 'R$ ' + v.toLocaleString('pt-BR') } }
                 }
             }
         });
     }
 
-    window.onload = atualizar;
+    window.onload = sincronizar;
 </script>
 </body>
 </html>
