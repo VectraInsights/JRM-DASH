@@ -19,7 +19,6 @@ def remover_acentos(texto):
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def obter_token(empresa_nome):
-    """Busca o refresh_token no Supabase e renova o acesso na Conta Azul"""
     try:
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).single().execute()
         if not res.data: return None
@@ -44,7 +43,6 @@ def obter_token(empresa_nome):
     except: return None
 
 def buscar_v2(endpoint, token, params):
-    """Busca dados paginados na API v2 filtrando por saldo em aberto"""
     itens_acumulados = []
     headers = {"Authorization": f"Bearer {token}"}
     p = params.copy()
@@ -54,23 +52,19 @@ def buscar_v2(endpoint, token, params):
         try:
             res = requests.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=p, timeout=15)
             if res.status_code != 200: break
-            
             dados = res.json()
             itens = dados.get('itens', [])
             if not itens: break
-            
             for i in itens:
                 saldo = i.get('total', 0) - i.get('pago', 0)
                 if saldo > 0:
                     itens_acumulados.append({"data": i.get("data_vencimento")[:10], "valor": saldo})
-            
             if len(itens) < 100: break
             p["pagina"] += 1
         except: break
     return itens_acumulados
 
 def buscar_saldos_bancarios(token):
-    """Soma saldos apenas das contas ITAU, BRADESCO ou SICOOB"""
     headers = {"Authorization": f"Bearer {token}"}
     saldo_total = 0
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB"]
@@ -89,29 +83,29 @@ def buscar_saldos_bancarios(token):
 
 @app.get("/api/empresas")
 def listar_empresas():
-    """Retorna a lista de empresas para o dropdown do HTML"""
+    """Retorna a lista de empresas ORDENADA ALFABETICAMENTE"""
     try:
-        res = supabase.table("tokens").select("empresa").execute()
-        # Retorna lista de objetos formatada para o JS: [{"nome": "Empresa A"}, ...]
+        # O .order("empresa") garante a ordem vindo do banco
+        res = supabase.table("tokens").select("empresa").order("empresa").execute()
         return [{"nome": row["empresa"]} for row in res.data]
     except:
         return []
 
 @app.get("/api/dados")
 def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
-    # Lista de empresas para processar
     empresas_para_processar = []
     if empresa == "todas":
         res_emp = supabase.table("tokens").select("empresa").execute()
-        empresas_para_processar = [r["empresa"] for r in res_emp.data]
+        # Ordenamos a lista em Python como redundância de segurança
+        empresas_para_processar = sorted([r["empresa"] for r in res_emp.data])
     else:
+        # Se for uma empresa só, a ordem é irrelevante
         empresas_para_processar = [empresa]
 
     total_saldo_banco = 0
     todas_receitas = []
     todas_despesas = []
 
-    # Itera sobre as empresas (se for "todas", soma os resultados)
     for emp_nome in empresas_para_processar:
         token = obter_token(emp_nome)
         if not token: continue
@@ -122,7 +116,6 @@ def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         todas_receitas.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, api_params))
         todas_despesas.extend(buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, api_params))
 
-    # Processamento com Pandas (Garante o range de datas mesmo se não houver dados)
     df_range = pd.date_range(data_inicio, data_fim).strftime('%Y-%m-%d')
     df = pd.DataFrame(index=df_range).assign(receitas=0.0, despesas=0.0)
     
@@ -134,7 +127,6 @@ def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
         df["despesas"] = df.index.map(df_p).fillna(0)
 
-    # Cálculo Acumulado
     df["saldo_projetado"] = total_saldo_banco + (df["receitas"] - df["despesas"]).cumsum()
     labels_formatadas = [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index]
 
