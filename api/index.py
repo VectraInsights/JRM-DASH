@@ -7,7 +7,6 @@ import os
 import json
 import unicodedata
 from datetime import datetime, timedelta
-
 from supabase import create_client
 
 app = FastAPI()
@@ -24,14 +23,13 @@ app.add_middleware(
 # -----------------------------
 supabase = create_client(
     os.environ.get("SUPABASE_URL"),
-    os.environ.get("SUPABASE_KEY")  # 🔥 usar SECRET KEY
+    os.environ.get("SUPABASE_KEY")
 )
 
 # -----------------------------
 # 🔐 TOKEN (SUPABASE)
 # -----------------------------
 def obter_token(empresa_nome):
-
     res = supabase.table("tokens") \
         .select("refresh_token") \
         .eq("empresa", empresa_nome) \
@@ -42,10 +40,8 @@ def obter_token(empresa_nome):
         return None
 
     refresh_token = res.data["refresh_token"]
-
     cid = os.environ.get("CONTA_AZUL_CLIENT_ID")
     cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
-
     auth = base64.b64encode(f"{cid}:{cs}".encode()).decode()
 
     response = requests.post(
@@ -63,20 +59,13 @@ def obter_token(empresa_nome):
 
     if response.status_code == 200:
         data = response.json()
-
-        # 🔥 atualiza refresh_token automaticamente
         if data.get("refresh_token"):
             supabase.table("tokens") \
-                .update({
-                    "refresh_token": data["refresh_token"]
-                }) \
+                .update({"refresh_token": data["refresh_token"]}) \
                 .eq("empresa", empresa_nome) \
                 .execute()
-
         return data["access_token"]
-
     return None
-
 
 # -----------------------------
 # 📡 API CONTA AZUL
@@ -84,12 +73,7 @@ def obter_token(empresa_nome):
 def buscar_v2(endpoint, token, params):
     itens_acum = []
     headers = {"Authorization": f"Bearer {token}"}
-
-    params.update({
-        "status": "EM_ABERTO",
-        "tamanho_pagina": 100,
-        "pagina": 1
-    })
+    params.update({"status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1})
 
     while True:
         res = requests.get(
@@ -98,34 +82,26 @@ def buscar_v2(endpoint, token, params):
             params=params,
             timeout=10
         )
-
         if res.status_code != 200:
             break
-
         itens = res.json().get("itens", [])
         if not itens:
             break
-
         for i in itens:
-            saldo = i.get("total", 0) - i.get("pago", 0)
-            if saldo > 0:
+            saldo_item = i.get("total", 0) - i.get("pago", 0)
+            if saldo_item > 0:
                 itens_acum.append({
                     "data": i.get("data_vencimento"),
-                    "valor": saldo
+                    "valor": saldo_item
                 })
-
         if len(itens) < 100:
             break
-
         params["pagina"] += 1
-
     return itens_acum
-
 
 def buscar_saldo(token):
     headers = {"Authorization": f"Bearer {token}"}
     total = 0
-
     bancos = ["ITAU", "BRADESCO", "SICOOB"]
 
     def normalize(txt):
@@ -143,28 +119,23 @@ def buscar_saldo(token):
     if res.status_code == 200:
         for conta in res.json().get("itens", []):
             nome = normalize(conta.get("nome", "")).upper()
-
             if any(b in nome for b in bancos):
                 r = requests.get(
                     f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual",
                     headers=headers,
                     timeout=5
                 )
-
                 if r.status_code == 200:
                     total += r.json().get("saldo_atual", 0)
-
     return total
 
-
 # -----------------------------
-# 📋 ENDPOINTS (COM /api)
+# 📋 ENDPOINTS
 # -----------------------------
 @app.get("/api/clientes")
 def clientes():
     res = supabase.table("tokens").select("empresa").execute()
     return [r["empresa"] for r in res.data]
-
 
 @app.get("/api/dados")
 def dados(
@@ -173,39 +144,33 @@ def dados(
 ):
     hoje = datetime.now().date()
     data_ini = hoje
-    data_fim = hoje + timedelta(days=dias)
+    data_fim = hoje + timedelta(days=dias-1)
 
     token = obter_token(empresa)
     if not token:
         return {"erro": "token"}
 
-    saldo = buscar_saldo(token)
+    # 1. Saldo inicial (Card Roxo)
+    saldo_bancos = buscar_saldo(token)
 
     params = {
         "data_vencimento_de": data_ini.isoformat(),
         "data_vencimento_ate": data_fim.isoformat()
     }
 
-    pagar = buscar_v2(
-        "/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar",
-        token,
-        params.copy()
-    )
+    pagar_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, params.copy())
+    receber_raw = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, params.copy())
 
-    receber = buscar_v2(
-        "/v1/financeiro/eventos-financeiros/contas-a-receber/buscar",
-        token,
-        params.copy()
-    )
+    # 2. Totais do período (Cards Verde e Vermelho)
+    total_receber = sum(item['valor'] for item in receber_raw)
+    total_pagar = sum(item['valor'] for item in pagar_raw)
 
-    df = pd.DataFrame({
-        "data": pd.date_range(data_ini, data_fim)
-    })
-
+    # 3. Preparação do Gráfico
+    df = pd.DataFrame({"data": pd.date_range(data_ini, data_fim)})
     df["data_str"] = df["data"].dt.strftime("%Y-%m-%d")
 
-    df_p = pd.DataFrame(pagar)
-    df_r = pd.DataFrame(receber)
+    df_p = pd.DataFrame(pagar_raw)
+    df_r = pd.DataFrame(receber_raw)
 
     if not df_p.empty:
         df_p = df_p.groupby("data")["valor"].sum()
@@ -219,13 +184,16 @@ def dados(
 
     df["pagar"] = df["data_str"].map(df_p).fillna(0)
     df["receber"] = df["data_str"].map(df_r).fillna(0)
-
-    df["acumulado"] = saldo + (df["receber"] - df["pagar"]).cumsum()
+    
+    # Saldo acumulado partindo do saldo em banco atual
+    df["acumulado"] = saldo_bancos + (df["receber"] - df["pagar"]).cumsum()
 
     return {
         "datas": df["data_str"].tolist(),
         "pagar": df["pagar"].tolist(),
         "receber": df["receber"].tolist(),
         "acumulado": df["acumulado"].tolist(),
-        "saldo": saldo
+        "saldo_bancos": saldo_bancos,
+        "total_receber": total_receber,
+        "total_pagar": total_pagar
     }
