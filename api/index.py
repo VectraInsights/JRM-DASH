@@ -11,18 +11,19 @@ from supabase import create_client
 
 app = FastAPI()
 
+# -----------------------------
 # 🔥 SUPABASE CLIENT
+# -----------------------------
 supabase = create_client(
     os.environ.get("SUPABASE_URL"),
-    os.environ.get("SUPABASE_KEY")  # ⚠️ usar SECRET KEY
+    os.environ.get("SUPABASE_KEY")  # 🔥 usar SECRET KEY
 )
 
 # -----------------------------
-# 🔐 TOKEN (AGORA VIA SUPABASE)
+# 🔐 TOKEN (SUPABASE)
 # -----------------------------
 def obter_token(empresa_nome):
 
-    # 🔍 busca refresh_token no banco
     res = supabase.table("tokens") \
         .select("refresh_token") \
         .eq("empresa", empresa_nome) \
@@ -149,17 +150,23 @@ def buscar_saldo(token):
 
 
 # -----------------------------
-# 📋 ENDPOINTS
+# 🧪 ROOT (DEBUG)
 # -----------------------------
-@app.get("/clientes")
-def clientes():
-    # 🔥 agora vem do supabase
-    res = supabase.table("tokens").select("empresa").execute()
+@app.get("/")
+def root():
+    return {"status": "ok"}
 
+
+# -----------------------------
+# 📋 ENDPOINTS (COM /api)
+# -----------------------------
+@app.get("/api/clientes")
+def clientes():
+    res = supabase.table("tokens").select("empresa").execute()
     return [r["empresa"] for r in res.data]
 
 
-@app.get("/dados")
+@app.get("/api/dados")
 def dados(
     empresa: str = Query(...),
     dias: int = Query(7)
