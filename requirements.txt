@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-requests
-pandas
-supabase
-python-multipart
