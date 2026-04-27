@@ -88,31 +88,37 @@ def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     if not token: return {"erro": "Falha na autenticação"}
     
     saldo_banco = buscar_saldos_bancarios(token)
-    api_params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
     
+    # Busca na Conta Azul
+    api_params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
     receitas = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, api_params.copy())
     despesas = buscar_v2("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, api_params.copy())
     
-    # Processamento de Datas (Pandas)
-    df_range = pd.date_range(data_inicio, data_fim)
+    # CORREÇÃO PANDAS: Criando o intervalo de datas já como texto (String)
+    df_range = pd.date_range(data_inicio, data_fim).strftime('%Y-%m-%d')
     df = pd.DataFrame(index=df_range).assign(receitas=0.0, despesas=0.0)
     
+    # Mapeando os valores corretamente pelo texto da data
     if receitas:
         df_r = pd.DataFrame(receitas).groupby("data")["valor"].sum()
-        df.update(df_r.to_frame(name="receitas"))
+        df["receitas"] = df.index.map(df_r).fillna(0)
+        
     if despesas:
         df_p = pd.DataFrame(despesas).groupby("data")["valor"].sum()
-        df.update(df_p.to_frame(name="despesas"))
+        df["despesas"] = df.index.map(df_p).fillna(0)
 
-    df = df.fillna(0)
-    # Projeção: Saldo Bancário + Acumulado de (Entradas - Saídas)
+    # Cálculo Acumulado (Saldo Bancário + Acúmulo de Receitas - Despesas do período)
     df["saldo_projetado"] = saldo_banco + (df["receitas"] - df["despesas"]).cumsum()
 
+    # Formatação de saída
+    from datetime import datetime
+    labels_formatadas = [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index]
+
     return {
-        "labels": df.index.strftime("%d/%m").tolist(),
-        "receitas": df["receitas"].tolist(), # Lista de números
-        "despesas": df["despesas"].tolist(), # Lista de números
-        "saldo": df["saldo_projetado"].tolist(),
+        "labels": labels_formatadas,
+        "receitas": df["receitas"].tolist(),
+        "despesas": df["despesas"].tolist(),
+        "saldo": df["saldo_projetado"].tolist(), # Envia a linha acumulada
         "resumo": {
             "banco": saldo_banco,
             "total_rec": float(df["receitas"].sum()),
