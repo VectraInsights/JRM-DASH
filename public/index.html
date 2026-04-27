@@ -32,22 +32,26 @@
             position: fixed;
             box-sizing: border-box;
             border-right: 1px solid var(--border);
+            z-index: 100;
         }
 
-        .sidebar h3 { font-size: 1.2rem; margin-bottom: 20px; color: var(--text); }
-
-        .sidebar label { font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 5px; }
+        .sidebar h3 { font-size: 1.2rem; margin-bottom: 25px; color: var(--text); }
+        .sidebar label { font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 8px; }
 
         .sidebar select, .sidebar input {
             width: 100%;
             background: var(--bg);
             border: 1px solid var(--border);
             color: white;
-            padding: 8px;
+            padding: 10px;
             border-radius: 4px;
             margin-bottom: 20px;
             box-sizing: border-box;
+            font-size: 0.9rem;
         }
+
+        /* Container para esconder/mostrar datas */
+        #container-datas { display: none; }
 
         /* Área Principal */
         .main { 
@@ -72,16 +76,14 @@
             padding: 20px; 
             border-radius: 8px; 
             border: 1px solid var(--border);
-            transition: transform 0.2s;
         }
 
         .card-label { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; }
         .card-val { font-size: 1.4rem; font-weight: 600; }
 
-        /* Botão */
         .btn-sync { 
             width: 100%; 
-            padding: 10px; 
+            padding: 12px; 
             background: transparent; 
             color: var(--red); 
             border: 1px solid var(--red);
@@ -89,6 +91,7 @@
             font-weight: bold; 
             cursor: pointer; 
             transition: 0.3s;
+            margin-top: 10px;
         }
 
         .btn-sync:hover { background: var(--red); color: white; }
@@ -97,7 +100,7 @@
             background: var(--sidebar); 
             padding: 25px; 
             border-radius: 12px; 
-            height: 400px; 
+            height: 450px; 
             border: 1px solid var(--border);
         }
     </style>
@@ -107,23 +110,26 @@
 <aside class="sidebar">
     <h3>Filtros</h3>
     
-    <label>Empresa</label>
+    <label>Selecione a empresa</label>
     <select id="empresa">
         <option value="Juvenal Transportes">Juvenal Transportes</option>
-        </select>
-
-    <label>Intervalo de Projeção</label>
-    <select id="intervalo" onchange="ajustarDatas()">
-        <option value="7">Próximos 7 dias</option>
-        <option value="15" selected>Próximos 15 dias</option>
-        <option value="30">Próximos 30 dias</option>
     </select>
 
-    <label>Data Início</label>
-    <input type="date" id="data_inicio">
+    <label>Selecione o intervalo</label>
+    <select id="intervalo" onchange="ajustarDatas()">
+        <option value="7" selected>7 dias</option>
+        <option value="15">15 dias</option>
+        <option value="30">30 dias</option>
+        <option value="personalizado">Personalizado</option>
+    </select>
 
-    <label>Data Fim</label>
-    <input type="date" id="data_fim">
+    <div id="container-datas">
+        <label>Data Início</label>
+        <input type="date" id="data_inicio">
+
+        <label>Data Fim</label>
+        <input type="date" id="data_fim">
+    </div>
 
     <button class="btn-sync" onclick="sincronizar()">Sincronizar Agora</button>
 </aside>
@@ -158,15 +164,28 @@
 <script>
     let chart;
 
-    // Função para calcular datas automaticamente como no Streamlit
     function ajustarDatas() {
-        const dias = parseInt(document.getElementById('intervalo').value);
-        const hoje = new Date();
-        const futuro = new Date();
-        futuro.setDate(hoje.getDate() + dias);
+        const intervaloSelect = document.getElementById('intervalo');
+        const containerDatas = document.getElementById('container-datas');
+        const valor = intervaloSelect.value;
 
-        document.getElementById('data_inicio').value = hoje.toISOString().split('T')[0];
-        document.getElementById('data_fim').value = futuro.toISOString().split('T')[0];
+        if (valor === 'personalizado') {
+            containerDatas.style.display = 'block';
+        } else {
+            containerDatas.style.display = 'none';
+            
+            const dias = parseInt(valor);
+            const hoje = new Date();
+            const futuro = new Date();
+            futuro.setDate(hoje.getDate() + dias);
+
+            // Preenche os campos de data de forma invisível para a API usar
+            document.getElementById('data_inicio').value = hoje.toISOString().split('T')[0];
+            document.getElementById('data_fim').value = futuro.toISOString().split('T')[0];
+            
+            // Opcional: Sincronizar automaticamente ao mudar o select
+            sincronizar();
+        }
     }
 
     async function sincronizar() {
@@ -178,12 +197,11 @@
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const res = await fetch(`/api/dados?${query.toString()}`);
             
-            if (!res.ok) throw new Error("Erro ao buscar dados do servidor");
+            if (!res.ok) throw new Error("Erro na API");
             
             const data = await res.json();
             const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-            // Atualiza Interface
             document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
             document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
             document.getElementById('v-desp').innerText = fmt(data.resumo?.total_desp);
@@ -191,7 +209,6 @@
             const saldoFinal = data.saldo?.length > 0 ? data.saldo[data.saldo.length - 1] : 0;
             document.getElementById('v-proj').innerText = fmt(saldoFinal);
 
-            // Gráfico
             if(chart) chart.destroy();
             const ctx = document.getElementById('mainChart').getContext('2d');
             chart = new Chart(ctx, {
@@ -201,14 +218,8 @@
                         { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 's1' },
                         { type: 'bar', label: 'Despesas', data: data.despesas, backgroundColor: '#ff4b4b', stack: 's1' },
                         { 
-                            type: 'line', 
-                            label: 'Saldo Acumulado', 
-                            data: data.saldo, 
-                            borderColor: '#3498db', 
-                            borderWidth: 3, 
-                            pointRadius: 4, 
-                            tension: 0.1, 
-                            fill: false 
+                            type: 'line', label: 'Saldo Acumulado', data: data.saldo, 
+                            borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.1, fill: false 
                         }
                     ]
                 },
@@ -223,14 +234,12 @@
                 }
             });
         } catch (err) {
-            console.error(err);
+            console.error("Erro na sincronização:", err);
         }
     }
 
-    // Inicialização
     document.addEventListener('DOMContentLoaded', () => {
-        ajustarDatas();
-        sincronizar();
+        ajustarDatas(); // Configura o padrão 7 dias e esconde o calendário
     });
 </script>
 </body>
