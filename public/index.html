@@ -2,44 +2,43 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Fluxo de Caixa JRM</title>
+    <title>Fluxo de Caixa | Dashboard JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #f8f9fb; --side: #ffffff; --card: #ffffff; --txt: #31333F; --border: #e6e9ef; --accent: #FF4B4B; }
-        .dark-theme { --bg: #0e1117; --side: #262730; --card: #262730; --txt: #fafafa; --border: #434343; }
+        :root { --bg: #f4f7f9; --side: #ffffff; --card: #ffffff; --txt: #1e293b; --border: #e2e8f0; --accent: #ef4444; }
+        .dark-theme { --bg: #0f172a; --side: #1e293b; --card: #1e293b; --txt: #f8fafc; --border: #334155; }
 
-        body { font-family: 'Source Sans Pro', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--txt); height: 100vh; overflow: hidden; }
+        body { font-family: 'Inter', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--txt); height: 100vh; overflow: hidden; }
         
-        .sidebar { width: 320px; background: var(--side); padding: 2.5rem 1.5rem; border-right: 1px solid var(--border); box-sizing: border-box; }
-        .main-content { flex: 1; padding: 2.5rem 3.5rem; overflow-y: auto; }
+        .sidebar { width: 300px; background: var(--side); padding: 2rem 1.5rem; border-right: 1px solid var(--border); box-sizing: border-box; }
+        .main { flex: 1; padding: 2rem 3rem; overflow-y: auto; }
 
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-        h1 { margin: 0; font-size: 2.2rem; font-weight: 700; position: relative; }
-        h1::after { content: ''; display: block; width: 50px; height: 4px; background: var(--accent); margin-top: 5px; }
+        h1 { margin: 0; font-size: 2rem; font-weight: 700; border-left: 5px solid var(--accent); padding-left: 15px; }
         
-        .theme-toggle { background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 45px; height: 45px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .theme-toggle { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px; cursor: pointer; font-size: 1.2rem; }
 
         .field { margin-bottom: 1.5rem; }
-        label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--txt); opacity: 0.6; display: block; margin-bottom: 0.6rem; }
-        select, input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; }
+        label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; opacity: 0.6; display: block; margin-bottom: 0.5rem; }
+        select, input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--txt); font-size: 0.9rem; outline: none; }
 
-        .btn { background: var(--accent); color: #fff; border: none; padding: 16px; width: 100%; border-radius: 10px; font-weight: 700; cursor: pointer; margin-top: 10px; transition: 0.2s; }
-        .btn:hover { filter: brightness(1.1); }
+        .btn { background: var(--accent); color: #fff; border: none; padding: 15px; width: 100%; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
         
-        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-bottom: 2.5rem; }
-        .card { background: var(--card); padding: 22px; border-radius: 15px; border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
-        .val { font-size: 1.5rem; font-weight: 700; margin-top: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+        .card { background: var(--card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .val { font-size: 1.4rem; font-weight: 700; margin-top: 8px; }
 
-        .chart-container { background: var(--card); padding: 25px; border-radius: 15px; border: 1px solid var(--border); height: 480px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
-        #custom-range { display: none; margin-top: 10px; }
+        .chart-box { background: var(--card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); height: 450px; }
+        #custom-dates { display: none; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
     <div class="field">
-        <label>Unidade de Negócio</label>
+        <label>Empresa Selecionada</label>
         <select id="emp">
             <option value="Juvenal Transportes">Juvenal Transportes</option>
             <option value="JRM Transportes">JRM Transportes</option>
@@ -48,104 +47,118 @@
         </select>
     </div>
     <div class="field">
-        <label>Horizonte Temporal</label>
-        <select id="per" onchange="checkPer(this.value)">
+        <label>Período de Análise</label>
+        <select id="per" onchange="toggleCustom(this.value)">
             <option value="7">Próximos 7 dias</option>
             <option value="15">Próximos 15 dias</option>
             <option value="30">Próximos 30 dias</option>
-            <option value="custom">Período Personalizado</option>
+            <option value="custom">Intervalo Personalizado</option>
         </select>
-        <div id="custom-range">
-            <input type="date" id="ini" style="margin-bottom:8px">
-            <input type="date" id="fim">
+        <div id="custom-dates">
+            <input type="date" id="d1" style="margin-bottom:5px">
+            <input type="date" id="d2">
         </div>
     </div>
-    <button class="btn" onclick="load()">Sincronizar Dados</button>
+    <button class="btn" onclick="fetchData()">Sincronizar Dados</button>
 </div>
 
-<div class="main-content">
+<div class="main">
     <div class="header">
         <h1>Fluxo de Caixa</h1>
-        <button class="theme-toggle" onclick="toggleT()" id="tIcon">🌙</button>
+        <button class="theme-toggle" onclick="toggleTheme()" id="tIcon">🌙</button>
     </div>
 
     <div class="grid">
-        <div class="card" style="border-top: 4px solid #8b5cf6;"><label>Saldo em Bancos</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
-        <div class="card" style="border-top: 4px solid #10b981;"><label>Receitas</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
-        <div class="card" style="border-top: 4px solid #ef4444;"><label>Despesas</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
-        <div class="card" id="c4" style="border-top: 4px solid #3b82f6;"><label>Projeção Final</label><div id="v4" class="val">R$ 0,00</div></div>
+        <div class="card"><label>Disponibilidade</label><div id="v1" class="val" style="color:#8b5cf6">R$ 0,00</div></div>
+        <div class="card"><label>Receitas</label><div id="v2" class="val" style="color:#10b981">R$ 0,00</div></div>
+        <div class="card"><label>Despesas</label><div id="v3" class="val" style="color:#ef4444">R$ 0,00</div></div>
+        <div class="card"><label>Projeção</label><div id="v4" class="val">R$ 0,00</div></div>
     </div>
 
-    <div class="chart-container"><canvas id="chart"></canvas></div>
+    <div class="chart-box"><canvas id="mainChart"></canvas></div>
 </div>
 
 <script>
     let chart = null;
-    function toggleT() {
+
+    function toggleTheme() {
         document.body.classList.toggle('dark-theme');
         document.getElementById('tIcon').innerText = document.body.classList.contains('dark-theme') ? "☀️" : "🌙";
-        if(chart) load();
+        if(chart) fetchData();
     }
 
-    function checkPer(v) { document.getElementById('custom-range').style.display = v === 'custom' ? 'block' : 'none'; }
+    function toggleCustom(v) { document.getElementById('custom-dates').style.display = v === 'custom' ? 'block' : 'none'; }
 
-    async function load() {
+    async function fetchData() {
         const p = document.getElementById('per').value;
-        let d1, d2;
+        let start, end;
+
         if(p === 'custom') {
-            d1 = document.getElementById('ini').value;
-            d2 = document.getElementById('fim').value;
+            start = document.getElementById('d1').value;
+            end = document.getElementById('d2').value;
         } else {
-            const d = new Date();
-            d1 = d.toISOString().split('T')[0];
-            d.setDate(d.getDate() + parseInt(p));
-            d2 = d.toISOString().split('T')[0];
+            const today = new Date();
+            start = today.toISOString().split('T')[0];
+            today.setDate(today.getDate() + parseInt(p));
+            end = today.toISOString().split('T')[0];
         }
 
-        if(!d1 || !d2) return;
+        if(!start || !end) return;
 
-        const res = await fetch(`/api/dados?empresa=${encodeURIComponent(document.getElementById('emp').value)}&data_inicio=${d1}&data_fim=${d2}`);
-        const data = await res.json();
+        try {
+            const emp = encodeURIComponent(document.getElementById('emp').value);
+            const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=${start}&data_fim=${end}`);
+            const data = await res.json();
 
-        const f = (v) => "R$ " + v.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-        document.getElementById('v1').innerText = f(data.saldo_bancos);
-        document.getElementById('v2').innerText = f(data.total_receber);
-        document.getElementById('v3').innerText = f(data.total_pagar);
-        
-        const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
-        const v4 = document.getElementById('v4');
-        v4.innerText = f(proj);
-        v4.style.color = proj >= 0 ? "#10b981" : "#ef4444";
+            const fmt = (v) => "R$ " + v.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+            document.getElementById('v1').innerText = fmt(data.saldo_bancos);
+            document.getElementById('v2').innerText = fmt(data.total_receber);
+            document.getElementById('v3').innerText = fmt(data.total_pagar);
+            
+            const proj = data.saldo_bancos + data.total_receber - data.total_pagar;
+            const v4 = document.getElementById('v4');
+            v4.innerText = fmt(proj);
+            v4.style.color = proj >= 0 ? "#10b981" : "#ef4444";
 
-        const ctx = document.getElementById('chart').getContext('2d');
+            renderChart(data);
+        } catch (e) {
+            console.error("Erro na busca:", e);
+        }
+    }
+
+    function renderChart(data) {
+        const ctx = document.getElementById('mainChart').getContext('2d');
         if(chart) chart.destroy();
-        const isD = document.body.classList.contains('dark-theme');
+
+        const isDark = document.body.classList.contains('dark-theme');
 
         chart = new Chart(ctx, {
             data: {
                 labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
                 datasets: [
-                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981', borderRadius: 5 },
-                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444', borderRadius: 5 },
-                    { type: 'line', label: 'Saldo Acumulado', data: data.acumulado, borderColor: '#3b82f6', borderWidth: 3, tension: 0.4, fill: false, pointRadius: 2 }
+                    { type: 'bar', label: 'Receitas', data: data.receber, backgroundColor: '#10b981', borderRadius: 4 },
+                    { type: 'bar', label: 'Despesas', data: data.pagar, backgroundColor: '#ef4444', borderRadius: 4 },
+                    { type: 'line', label: 'Saldo Projetado', data: data.acumulado, borderColor: '#3b82f6', borderWidth: 3, tension: 0.3, pointRadius: 3 }
                 ]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { 
-                    legend: { 
-                        position: 'bottom', // Legenda movida para baixo
-                        labels: { color: isD ? '#fff' : '#333', padding: 20 } 
-                    } 
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom', // Legenda na parte inferior
+                        labels: { color: isDark ? '#cbd5e1' : '#475569', font: { size: 12, weight: '600' } }
+                    }
                 },
                 scales: {
-                    x: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { display: false } },
-                    y: { ticks: { color: isD ? '#94a3b8' : '#64748b' }, grid: { color: isD ? '#334155' : '#f1f5f9' } }
+                    x: { ticks: { color: isDark ? '#94a3b8' : '#64748b' }, grid: { display: false } },
+                    y: { ticks: { color: isDark ? '#94a3b8' : '#64748b' }, grid: { color: isDark ? '#334155' : '#f1f5f9' } }
                 }
             }
         });
     }
-    window.onload = load;
+
+    window.onload = fetchData;
 </script>
 </body>
 </html>
