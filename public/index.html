@@ -2,29 +2,38 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>JRM Financeiro - Estilo Streamlit</title>
+    <title>Fluxo de Caixa</title>
     <style>
-        :root { --st-bg: #ffffff; --st-sidebar: #f0f2f6; --st-primary: #ff4b4b; --st-text: #31333f; }
-        body { font-family: "Source Sans Pro", sans-serif; background: var(--st-bg); color: var(--st-text); margin: 0; display: flex; }
-        
-        /* Sidebar lateral idêntica ao Streamlit */
-        .sidebar { width: 300px; background: var(--st-sidebar); height: 100vh; padding: 40px 20px; position: fixed; border-right: 1px solid #ddd; }
-        .main { margin-left: 340px; padding: 40px; width: 100%; max-width: 900px; }
-        
-        h1 { font-size: 2.5rem; margin-bottom: 30px; border-bottom: 2px solid var(--st-primary); padding-bottom: 10px; }
-        .st-card { background: white; padding: 20px; border-radius: 10px; border: 1px solid #e6e9ef; margin-bottom: 20px; box-shadow: 2px 2px 5px rgba(0,0,0,0.02); }
-        .st-metric-label { font-size: 0.9rem; color: #5f6368; text-transform: uppercase; }
-        .st-metric-value { font-size: 1.8rem; font-weight: bold; margin-top: 5px; }
-        
-        label { display: block; margin: 15px 0 5px; font-weight: bold; font-size: 0.9rem; }
-        select, input { width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 10px; }
-        button { width: 100%; background: var(--st-primary); color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
-        
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { text-align: left; padding: 15px; border-bottom: 2px solid #eee; background: #f9f9f9; }
-        td { padding: 12px; border-bottom: 1px solid #eee; }
-        .pos { color: #27ae60; } .neg { color: #e74c3c; }
-    </style>
+    :root {
+        --primary: #FF4B4B; /* Vermelho Streamlit */
+        --bg: #f0f2f6;
+        --sidebar: #f8f9fb;
+    }
+    body { font-family: 'Source Sans Pro', sans-serif; background: var(--bg); margin: 0; display: flex; }
+    
+    /* Barra Lateral */
+    .sidebar { width: 300px; background: var(--sidebar); height: 100vh; padding: 20px; border-right: 1px solid #ddd; }
+    
+    /* Área Principal */
+    .main-content { flex: 1; padding: 40px; }
+    
+    /* Cards de Saldo */
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        border-left: 5px solid var(--primary);
+    }
+    .metric-value { font-size: 2rem; font-weight: bold; color: #31333F; }
+    
+    /* Tabela */
+    table { width: 100%; background: white; border-collapse: collapse; margin-top: 20px; border-radius: 8px; overflow: hidden; }
+    th { background: #f0f2f6; text-align: left; padding: 12px; color: #555; }
+    td { padding: 12px; border-bottom: 1px solid #eee; }
+    .pos { color: #09ab3b; } /* Verde para Receber */
+    .neg { color: #ff4b4b; } /* Vermelho para Pagar */
+</style>
 </head>
 <body>
 
