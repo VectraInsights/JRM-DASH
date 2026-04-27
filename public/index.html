@@ -2,44 +2,153 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>BPO Financeiro - Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluxo de Caixa - JRM</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #f4f7fe; --sidebar: #ffffff; --primary: #ff4d4d; --text: #2b3674; --sub: #a3aed0; }
-        body.dark { --bg: #0b1437; --sidebar: #111c44; --text: #ffffff; --sub: #8f9bba; }
-        
-        body { font-family: 'Public Sans', sans-serif; margin: 0; display: flex; background: var(--bg); color: var(--text); height: 100vh; }
-        
-        .sidebar { width: 290px; background: var(--sidebar); padding: 40px 25px; border-right: 1px solid rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 25px; }
-        .logo { font-weight: 800; font-size: 22px; color: var(--primary); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
-        
-        .main { flex: 1; padding: 30px 40px; overflow-y: auto; }
-        
-        .label { font-size: 12px; font-weight: 700; color: var(--sub); text-transform: uppercase; margin-bottom: 8px; display: block; }
-        select, input { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #e0e5f2; background: transparent; color: var(--text); font-weight: 600; margin-bottom: 15px; }
-        
-        .btn-sync { background: var(--primary); color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: 0.3s; margin-top: 10px; }
-        .btn-sync:hover { opacity: 0.8; transform: translateY(-2px); }
+        :root {
+            --bg-dark: #0e1117;
+            --sidebar-bg: #262730;
+            --text-main: #ffffff;
+            --text-sub: #a3aed0;
+            --accent-red: #ff4b4b;
+            --accent-green: #00c092;
+            --accent-blue: #3b82f6;
+        }
 
-        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        
-        .cards-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
-        .card { background: var(--sidebar); padding: 20px; border-radius: 20px; box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.02); border: 1px solid rgba(0,0,0,0.02); }
-        .card-val { font-size: 24px; font-weight: 800; margin-top: 5px; }
-        
-        .chart-container { background: var(--sidebar); padding: 30px; border-radius: 20px; height: 450px; position: relative; }
-        
-        .theme-toggle { cursor: pointer; font-size: 24px; background: none; border: none; }
+        body {
+            font-family: "Source Sans Pro", sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* BARRA LATERAL */
+        .sidebar {
+            width: 320px;
+            background-color: var(--sidebar-bg);
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .sidebar h1 {
+            font-size: 1.5rem;
+            margin-bottom: 30px;
+            color: var(--accent-red);
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            color: var(--text-sub);
+        }
+
+        select, input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background-color: var(--bg-dark);
+            color: white;
+            font-size: 1rem;
+        }
+
+        .btn-sync {
+            background-color: var(--accent-red);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-sync:hover {
+            opacity: 0.8;
+            transform: translateY(-2px);
+        }
+
+        /* ÁREA PRINCIPAL */
+        .content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .header {
+            margin-bottom: 40px;
+        }
+
+        .header h2 {
+            font-size: 2rem;
+            margin: 0;
+            border-bottom: 2px solid var(--accent-red);
+            display: inline-block;
+            padding-bottom: 5px;
+        }
+
+        /* CARDS */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background-color: var(--sidebar-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 5px solid #464855;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .card.banco { border-left-color: #8b5cf6; }
+        .card.receita { border-left-color: var(--accent-green); }
+        .card.despesa { border-left-color: var(--accent-red); }
+        .card.resultado { border-left-color: var(--accent-blue); }
+
+        .card-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            font-weight: bold;
+            color: var(--text-sub);
+        }
+
+        .card-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        /* GRÁFICO */
+        .chart-box {
+            background-color: var(--sidebar-bg);
+            padding: 30px;
+            border-radius: 15px;
+            height: 500px;
+        }
     </style>
 </head>
 <body>
 
 <aside class="sidebar">
-    <div class="logo">📊 BPO Financeiro</div>
+    <h1>Fluxo de Caixa JRM</h1>
     
-    <div>
-        <span class="label">Unidade de Negócio</span>
+    <div class="form-group">
+        <label>Selecione a Empresa</label>
         <select id="empresa">
             <option value="Juvenal Transportes">Juvenal Transportes</option>
             <option value="JRM Transportes">JRM Transportes</option>
@@ -48,95 +157,145 @@
         </select>
     </div>
 
-    <div>
-        <span class="label">Início do Horizonte</span>
-        <input type="date" id="data_ini">
-        <span class="label">Fim do Horizonte</span>
-        <input type="date" id="data_fim">
+    <div class="form-group">
+        <label>Escolha o intervalo</label>
+        <select id="intervalo" onchange="checkCustom()">
+            <option value="7">Próximos 7 dias</option>
+            <option value="15">Próximos 15 dias</option>
+            <option value="30">Próximos 30 dias</option>
+            <option value="custom">Personalizado</option>
+        </select>
     </div>
 
-    <button class="btn-sync" onclick="carregarDados()">Sincronizar Agora</button>
+    <div id="custom-range" style="display: none;">
+        <div class="form-group">
+            <label>Data Inicial</label>
+            <input type="date" id="data_ini">
+        </div>
+        <div class="form-group">
+            <label>Data Final</label>
+            <input type="date" id="data_fim">
+        </div>
+    </div>
+
+    <button class="btn-sync" onclick="fetchData()">Sincronizar Dados</button>
 </aside>
 
-<main class="main">
-    <div class="header-row">
-        <h1 style="font-size: 34px; letter-spacing: -1px;">Fluxo de Caixa</h1>
-        <button class="theme-toggle" onclick="document.body.classList.toggle('dark')">🌙</button>
+<main class="content">
+    <div class="header">
+        <h2>Fluxo de Caixa</h2>
     </div>
 
-    <div class="cards-row">
-        <div class="card" style="border-left: 5px solid #8b5cf6;">
-            <span class="label" style="color: #8b5cf6;">Disponibilidade Imediata</span>
-            <div id="saldo_bancos" class="card-val">R$ 0,00</div>
+    <div class="dashboard-grid">
+        <div class="card banco">
+            <div class="card-title">Saldo em Banco</div>
+            <div id="card-saldo-banco" class="card-value">R$ 0,00</div>
         </div>
-        <div class="card" style="border-left: 5px solid #05cd99;">
-            <span class="label" style="color: #05cd99;">Entradas Previstas</span>
-            <div id="total_receber" class="card-val">R$ 0,00</div>
+        <div class="card receita">
+            <div class="card-title">Receitas</div>
+            <div id="card-receitas" class="card-value" style="color: var(--accent-green);">R$ 0,00</div>
         </div>
-        <div class="card" style="border-left: 5px solid #ee5d50;">
-            <span class="label" style="color: #ee5d50;">Saídas Previstas</span>
-            <div id="total_pagar" class="card-val">R$ 0,00</div>
+        <div class="card despesa">
+            <div class="card-title">Despesas</div>
+            <div id="card-despesas" class="card-value" style="color: var(--accent-red);">R$ 0,00</div>
         </div>
-        <div class="card" style="border-left: 5px solid #01b574;">
-            <span class="label" style="color: #01b574;">Saldo Projetado</span>
-            <div id="saldo_final" class="card-val">R$ 0,00</div>
+        <div class="card resultado">
+            <div class="card-title">Resultado Período</div>
+            <div id="card-resultado" class="card-value">R$ 0,00</div>
         </div>
     </div>
 
-    <div class="chart-container">
+    <div class="chart-box">
         <canvas id="fluxoChart"></canvas>
     </div>
 </main>
 
 <script>
-    let chartInstance = null;
+    let myChart = null;
 
-    // Configura datas iniciais
-    const d = new Date();
-    document.getElementById('data_ini').value = d.toISOString().split('T')[0];
-    d.setDate(d.getDate() + 7);
-    document.getElementById('data_fim').value = d.toISOString().split('T')[0];
+    function checkCustom() {
+        const isCustom = document.getElementById('intervalo').value === 'custom';
+        document.getElementById('custom-range').style.display = isCustom ? 'block' : 'none';
+    }
 
-    async function carregarDados() {
-        const emp = encodeURIComponent(document.getElementById('empresa').value);
-        const ini = document.getElementById('data_ini').value;
-        const fim = document.getElementById('data_fim').value;
+    async function fetchData() {
+        const empresa = document.getElementById('empresa').value;
+        const intervalo = document.getElementById('intervalo').value;
+        let d_ini, d_fim;
 
-        const res = await fetch(`/api/dados?empresa=${emp}&data_inicio=${ini}&data_fim=${fim}`);
-        const data = await res.json();
+        if (intervalo === 'custom') {
+            d_ini = document.getElementById('data_ini').value;
+            d_fim = document.getElementById('data_fim').value;
+        } else {
+            const hoje = new Date();
+            const fim = new Date();
+            fim.setDate(hoje.getDate() + parseInt(intervalo));
+            d_ini = hoje.toISOString().split('T')[0];
+            d_fim = fim.toISOString().split('T')[0];
+        }
 
-        const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        
-        document.getElementById('saldo_bancos').innerText = brl(data.saldo_bancos);
-        document.getElementById('total_receber').innerText = brl(data.total_receber);
-        document.getElementById('total_pagar').innerText = brl(data.total_pagar);
-        document.getElementById('saldo_final').innerText = brl(data.saldo_bancos + data.total_receber - data.total_pagar);
+        if (!d_ini || !d_fim) return alert("Selecione as datas corretamente.");
 
+        const response = await fetch(`/api/dados?empresa=${encodeURIComponent(empresa)}&data_inicio=${d_ini}&data_fim=${d_fim}`);
+        const data = await response.json();
+
+        // Atualizar Cards
+        const fmt = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        document.getElementById('card-saldo-banco').innerText = fmt(data.cards.saldo_banco);
+        document.getElementById('card-receitas').innerText = fmt(data.cards.total_receitas);
+        document.getElementById('card-despesas').innerText = fmt(data.cards.total_despesas);
+        document.getElementById('card-resultado').innerText = fmt(data.cards.resultado_periodo);
+
+        // Atualizar Gráfico
         const ctx = document.getElementById('fluxoChart').getContext('2d');
-        if (chartInstance) chartInstance.destroy();
+        if (myChart) myChart.destroy();
 
-        chartInstance = new Chart(ctx, {
+        myChart = new Chart(ctx, {
             data: {
-                labels: data.datas.map(d => d.split('-').reverse().slice(0,2).join('/')),
+                labels: data.labels,
                 datasets: [
-                    { type: 'bar', label: 'Entradas', data: data.receber, backgroundColor: '#05cd99', borderRadius: 5 },
-                    { type: 'bar', label: 'Saídas', data: data.pagar, backgroundColor: '#ee5d50', borderRadius: 5 },
-                    { type: 'line', label: 'Saldo Projetado', data: data.acumulado, borderColor: '#4318ff', borderWidth: 4, tension: 0.4, fill: false }
+                    {
+                        type: 'bar',
+                        label: 'Receitas',
+                        data: data.receitas,
+                        backgroundColor: '#00c092',
+                        borderRadius: 5
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Despesas',
+                        data: data.despesas,
+                        backgroundColor: '#ff4b4b',
+                        borderRadius: 5
+                    },
+                    {
+                        type: 'line',
+                        label: 'Saldo Projetado',
+                        data: data.saldo_projetado,
+                        borderColor: '#3b82f6',
+                        borderWidth: 3,
+                        pointRadius: 4,
+                        tension: 0.3,
+                        fill: false
+                    }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { position: 'top', align: 'end' } },
-                scales: { 
-                    y: { grid: { drawBorder: false, color: 'rgba(0,0,0,0.05)' } },
-                    x: { grid: { display: false } }
+                scales: {
+                    y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#a3aed0' } },
+                    x: { grid: { display: false }, ticks: { color: '#a3aed0' } }
+                },
+                plugins: {
+                    legend: { position: 'top', labels: { color: 'white', font: { weight: 'bold' } } }
                 }
             }
         });
     }
 
-    window.onload = carregarDados;
+    // Carregamento inicial
+    window.onload = fetchData;
 </script>
 </body>
 </html>
