@@ -18,10 +18,9 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# 1. CLIENTE HTTP GLOBAL: Reutiliza conexões TCP (essencial para baixar o tempo no F5)
-# Definimos limites para não sobrecarregar as APIs e evitar timeouts
+# CLIENTE HTTP GLOBAL
 limits = httpx.Limits(max_keepalive_connections=10, max_connections=50)
-http_client = httpx.AsyncClient(limits=limits, timeout=10)
+http_client = httpx.AsyncClient(limits=limits, timeout=15) # Aumentado levemente para evitar timeouts em renovações
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -33,47 +32,72 @@ def remover_acentos(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-async def obter_token_async(empresa_nome):
+# --- LOGICA DE TOKEN ---
+
+async def renovar_e_obter_novo_token(empresa_nome):
+    """Força a renovação do token no Conta Azul e atualiza o Supabase"""
     try:
+        print(f"DEBUG: Renovando token para {empresa_nome}...")
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).single().execute()
         if not res.data: return None
-        
+
         cid = os.environ.get("CONTA_AZUL_CLIENT_ID")
         cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
         auth_b64 = base64.b64encode(f"{cid}:{cs}".encode()).decode()
-        
+
         r = await http_client.post(
             "https://auth.contaazul.com/oauth2/token",
             headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "refresh_token", "refresh_token": res.data["refresh_token"]}
         )
-        
+
         if r.status_code == 200:
             dados = r.json()
-            if dados.get("refresh_token"):
-                supabase.table("tokens").update({"refresh_token": dados["refresh_token"]}).eq("empresa", empresa_nome).execute()
+            # Salva o novo access_token e o novo refresh_token (importante!)
+            supabase.table("tokens").update({
+                "access_token": dados["access_token"], 
+                "refresh_token": dados["refresh_token"]
+            }).eq("empresa", empresa_nome).execute()
+            
+            print(f"DEBUG: Token renovado com sucesso para {empresa_nome}.")
             return dados["access_token"]
+        
+        print(f"DEBUG: Falha na renovação ({r.status_code}): {r.text}")
         return None
     except Exception as e:
-        print(f"Erro token {empresa_nome}: {e}")
+        print(f"DEBUG: Erro crítico ao renovar token: {e}")
         return None
 
-async def buscar_v2_async(endpoint, token, params):
+async def obter_token_atual(empresa_nome):
+    """Tenta pegar o access_token já salvo antes de tentar renovar"""
+    res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).single().execute()
+    if res.data and res.data.get("access_token"):
+        return res.data["access_token"]
+    return await renovar_e_obter_novo_token(empresa_nome)
+
+# --- REQUISIÇÕES COM RETRY AUTOMÁTICO ---
+
+async def buscar_v2_async(endpoint, empresa_nome, params):
+    token = await obter_token_atual(empresa_nome)
     itens_acumulados = []
-    headers = {"Authorization": f"Bearer {token}"}
-    # 2. FILTRO DE CAMPOS: Pede apenas o que o dashboard usa para reduzir o peso do JSON
-    p = {
-        **params, 
-        "status": "EM_ABERTO", 
-        "tamanho_pagina": 100, 
-        "pagina": 1,
-        "fields": "data_vencimento,total,pago" 
-    }
     
-    while True:
+    p = {**params, "status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1, "fields": "data_vencimento,total,pago"}
+    
+    tentativas = 0
+    while tentativas < 2:
+        headers = {"Authorization": f"Bearer {token}"}
         try:
             res = await http_client.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=p)
+            
+            if res.status_code == 401: # TOKEN EXPIRADO
+                print(f"DEBUG: Token expirado em {endpoint} para {empresa_nome}. Tentando renovar...")
+                token = await renovar_e_obter_novo_token(empresa_nome)
+                if not token: break
+                tentativas += 1
+                continue # Tenta novamente com o novo token
+            
             if res.status_code != 200: break
+            
             dados = res.json()
             itens = dados.get('itens', [])
             if not itens: break
@@ -85,15 +109,28 @@ async def buscar_v2_async(endpoint, token, params):
             
             if len(itens) < 100: break
             p["pagina"] += 1
-        except: break
+            tentativas = 0 # Reseta tentativas para a próxima página
+            
+        except Exception as e:
+            print(f"Erro na busca v2: {e}")
+            break
     return itens_acumulados
 
-async def buscar_saldos_async(token):
+async def buscar_saldos_async(token, empresa_nome):
     headers = {"Authorization": f"Bearer {token}"}
     saldo_total = 0
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB"]
+    
     try:
         res = await http_client.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers)
+        
+        # Se der 401 aqui, renovamos. Como esta função é chamada via gather, 
+        # o ideal é que obter_token_atual já tenha resolvido, mas tratamos por segurança:
+        if res.status_code == 401:
+            novo_token = await renovar_e_obter_novo_token(empresa_nome)
+            headers = {"Authorization": f"Bearer {novo_token}"}
+            res = await http_client.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers)
+
         if res.status_code == 200:
             contas = res.json().get('itens', [])
             tarefas = []
@@ -106,19 +143,23 @@ async def buscar_saldos_async(token):
             for r in respostas:
                 if r.status_code == 200:
                     saldo_total += r.json().get('saldo_atual', 0)
-    except: pass
+    except Exception as e:
+        print(f"Erro saldos {empresa_nome}: {e}")
     return saldo_total
 
+# --- PROCESSAMENTO PRINCIPAL ---
+
 async def processar_empresa(emp_nome, data_inicio, data_fim):
-    token = await obter_token_async(emp_nome)
+    token = await obter_token_atual(emp_nome)
     if not token: return 0, [], []
     
     params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
     
+    # Passamos o nome da empresa para as funções lidarem com o refresh se necessário
     res_saldo, res_rec, res_desp = await asyncio.gather(
-        buscar_saldos_async(token),
-        buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", token, params),
-        buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", token, params)
+        buscar_saldos_async(token, emp_nome),
+        buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", emp_nome, params),
+        buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", emp_nome, params)
     )
     return res_saldo, res_rec, res_desp
 
@@ -137,8 +178,6 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     else:
         empresas_nomes = [empresa]
 
-    # 3. SEMAPHORE: Evita que o Vercel ou a Conta Azul bloqueiem por excesso de concorrência
-    # Se você tiver muitas empresas, isso mantém a estabilidade
     sem = asyncio.Semaphore(10) 
     
     async def sem_processar(nome):
