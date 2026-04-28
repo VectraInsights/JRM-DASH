@@ -40,13 +40,6 @@
             transition: background-color 0.3s ease;
         }
 
-        /* CORREÇÃO DO CORTE BRANCO NOS SELECTS/INPUTS */
-        select:focus, input:focus {
-            outline: none !important;
-            box-shadow: 0 0 0 2px var(--red) !important; /* Destaque sutil em vez do corte branco */
-            border-color: transparent !important;
-        }
-
         #loading-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -97,25 +90,25 @@
             transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* CORREÇÃO DA SETINHA (TOGGLE BTN) */
+        /* ESTILO DA SETINHA - VOLTANDO AO ORIGINAL DISCRETO */
         .toggle-btn {
             position: fixed; 
             top: 25px; 
-            left: 280px; /* Ajustado para ficar na borda */
-            background: var(--red); 
+            left: 285px; 
+            background: var(--sidebar); 
             border: 1px solid var(--border);
-            color: white; 
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
+            color: var(--text); 
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
             cursor: pointer; 
             z-index: 1002; 
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            font-size: 14px;
         }
 
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
@@ -131,7 +124,6 @@
             color: var(--text); padding: 10px;
             border-radius: 6px; margin-bottom: 15px;
             box-sizing: border-box; font-size: 0.9rem;
-            appearance: none; /* Remove seta padrão do Windows no select */
         }
 
         .bank-card {
@@ -141,14 +133,19 @@
             margin-bottom: 10px;
             border-left: 4px solid var(--blue);
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
         }
-        .bank-card:hover { transform: translateX(5px); }
         .bank-name { font-size: 0.7rem; text-transform: uppercase; opacity: 0.7; font-weight: bold; }
         .bank-value { font-size: 1rem; font-weight: 600; margin-top: 3px; }
 
-        h1 { margin-top: 0; font-size: 1.8rem; margin-bottom: 25px; border-bottom: 2px solid var(--red); display: inline-block; padding-bottom: 5px;}
-        .section-label { font-weight: bold; opacity: 0.8; margin-bottom: 15px; display: block; font-size: 0.8rem; letter-spacing: 1px; }
+        h1 { 
+            margin-top: 0; 
+            font-size: 1.8rem; 
+            margin-bottom: 25px; 
+            border-bottom: 2px solid var(--red); 
+            display: inline-block; 
+            padding-bottom: 5px;
+            margin-left: 50px; /* MOVE O TÍTULO PARA A DIREITA */
+        }
 
         .cards { 
             display: grid; 
@@ -259,8 +256,6 @@
 
     function toggleSidebar() {
         document.body.classList.toggle('sidebar-closed');
-        const btn = document.getElementById('btnToggle');
-        // A lógica de rotação está no CSS agora, aqui apenas mantemos o clique funcional
     }
 
     function toggleTheme() {
@@ -295,16 +290,17 @@
     function ajustarDatas() {
         const intervaloSelect = document.getElementById('intervalo');
         const containerDatas = document.getElementById('container-datas');
+        const hoje = new Date().toISOString().split('T')[0];
+        
         if (intervaloSelect.value === 'personalizado') {
             containerDatas.style.display = 'block';
         } else {
             containerDatas.style.display = 'none';
             const dias = parseInt(intervaloSelect.value);
-            const hoje = new Date();
-            const futuro = new Date();
-            futuro.setDate(hoje.getDate() + dias);
-            document.getElementById('data_inicio').value = hoje.toISOString().split('T')[0];
-            document.getElementById('data_fim').value = futuro.toISOString().split('T')[0];
+            const dataInicio = new Date();
+            dataInicio.setDate(dataInicio.getDate() - dias);
+            document.getElementById('data_inicio').value = dataInicio.toISOString().split('T')[0];
+            document.getElementById('data_fim').value = hoje;
             sincronizar();
         }
     }
@@ -322,7 +318,7 @@
             const data = await res.json();
             renderizarDashboard(data);
         } catch (err) {
-            alert(err.message === "Sessão Expirada" ? "⚠️ Token expirado." : "Erro ao buscar dados.");
+            alert("Erro ao buscar dados.");
         } finally {
             setTimeout(() => { loader.style.display = 'none'; }, 600);
         }
@@ -333,10 +329,9 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // 1. Renderizar Bancos na SIDEBAR
+        // SALDOS BANCÁRIOS
         const containerBancos = document.getElementById('cards-bancos');
         containerBancos.innerHTML = '';
-        
         let bancos = data.bancos || data.saldos_por_banco || [];
         
         if (bancos.length > 0) {
@@ -351,10 +346,9 @@
                 containerBancos.appendChild(card);
             });
         } else {
-            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo bancário disponível.</div>';
+            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo disponível.</div>';
         }
 
-        // 2. Resumo Geral
         document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
         document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
         document.getElementById('v-desp').innerText = fmt(-Math.abs(data.resumo?.total_desp));
@@ -364,7 +358,6 @@
         elRes.innerText = fmt(saldoFinal);
         elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
 
-        // 3. Gráfico
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -388,22 +381,12 @@
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: { 
-                    legend: { labels: { color: textColor }, position: 'bottom' }
-                },
+                plugins: { legend: { labels: { color: textColor }, position: 'bottom' } },
                 scales: {
-                    x: { 
-                        stacked: true, 
-                        ticks: { color: textColor }, 
-                        grid: { display: false } 
-                    },
+                    x: { stacked: true, ticks: { color: textColor }, grid: { display: false } },
                     y: { 
                         stacked: true, 
-                        ticks: { 
-                            color: textColor, 
-                            callback: v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) 
-                        },
+                        ticks: { color: textColor, callback: v => fmt(v) },
                         grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } 
                     }
                 }
