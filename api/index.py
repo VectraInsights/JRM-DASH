@@ -17,12 +17,10 @@ http_client: httpx.AsyncClient = None
 # --- GERENCIAMENTO DE CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicialização do Pool de conexões otimizado
     global http_client
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     http_client = httpx.AsyncClient(limits=limits, timeout=30.0)
     yield
-    # Fechamento seguro do cliente HTTP
     await http_client.aclose()
 
 app = FastAPI(lifespan=lifespan)
@@ -55,7 +53,6 @@ def remover_acentos(texto: str) -> str:
 # --- LÓGICA DE AUTENTICAÇÃO ---
 
 async def renovar_e_obter_novo_token(empresa_nome: str):
-    """Renova o access_token usando o refresh_token do Supabase."""
     try:
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).execute()
         if not res.data:
@@ -105,7 +102,6 @@ async def obter_token_atual(empresa_nome: str):
 # --- BUSCAS NA API CONTA AZUL ---
 
 async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
-    """Busca paginada de lançamentos financeiros em aberto."""
     token = await obter_token_atual(empresa_nome)
     itens_acumulados = []
     
@@ -137,7 +133,6 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             if not itens: break
             
             for i in itens:
-                # Extrai apenas YYYY-MM-DD da data
                 dt_venc = i.get("data_vencimento")[:10] if i.get("data_vencimento") else None
                 valor_aberto = i.get('total', 0) - i.get('pago', 0)
                 
@@ -149,7 +144,7 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             
             if len(itens) < 100: break
             p["pagina"] += 1
-            tentativas = 0 # Reseta tentativas ao ter sucesso em uma página
+            tentativas = 0 
             
         except Exception as e:
             print(f"Erro de conexão em {endpoint}: {e}")
@@ -158,7 +153,6 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     return itens_acumulados
 
 async def buscar_saldos_async(token: str, empresa_nome: str):
-    """Busca saldo detalhado por conta bancária."""
     headers = {"Authorization": f"Bearer {token}"}
     lista_bancos = []
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB", "SICREDI", "SANTANDER", "BANCO DO BRASIL", "NUBANK", "INTER"]
@@ -228,14 +222,12 @@ async def listar_empresas():
 @app.get("/api/dados")
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
-        # 1. Definir lista de empresas
         if empresa.lower() == "todas":
             res_emp = supabase.table("tokens").select("empresa").execute()
             empresas_nomes = [r["empresa"] for r in res_emp.data]
         else:
             empresas_nomes = [empresa.strip()]
 
-        # 2. Processamento paralelo com semáforo
         sem = asyncio.Semaphore(5) 
         
         async def sem_processar(nome):
@@ -244,21 +236,31 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
         resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # 3. Consolidação de Saldos Bancários
+        # --- CORREÇÃO DA DUPLICIDADE E LOGO ---
         mapa_bancos = {} 
         for r in resultados:
             for b in r[0]:
-                n, s = b["nome"], b["saldo"]
-                mapa_bancos[n] = mapa_bancos.get(n, 0) + s
+                nome_bruto = b["nome"]
+                # Normaliza para identificar duplicidades (Ex: ITAU)
+                chave_unica = remover_acentos(nome_bruto).upper()
+                saldo = b["saldo"]
+                
+                if chave_unica in mapa_bancos:
+                    mapa_bancos[chave_unica]["saldo"] += saldo
+                else:
+                    # Mantém o nome normalizado como padrão para a logo no front-end
+                    mapa_bancos[chave_unica] = {
+                        "nome": chave_unica.capitalize(), # Ex: Itau
+                        "saldo": saldo
+                    }
 
-        todos_bancos_detalhado = [{"nome": n, "saldo": round(s, 2)} for n, s in mapa_bancos.items()]
-        total_saldo_banco = sum(mapa_bancos.values())
+        todos_bancos_detalhado = [{"nome": v["nome"], "saldo": round(v["saldo"], 2)} for v in mapa_bancos.values()]
+        total_saldo_banco = sum(v["saldo"] for v in mapa_bancos.values())
         
-        # 4. Consolidação de Receitas e Despesas
+        # --- RESTANTE DA LÓGICA MANTIDA ---
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
-        # 5. Processamento com Pandas para Série Temporal
         d_inicio = pd.to_datetime(data_inicio)
         d_fim = pd.to_datetime(data_fim)
         datas_range = pd.date_range(d_inicio, d_fim)
@@ -275,7 +277,6 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
             df["despesas"] = df.index.map(df_p).fillna(0)
 
-        # 6. Cálculo de Fluxo de Caixa Projetado
         df["movimentacao_dia"] = df["receitas"] - df["despesas"]
         df["saldo_projetado"] = total_saldo_banco + df["movimentacao_dia"].cumsum()
         
