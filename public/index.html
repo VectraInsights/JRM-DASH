@@ -136,7 +136,7 @@
         h1 { margin-top: 0; font-size: 1.8rem; margin-bottom: 25px; display: inline-block; padding-bottom: 5px; }
         .section-label { display: block; font-size: 0.75rem; font-weight: bold; opacity: 0.6; margin-bottom: 15px; letter-spacing: 1px; }
         .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .card { background: var(--sidebar); padding: 20px; border-radius: 8px; border-left: 5px solid transparent; box-shadow: var(--card-shadow); }
+        .card { background: var(--sidebar); padding: 20px; border-radius: 8px; border-left: 5px solid transparent; box-shadow: var(--card-shadow); transition: border-color 0.3s ease; }
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 8px; font-weight: bold;}
         .card-val { font-size: 1.4rem; font-weight: 600; }
 
@@ -213,7 +213,7 @@
             <div id="v-desp" class="card-val" style="color:var(--red)">R$ 0,00</div>
         </div>
         <div class="card" id="card-resultado" style="border-left-color: var(--blue);">
-            <div class="card-label">RESULTADO LÍQUIDO</div>
+            <div class="card-label">SALDO PROJETADO</div>
             <div id="v-res" class="card-val">R$ 0,00</div>
         </div>
     </div>
@@ -261,13 +261,9 @@
         } catch (err) { console.error("Erro ao carregar empresas."); }
     }
 
-    /** * CORREÇÃO: Lógica para pegar de Hoje para o Futuro (Hoje + X dias)
-     */
     function ajustarDatas() {
         const intervaloSelect = document.getElementById('intervalo');
         const containerDatas = document.getElementById('container-datas');
-        
-        // Início é sempre HOJE
         const hoje = new Date();
         const dataInicioFormatada = hoje.toISOString().split('T')[0];
 
@@ -276,8 +272,6 @@
         } else {
             containerDatas.style.display = 'none';
             const dias = parseInt(intervaloSelect.value);
-            
-            // Fim é HOJE + X DIAS
             const dataFim = new Date();
             dataFim.setDate(hoje.getDate() + dias);
             const dataFimFormatada = dataFim.toISOString().split('T')[0];
@@ -294,12 +288,7 @@
         const data_inicio = document.getElementById('data_inicio').value;
         const data_fim = document.getElementById('data_fim').value;
 
-        if (!data_inicio || !data_fim) {
-            if (document.getElementById('intervalo').value === 'personalizado') {
-                alert("Por favor, selecione as datas.");
-            }
-            return;
-        }
+        if (!data_inicio || !data_fim) return;
 
         const loader = document.getElementById('loading-overlay');
         loader.style.display = 'flex';
@@ -312,15 +301,15 @@
             renderizarDashboard(data);
         } catch (err) {
             console.error(err);
-            alert("Erro ao buscar dados da API. Verifique a conexão.");
         } finally {
             setTimeout(() => { loader.style.display = 'none'; }, 500);
         }
     }
 
+    // MUDANÇA: Link da Logo do Itaú corrigido
     function getLogoUrl(nome) {
         const n = (nome || '').toUpperCase();
-        if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Itau_unibanco_logo.svg/100px-Itau_unibanco_logo.svg.png';
+        if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/8/8a/Banco_Ita%C3%BA_logo.svg';
         if (n.includes('BRADESCO')) return 'https://banco.bradesco/assets/common/img/favicon.ico';
         if (n.includes('SICOOB')) return 'https://www.sicoob.com.br/favicon.ico';
         return ''; 
@@ -333,20 +322,19 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // FILTRO DE BANCOS
         const bancosPermitidos = ["ITAU", "SICOOB", "BRADESCO"];
         const bancos = data.saldos_por_banco || [];
         const nomesVistos = new Set();
         
+        // MUDANÇA: Ordenação Alfabética (.sort local)
         const bancosFiltrados = bancos.filter(b => {
             const nomeUp = (b.nome || '').toUpperCase();
             const ePermitido = bancosPermitidos.some(p => nomeUp.includes(p));
             if (!ePermitido || nomesVistos.has(nomeUp) || Math.abs(b.saldo) < 0.01) return false;
             nomesVistos.add(nomeUp);
             return true;
-        }).sort((a, b) => b.saldo - a.saldo);
+        }).sort((a, b) => a.nome.localeCompare(b.nome));
 
-        // Lista de bancos
         const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
         if (bancosFiltrados.length > 0) {
@@ -371,20 +359,25 @@
             containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo ativo.</div>';
         }
 
-        // Soma apenas os filtrados
         const resumo = data.resumo || { total_rec: 0, total_desp: 0 };
-        const saldoFiltrado = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
+        const saldoAtualBancos = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
         
-        document.getElementById('v-banco').innerText = fmt(saldoFiltrado);
+        document.getElementById('v-banco').innerText = fmt(saldoAtualBancos);
         document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
         document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
         
-        const liq = (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
+        // MUDANÇA: Lógica do Saldo Projetado (Saldo Atual + Entradas - Saídas)
+        const saldoProjetado = saldoAtualBancos + (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
         const elRes = document.getElementById('v-res');
-        elRes.innerText = fmt(liq);
-        elRes.style.color = liq >= 0 ? 'var(--green)' : 'var(--red)';
+        const cardRes = document.getElementById('card-resultado');
+        
+        elRes.innerText = fmt(saldoProjetado);
+        
+        // MUDANÇA: Cor condicional baseada no saldo projetado
+        const corFinal = saldoProjetado >= 0 ? 'var(--green)' : 'var(--red)';
+        elRes.style.color = corFinal;
+        cardRes.style.borderLeftColor = corFinal;
 
-        // GRÁFICO
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
         chart = new Chart(ctx, {
