@@ -11,15 +11,18 @@ from contextlib import asynccontextmanager
 from supabase import create_client, Client
 from typing import List, Dict, Any
 
+# --- VARIÁVEIS GLOBAIS ---
+http_client: httpx.AsyncClient = None
+
 # --- GERENCIAMENTO DE CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Inicialização do Pool de conexões otimizado
-    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     global http_client
-    http_client = httpx.AsyncClient(limits=limits, timeout=30)
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    http_client = httpx.AsyncClient(limits=limits, timeout=30.0)
     yield
-    # Fechamento seguro
+    # Fechamento seguro do cliente HTTP
     await http_client.aclose()
 
 app = FastAPI(lifespan=lifespan)
@@ -39,7 +42,7 @@ CLIENT_ID = os.environ.get("CONTA_AZUL_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, CLIENT_ID, CLIENT_SECRET]):
-    print("⚠️ AVISO: Variáveis de ambiente incompletas. Verifique seu arquivo .env")
+    print("⚠️ AVISO: Variáveis de ambiente incompletas (.env)")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -134,16 +137,19 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             if not itens: break
             
             for i in itens:
+                # Extrai apenas YYYY-MM-DD da data
+                dt_venc = i.get("data_vencimento")[:10] if i.get("data_vencimento") else None
                 valor_aberto = i.get('total', 0) - i.get('pago', 0)
-                if valor_aberto > 0:
+                
+                if dt_venc and valor_aberto > 0:
                     itens_acumulados.append({
-                        "data": i.get("data_vencimento")[:10], 
+                        "data": dt_venc, 
                         "valor": valor_aberto
                     })
             
             if len(itens) < 100: break
             p["pagina"] += 1
-            tentativas = 0 
+            tentativas = 0 # Reseta tentativas ao ter sucesso em uma página
             
         except Exception as e:
             print(f"Erro de conexão em {endpoint}: {e}")
@@ -173,16 +179,17 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
 
             for conta in contas:
                 nome_raw = conta.get('nome', '')
-                nome_conta = remover_acentos(nome_raw).upper()
-                if any(banco in nome_conta for banco in bancos_permitidos):
+                nome_conta_norm = remover_acentos(nome_raw).upper()
+                
+                if any(banco in nome_conta_norm for banco in bancos_permitidos):
                     url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual"
-                    tarefas.append(http_client.get(url_saldo, headers=headers))
+                    tarefas.append(http_client.get(url_saldo, headers={"Authorization": f"Bearer {token}"}))
                     nomes_contas.append(nome_raw)
             
             if tarefas:
-                respostas = await asyncio.gather(*tarefas)
+                respostas = await asyncio.gather(*tarefas, return_exceptions=True)
                 for i, r in enumerate(respostas):
-                    if r.status_code == 200:
+                    if isinstance(r, httpx.Response) and r.status_code == 200:
                         saldo = r.json().get('saldo_atual', 0)
                         lista_bancos.append({
                             "nome": nomes_contas[i],
@@ -221,12 +228,14 @@ async def listar_empresas():
 @app.get("/api/dados")
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
+        # 1. Definir lista de empresas
         if empresa.lower() == "todas":
             res_emp = supabase.table("tokens").select("empresa").execute()
             empresas_nomes = [r["empresa"] for r in res_emp.data]
         else:
             empresas_nomes = [empresa.strip()]
 
+        # 2. Processamento paralelo com semáforo
         sem = asyncio.Semaphore(5) 
         
         async def sem_processar(nome):
@@ -235,20 +244,21 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
         resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # Consolidar saldos detalhados para o sidebar e cálculo total
+        # 3. Consolidação de Saldos Bancários
         mapa_bancos = {} 
         for r in resultados:
             for b in r[0]:
-                nome = b["nome"]
-                mapa_bancos[nome] = mapa_bancos.get(nome, 0) + b["saldo"]
+                n, s = b["nome"], b["saldo"]
+                mapa_bancos[n] = mapa_bancos.get(n, 0) + s
 
-        todos_bancos_detalhado = [{"nome": n, "saldo": s} for n, s in mapa_bancos.items()]
+        todos_bancos_detalhado = [{"nome": n, "saldo": round(s, 2)} for n, s in mapa_bancos.items()]
         total_saldo_banco = sum(mapa_bancos.values())
         
+        # 4. Consolidação de Receitas e Despesas
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
-        # Processamento com Pandas para Série Temporal
+        # 5. Processamento com Pandas para Série Temporal
         d_inicio = pd.to_datetime(data_inicio)
         d_fim = pd.to_datetime(data_fim)
         datas_range = pd.date_range(d_inicio, d_fim)
@@ -265,6 +275,7 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
             df["despesas"] = df.index.map(df_p).fillna(0)
 
+        # 6. Cálculo de Fluxo de Caixa Projetado
         df["movimentacao_dia"] = df["receitas"] - df["despesas"]
         df["saldo_projetado"] = total_saldo_banco + df["movimentacao_dia"].cumsum()
         
