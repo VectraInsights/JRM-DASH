@@ -35,37 +35,59 @@ def remover_acentos(texto):
 # --- LOGICA DE TOKEN ---
 
 async def renovar_e_obter_novo_token(empresa_nome):
-    """Força a renovação do token no Conta Azul e atualiza o Supabase"""
+    """
+    Força a renovação do token na Conta Azul e garante a atualização 
+    dos dois tokens (Access e Refresh) no Supabase.
+    """
     try:
-        print(f"DEBUG: Renovando token para {empresa_nome}...")
+        print(f"DEBUG: [RENOVAÇÃO] Iniciando processo para: {empresa_nome}")
+        
+        # 1. Busca as credenciais atuais para ter o Refresh Token inicial
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).single().execute()
-        if not res.data: return None
+        if not res.data or not res.data.get("refresh_token"):
+            print(f"ERRO: Nenhum refresh_token encontrado para {empresa_nome} no Supabase.")
+            return None
 
+        # 2. Prepara a autenticação (Client ID e Secret)
         cid = os.environ.get("CONTA_AZUL_CLIENT_ID")
         cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
         auth_b64 = base64.b64encode(f"{cid}:{cs}".encode()).decode()
 
-        r = await http_client.post(
-            "https://auth.contaazul.com/oauth2/token",
-            headers={"Authorization": f"Basic {auth_b64}", "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "refresh_token", "refresh_token": res.data["refresh_token"]}
-        )
+        # 3. Faz a chamada POST para a Conta Azul
+        url_token = "https://auth.contaazul.com/oauth2/token"
+        headers = {
+            "Authorization": f"Basic {auth_b64}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": res.data["refresh_token"]
+        }
 
+        r = await http_client.post(url_token, headers=headers, data=payload)
+
+        # 4. Processa o sucesso
         if r.status_code == 200:
             dados = r.json()
-            # Salva o novo access_token e o novo refresh_token (importante!)
+            novo_access = dados.get("access_token")
+            novo_refresh = dados.get("refresh_token")
+
+            # ATUALIZAÇÃO CRÍTICA: Salva ambos os tokens no banco
             supabase.table("tokens").update({
-                "access_token": dados["access_token"], 
-                "refresh_token": dados["refresh_token"]
+                "access_token": novo_access,
+                "refresh_token": novo_refresh,
+                "updated_at": "now()" # Garante que o timestamp de atualização mude
             }).eq("empresa", empresa_nome).execute()
             
-            print(f"DEBUG: Token renovado com sucesso para {empresa_nome}.")
-            return dados["access_token"]
+            print(f"DEBUG: [SUCESSO] Tokens atualizados para {empresa_nome}.")
+            return novo_access
         
-        print(f"DEBUG: Falha na renovação ({r.status_code}): {r.text}")
-        return None
+        else:
+            print(f"DEBUG: [FALHA] Conta Azul recusou o refresh ({r.status_code}): {r.text}")
+            return None
+
     except Exception as e:
-        print(f"DEBUG: Erro crítico ao renovar token: {e}")
+        print(f"DEBUG: [ERRO CRÍTICO] Falha na função de renovação: {e}")
         return None
 
 async def obter_token_atual(empresa_nome):
