@@ -316,10 +316,6 @@
         const n = (nome || '').toUpperCase();
         if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Itau_unibanco_logo.svg/100px-Itau_unibanco_logo.svg.png';
         if (n.includes('BRADESCO')) return 'https://banco.bradesco/assets/common/img/favicon.ico';
-        if (n.includes('SANTANDER')) return 'https://www.santander.com.br/favicon.ico';
-        if (n.includes('INTER')) return 'https://inter.co/favicon.ico';
-        if (n.includes('NUBANK')) return 'https://nubank.com.br/favicon.ico';
-        if (n.includes('SICREDI')) return 'https://www.sicredi.com.br/favicon.ico';
         if (n.includes('SICOOB')) return 'https://www.sicoob.com.br/favicon.ico';
         return ''; 
     }
@@ -331,19 +327,24 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // LISTA DE BANCOS
-        const containerBancos = document.getElementById('lista-bancos');
-        containerBancos.innerHTML = '';
+        // --- CORREÇÃO: FILTRO RÍGIDO DE BANCOS ---
+        const bancosPermitidos = ["ITAU", "SICOOB", "BRADESCO"];
+        
         const bancos = data.saldos_por_banco || [];
         const nomesVistos = new Set();
         
+        // Filtra apenas os bancos desejados e remove o Banco do Brasil e duplicatas
         const bancosFiltrados = bancos.filter(b => {
             const nomeUp = (b.nome || '').toUpperCase();
-            if (!nomeUp || nomesVistos.has(nomeUp) || nomeUp.includes('BRASIL') || Math.abs(b.saldo) < 0.01) return false;
+            const ePermitido = bancosPermitidos.some(p => nomeUp.includes(p));
+            if (!ePermitido || nomesVistos.has(nomeUp) || Math.abs(b.saldo) < 0.01) return false;
             nomesVistos.add(nomeUp);
             return true;
         }).sort((a, b) => b.saldo - a.saldo);
 
+        // Renderiza lista de bancos na lateral
+        const containerBancos = document.getElementById('lista-bancos');
+        containerBancos.innerHTML = '';
         if (bancosFiltrados.length > 0) {
             bancosFiltrados.forEach(banco => {
                 const logo = getLogoUrl(banco.nome);
@@ -366,9 +367,13 @@
             containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo ativo.</div>';
         }
 
-        // CARDS RESUMO
-        const resumo = data.resumo || { banco: 0, total_rec: 0, total_desp: 0 };
-        document.getElementById('v-banco').innerText = fmt(resumo.banco);
+        // --- CORREÇÃO: CARDS RESUMO (Soma apenas os filtrados) ---
+        const resumo = data.resumo || { total_rec: 0, total_desp: 0 };
+        
+        // O saldo em banco agora é a soma real dos bancos permitidos
+        const saldoFiltrado = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
+        
+        document.getElementById('v-banco').innerText = fmt(saldoFiltrado);
         document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
         document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
         
@@ -435,7 +440,7 @@
                         grid: { display: false } 
                     },
                     y: { 
-                        stacked: false, // Desempilhado para o saldo linear aparecer corretamente sobre as barras
+                        stacked: false,
                         ticks: { 
                             color: textColor, 
                             callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) 
