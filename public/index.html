@@ -72,7 +72,6 @@
             box-shadow: var(--card-shadow);
         }
 
-        /* Sidebar Ajustada */
         .sidebar { 
             width: 300px; padding: 30px 20px; 
             background: var(--sidebar); 
@@ -115,7 +114,6 @@
             box-sizing: border-box; font-size: 0.9rem;
         }
 
-        /* Cards de Bancos na Sidebar */
         .bank-card {
             background: var(--bg);
             padding: 12px;
@@ -123,12 +121,13 @@
             margin-bottom: 10px;
             border-left: 4px solid var(--blue);
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
         }
+        .bank-card:hover { transform: translateX(5px); }
         .bank-name { font-size: 0.7rem; text-transform: uppercase; opacity: 0.7; font-weight: bold; }
         .bank-value { font-size: 1rem; font-weight: 600; margin-top: 3px; }
 
         h1 { margin-top: 0; font-size: 1.8rem; margin-bottom: 25px; border-bottom: 2px solid var(--red); display: inline-block; padding-bottom: 5px;}
-
         .section-label { font-weight: bold; opacity: 0.8; margin-bottom: 15px; display: block; font-size: 0.8rem; letter-spacing: 1px; }
 
         .cards { 
@@ -314,14 +313,16 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // 1. Renderizar Bancos na SIDEBAR
+        // 1. Renderizar Bancos na SIDEBAR (Ordenados Alfabeticamente)
         const containerBancos = document.getElementById('cards-bancos');
         containerBancos.innerHTML = '';
         
-        // Verifica se existem dados de bancos (ajuste o nome da propriedade conforme sua API)
-        const bancos = data.saldos_por_banco || data.bancos || [];
+        let bancos = data.saldos_por_banco || data.bancos || [];
         
         if (bancos.length > 0) {
+            // ORDENAÇÃO ALFABÉTICA
+            bancos.sort((a, b) => a.nome.localeCompare(b.nome));
+
             bancos.forEach(banco => {
                 const card = document.createElement('div');
                 card.className = 'bank-card';
@@ -332,7 +333,7 @@
                 containerBancos.appendChild(card);
             });
         } else {
-            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5;">Nenhum banco encontrado.</div>';
+            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum banco encontrado.</div>';
         }
 
         // 2. Resumo Geral
@@ -345,7 +346,7 @@
         elRes.innerText = fmt(saldoFinal);
         elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
 
-        // 3. Gráfico
+        // 3. Gráfico (Com STACKED: TRUE para empilhamento)
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -374,8 +375,13 @@
                     legend: { labels: { color: textColor }, position: 'bottom' }
                 },
                 scales: {
-                    x: { ticks: { color: textColor }, grid: { display: false } },
+                    x: { 
+                        stacked: true, // EMPILHAMENTO NO EIXO X
+                        ticks: { color: textColor }, 
+                        grid: { display: false } 
+                    },
                     y: { 
+                        stacked: true, // EMPILHAMENTO NO EIXO Y
                         ticks: { 
                             color: textColor, 
                             callback: v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) 
