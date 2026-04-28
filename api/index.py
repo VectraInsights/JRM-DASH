@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import asyncio
@@ -11,41 +11,45 @@ from supabase import create_client
 
 app = FastAPI()
 
+# Configuração de CORS
 app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=["*"], 
-    allow_methods=["*"], 
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
     allow_headers=["*"]
 )
 
-# CLIENTE HTTP GLOBAL
-limits = httpx.Limits(max_keepalive_connections=10, max_connections=50)
-http_client = httpx.AsyncClient(limits=limits, timeout=15)
+# --- CONFIGURAÇÃO CLIENTE HTTP ---
+# Aumentamos o pool para lidar com múltiplas empresas simultâneas
+limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+http_client = httpx.AsyncClient(limits=limits, timeout=20)
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await http_client.aclose()
 
-supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
+# Inicialização Supabase
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def remover_acentos(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-# --- LOGICA DE TOKEN ---
+# --- LÓGICA DE AUTENTICAÇÃO ---
 
 async def renovar_e_obter_novo_token(empresa_nome):
-    """
-    Força a renovação do token na Conta Azul e atualiza no Supabase.
-    """
+    """Renova o access_token usando o refresh_token salvo no Supabase."""
     try:
-        print(f"DEBUG: [RENOVAÇÃO] Iniciando processo para: {empresa_nome}")
+        print(f"DEBUG: [RENOVAÇÃO] Solicitando novo token para: {empresa_nome}")
         
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).single().execute()
-        if not res.data or not res.data.get("refresh_token"):
-            print(f"ERRO: Nenhum refresh_token encontrado para {empresa_nome}.")
+        if not res.data:
+            print(f"ERRO: Empresa {empresa_nome} não encontrada no banco.")
             return None
 
+        refresh_token = res.data.get("refresh_token")
         cid = os.environ.get("CONTA_AZUL_CLIENT_ID")
         cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
         auth_b64 = base64.b64encode(f"{cid}:{cs}".encode()).decode()
@@ -57,7 +61,7 @@ async def renovar_e_obter_novo_token(empresa_nome):
         }
         payload = {
             "grant_type": "refresh_token",
-            "refresh_token": res.data["refresh_token"]
+            "refresh_token": refresh_token
         }
 
         r = await http_client.post(url_token, headers=headers, data=payload)
@@ -70,40 +74,49 @@ async def renovar_e_obter_novo_token(empresa_nome):
             supabase.table("tokens").update({
                 "access_token": novo_access,
                 "refresh_token": novo_refresh,
-                "updated_at": "now()" 
+                "updated_at": datetime.now().isoformat()
             }).eq("empresa", empresa_nome).execute()
             
-            print(f"DEBUG: [SUCESSO] Tokens atualizados para {empresa_nome}.")
             return novo_access
-        
         else:
-            print(f"DEBUG: [FALHA] Conta Azul recusou o refresh ({r.status_code}): {r.text}")
+            print(f"ERRO: Conta Azul recusou refresh ({r.status_code}) para {empresa_nome}")
             return None
 
     except Exception as e:
-        print(f"DEBUG: [ERRO CRÍTICO] Falha na função de renovação: {e}")
+        print(f"DEBUG: [ERRO CRÍTICO RENOVAÇÃO] {e}")
         return None
 
 async def obter_token_atual(empresa_nome):
-    """Tenta pegar o access_token já salvo antes de tentar renovar"""
-    res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).single().execute()
-    if res.data and res.data.get("access_token"):
-        return res.data["access_token"]
+    """Recupera o token atual. Se falhar, tenta renovar."""
+    try:
+        res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).single().execute()
+        if res.data and res.data.get("access_token"):
+            return res.data["access_token"]
+    except:
+        pass
     return await renovar_e_obter_novo_token(empresa_nome)
 
-# --- REQUISIÇÕES COM RETRY AUTOMÁTICO ---
+# --- BUSCAS NA API CONTA AZUL ---
 
 async def buscar_v2_async(endpoint, empresa_nome, params):
+    """Busca paginada de lançamentos financeiros (A Pagar/Receber)."""
     token = await obter_token_atual(empresa_nome)
     itens_acumulados = []
     
-    p = {**params, "status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1, "fields": "data_vencimento,total,pago"}
+    p = {
+        **params, 
+        "status": "EM_ABERTO", 
+        "tamanho_pagina": 100, 
+        "pagina": 1, 
+        "fields": "data_vencimento,total,pago"
+    }
     
     tentativas = 0
     while tentativas < 2:
         headers = {"Authorization": f"Bearer {token}"}
         try:
-            res = await http_client.get(f"https://api-v2.contaazul.com{endpoint}", headers=headers, params=p)
+            url = f"https://api-v2.contaazul.com{endpoint}"
+            res = await http_client.get(url, headers=headers, params=p)
             
             if res.status_code == 401:
                 token = await renovar_e_obter_novo_token(empresa_nome)
@@ -118,24 +131,28 @@ async def buscar_v2_async(endpoint, empresa_nome, params):
             if not itens: break
             
             for i in itens:
-                saldo = i.get('total', 0) - i.get('pago', 0)
-                if saldo > 0:
-                    itens_acumulados.append({"data": i.get("data_vencimento")[:10], "valor": saldo})
+                valor_aberto = i.get('total', 0) - i.get('pago', 0)
+                if valor_aberto > 0:
+                    itens_acumulados.append({
+                        "data": i.get("data_vencimento")[:10], 
+                        "valor": valor_aberto
+                    })
             
             if len(itens) < 100: break
             p["pagina"] += 1
             tentativas = 0 
             
         except Exception as e:
-            print(f"Erro na busca v2 ({endpoint}): {e}")
+            print(f"Erro em {endpoint} para {empresa_nome}: {e}")
             break
+            
     return itens_acumulados
 
 async def buscar_saldos_async(token, empresa_nome):
+    """Busca o saldo consolidado apenas das contas bancárias permitidas."""
     headers = {"Authorization": f"Bearer {token}"}
     saldo_total = 0
-    # FILTRO RESTRITO CONFORME SOLICITADO
-    bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB"]
+    bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB", "SICREDI", "SANTANDER", "BANCO DO BRASIL", "NUBANK", "INTER"]
     
     try:
         res = await http_client.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers)
@@ -150,9 +167,9 @@ async def buscar_saldos_async(token, empresa_nome):
             tarefas = []
             for conta in contas:
                 nome_conta = remover_acentos(conta.get('nome', '')).upper()
-                # Verifica se o nome da conta contém algum dos bancos permitidos
                 if any(banco in nome_conta for banco in bancos_permitidos):
-                    tarefas.append(http_client.get(f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual", headers=headers))
+                    url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual"
+                    tarefas.append(http_client.get(url_saldo, headers=headers))
             
             if tarefas:
                 respostas = await asyncio.gather(*tarefas)
@@ -160,10 +177,10 @@ async def buscar_saldos_async(token, empresa_nome):
                     if r.status_code == 200:
                         saldo_total += r.json().get('saldo_atual', 0)
     except Exception as e:
-        print(f"Erro saldos {empresa_nome}: {e}")
+        print(f"Erro ao buscar saldos de {empresa_nome}: {e}")
     return saldo_total
 
-# --- PROCESSAMENTO PRINCIPAL ---
+# --- ENDPOINTS API ---
 
 async def processar_empresa(emp_nome, data_inicio, data_fim):
     token = await obter_token_atual(emp_nome)
@@ -183,18 +200,20 @@ async def listar_empresas():
     try:
         res = supabase.table("tokens").select("empresa").order("empresa").execute()
         return [{"nome": row["empresa"]} for row in res.data]
-    except: return []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/dados")
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
-    if empresa == "todas":
+    # Definir quais empresas processar
+    if empresa.lower() == "todas":
         res_emp = supabase.table("tokens").select("empresa").execute()
         empresas_nomes = [r["empresa"] for r in res_emp.data]
     else:
-        # Garante que o nome venha sem espaços extras
         empresas_nomes = [empresa.strip()]
 
-    sem = asyncio.Semaphore(10) 
+    # Controle de concorrência (Semáforo)
+    sem = asyncio.Semaphore(5) 
     
     async def sem_processar(nome):
         async with sem:
@@ -203,23 +222,27 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     tarefas = [sem_processar(e) for e in empresas_nomes]
     resultados = await asyncio.gather(*tarefas)
 
+    # Consolidação dos dados
     total_saldo_banco = sum(r[0] for r in resultados)
     todas_receitas = [item for r in resultados for item in r[1]]
     todas_despesas = [item for r in resultados for item in r[2]]
 
-    # Criar range de datas para o gráfico
+    # Processamento com Pandas para o Gráfico
     df_range = pd.date_range(data_inicio, data_fim).strftime('%Y-%m-%d')
     df = pd.DataFrame(index=df_range).assign(receitas=0.0, despesas=0.0)
     
     if todas_receitas:
         df_r = pd.DataFrame(todas_receitas).groupby("data")["valor"].sum()
         df["receitas"] = df.index.map(df_r).fillna(0)
+    
     if todas_despesas:
         df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
         df["despesas"] = df.index.map(df_p).fillna(0)
 
-    # Cálculo do saldo projetado acumulado
+    # Cálculo da projeção de caixa
     df["saldo_projetado"] = total_saldo_banco + (df["receitas"] - df["despesas"]).cumsum()
+    
+    # Formatação de labels para o frontend (DD/MM)
     labels = [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index]
 
     return {
@@ -230,6 +253,7 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         "resumo": {
             "banco": total_saldo_banco,
             "total_rec": float(df["receitas"].sum()),
-            "total_desp": float(df["despesas"].sum())
+            "total_desp": float(df["despesas"].sum()),
+            "saldo_final": float(df["saldo_projetado"].iloc[-1]) if not df.empty else total_saldo_banco
         }
     }
