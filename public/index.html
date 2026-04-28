@@ -98,10 +98,11 @@
             padding: 20px; 
             border-radius: 8px; 
             border-left: 5px solid transparent;
+            transition: border-color 0.3s ease;
         }
 
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; font-weight: bold;}
-        .card-val { font-size: 1.5rem; font-weight: 600; }
+        .card-val { font-size: 1.5rem; font-weight: 600; transition: color 0.3s ease;}
 
         .btn-sync { 
             width: 100%; 
@@ -172,7 +173,7 @@
             <div class="card-label">DESPESAS</div>
             <div id="v-desp" class="card-val" style="color:var(--red)">R$ 0,00</div>
         </div>
-        <div class="card" style="border-left-color: var(--blue);">
+        <div class="card" id="card-resultado" style="border-left-color: var(--blue);">
             <div class="card-label">RESULTADO</div>
             <div id="v-res" class="card-val">R$ 0,00</div>
         </div>
@@ -252,11 +253,25 @@
         
         const saldoFinal = data.saldo?.length > 0 ? data.saldo[data.saldo.length - 1] : 0;
         const elRes = document.getElementById('v-res');
+        const cardRes = document.getElementById('card-resultado');
+        
+        // Melhoria 2: Lógica Dinâmica de Cores para o Card de Resultado (Texto e Borda)
         elRes.innerText = fmt(saldoFinal);
-        elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
+        if (saldoFinal >= 0) {
+            elRes.style.color = 'var(--green)';
+            cardRes.style.borderLeftColor = 'var(--green)';
+        } else {
+            elRes.style.color = 'var(--red)';
+            cardRes.style.borderLeftColor = 'var(--red)';
+        }
 
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
+        
+        // Melhoria 1: Criando o Gradiente para a linha de Saldo Acumulado
+        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, 'rgba(52, 152, 219, 0.4)'); // Azul semi-transparente no topo
+        gradient.addColorStop(1, 'rgba(52, 152, 219, 0.0)'); // Transparente na base
         
         chart = new Chart(ctx, {
             data: {
@@ -264,7 +279,18 @@
                 datasets: [
                     { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1', order: 2 },
                     { type: 'bar', label: 'Despesas', data: data.despesas.map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', stack: 'stack1', order: 2 },
-                    { type: 'line', label: 'Saldo Acumulado', data: data.saldo, borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.1, fill: false, order: 1 }
+                    { 
+                        type: 'line', 
+                        label: 'Saldo Acumulado', 
+                        data: data.saldo, 
+                        borderColor: '#3498db', 
+                        backgroundColor: gradient, // Aplica o gradiente
+                        borderWidth: 3, 
+                        pointRadius: 4, 
+                        tension: 0.3, // Curvatura suave
+                        fill: true,   // Preenche a área abaixo da linha
+                        order: 1 
+                    }
                 ]
             },
             options: {
@@ -292,7 +318,24 @@
                     }
                 },
                 scales: {
-                    x: { ticks: { color: '#ffffff' }, grid: { display: false } },
+                    x: { 
+                        ticks: { 
+                            color: '#ffffff',
+                            // Melhoria 3: Formatação dinâmica para mostrar apenas Dia/Mês no eixo X
+                            callback: function(value) {
+                                let label = this.getLabelForValue(value);
+                                if (label.includes('/')) {
+                                    let parts = label.split('/');
+                                    return `${parts[0]}/${parts[1]}`;
+                                } else if (label.includes('-')) {
+                                    let parts = label.split('-');
+                                    return `${parts[2]}/${parts[1]}`;
+                                }
+                                return label;
+                            }
+                        }, 
+                        grid: { display: false } 
+                    },
                     y: { 
                         ticks: { 
                             color: '#ffffff',
