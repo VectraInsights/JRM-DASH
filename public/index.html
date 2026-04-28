@@ -117,7 +117,7 @@
             box-sizing: border-box; font-size: 0.9rem;
         }
 
-        /* --- ESTILO BANCOS (NOVO) --- */
+        /* --- ESTILO BANCOS --- */
         .bank-item {
             display: flex;
             align-items: center;
@@ -128,7 +128,7 @@
         .bank-info { display: flex; align-items: center; gap: 10px; }
         .bank-logo {
             width: 28px; height: 28px;
-            border-radius: 50%;
+            border-radius: 4px;
             background: #fff;
             display: flex; align-items: center; justify-content: center;
             font-size: 10px; font-weight: bold; color: #000;
@@ -146,7 +146,6 @@
             margin-bottom: 25px; 
             display: inline-block; 
             padding-bottom: 5px;
-            /* Sublinhado removido como solicitado */
         }
 
         .section-label {
@@ -330,15 +329,16 @@
     // Retorna a URL da logo baseada no nome do banco
     function getLogoUrl(nome) {
         const n = nome.toUpperCase();
-        if (n.includes('ITAU')) return 'https://www.itau.com.br/favicon.ico';
+        // Logo oficial Itaú (Laranja)
+        if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Itau_unibanco_logo.svg/100px-Itau_unibanco_logo.svg.png';
         if (n.includes('BRADESCO')) return 'https://banco.bradesco/assets/common/img/favicon.ico';
         if (n.includes('SANTANDER')) return 'https://www.santander.com.br/favicon.ico';
         if (n.includes('INTER')) return 'https://inter.co/favicon.ico';
         if (n.includes('NUBANK')) return 'https://nubank.com.br/favicon.ico';
         if (n.includes('SICREDI')) return 'https://www.sicredi.com.br/favicon.ico';
         if (n.includes('SICOOB')) return 'https://www.sicoob.com.br/favicon.ico';
-        if (n.includes('BRASIL')) return 'https://www.bb.com.br/favicon.ico';
-        return ''; // Caso não encontre, fica o círculo com a letra
+        // Banco do Brasil removido da detecção de logo por segurança, embora filtrado na renderização
+        return ''; 
     }
 
     function renderizarDashboard(data) {
@@ -346,17 +346,31 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // LISTA DE BANCOS (COM FILTRO DE SALDO > 0)
+        // LISTA DE BANCOS COM CORREÇÕES
         const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
         let bancos = data.saldos_por_banco || [];
         
-        // FILTRO: Só mostra bancos com saldo diferente de zero
-        const bancosAtivos = bancos.filter(b => Math.abs(b.saldo) > 0.01);
+        // 1. Filtragem: Remove Banco do Brasil e Saldos Zerados
+        // 2. Remoção de Duplicados: Garante que cada nome de banco apareça apenas uma vez
+        const bancosFiltrados = [];
+        const nomesVistos = new Set();
 
-        if (bancosAtivos.length > 0) {
-            bancosAtivos.sort((a, b) => b.saldo - a.saldo);
-            bancosAtivos.forEach(banco => {
+        bancos.forEach(b => {
+            const nomeUp = b.nome.toUpperCase();
+            const jaExiste = nomesVistos.has(nomeUp);
+            const naoEhBB = !nomeUp.includes('BRASIL');
+            const temSaldo = Math.abs(b.saldo) > 0.01;
+
+            if (!jaExiste && naoEhBB && temSaldo) {
+                bancosFiltrados.push(b);
+                nomesVistos.add(nomeUp);
+            }
+        });
+
+        if (bancosFiltrados.length > 0) {
+            bancosFiltrados.sort((a, b) => b.saldo - a.saldo);
+            bancosFiltrados.forEach(banco => {
                 const logo = getLogoUrl(banco.nome);
                 const item = document.createElement('div');
                 item.className = 'bank-item';
