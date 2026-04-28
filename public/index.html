@@ -375,7 +375,7 @@
                         pointHoverRadius: 8,
                         tension: 0.3, 
                         fill: false,
-                        order: 0 // <--- CORREÇÃO: Desenha POR CIMA das barras (ordem menor = topo)
+                        order: 0 // <--- PRIORIDADE: Linha desenhada por cima
                     },
                     { 
                         type: 'bar', 
@@ -414,7 +414,7 @@
                     x: { 
                         ticks: { color: textColor }, 
                         grid: { display: false },
-                        offset: false // <--- CORREÇÃO: Centraliza a bolinha exatamente no meio das barras
+                        offset: true // <--- CORREÇÃO: Alinha a bolinha no centro das barras
                     },
                     y: { 
                         ticks: { 
