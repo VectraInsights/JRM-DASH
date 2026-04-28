@@ -152,9 +152,9 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     return itens_acumulados
 
 async def buscar_saldos_async(token: str, empresa_nome: str):
-    """Busca saldo consolidado de contas bancárias."""
+    """Busca saldo detalhado por conta bancária."""
     headers = {"Authorization": f"Bearer {token}"}
-    saldo_total = 0
+    lista_bancos = []
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB", "SICREDI", "SANTANDER", "BANCO DO BRASIL", "NUBANK", "INTER"]
     
     try:
@@ -162,42 +162,52 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
         
         if res.status_code == 401:
             token = await renovar_e_obter_novo_token(empresa_nome)
-            if not token: return 0
+            if not token: return []
             headers = {"Authorization": f"Bearer {token}"}
             res = await http_client.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers)
 
         if res.status_code == 200:
             contas = res.json() if isinstance(res.json(), list) else res.json().get('itens', [])
             tarefas = []
+            nomes_contas = []
+
             for conta in contas:
-                nome_conta = remover_acentos(conta.get('nome', '')).upper()
+                nome_raw = conta.get('nome', '')
+                nome_conta = remover_acentos(nome_raw).upper()
                 if any(banco in nome_conta for banco in bancos_permitidos):
                     url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual"
                     tarefas.append(http_client.get(url_saldo, headers=headers))
+                    nomes_contas.append(nome_raw)
             
             if tarefas:
                 respostas = await asyncio.gather(*tarefas)
-                for r in respostas:
+                for i, r in enumerate(respostas):
                     if r.status_code == 200:
-                        saldo_total += r.json().get('saldo_atual', 0)
-    except Exception:
-        pass
-    return saldo_total
+                        saldo = r.json().get('saldo_atual', 0)
+                        lista_bancos.append({
+                            "nome": nomes_contas[i],
+                            "saldo": saldo
+                        })
+    except Exception as e:
+        print(f"Erro ao buscar saldos ({empresa_nome}): {e}")
+        
+    return lista_bancos
 
 # --- LOGICA DE PROCESSAMENTO ---
 
 async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
     token = await obter_token_atual(emp_nome)
-    if not token: return 0, [], []
+    if not token: return [], [], []
     
     params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
     
-    res_saldo, res_rec, res_desp = await asyncio.gather(
+    # Mudança: res_bancos agora é uma lista de objetos {"nome": ..., "saldo": ...}
+    res_bancos, res_rec, res_desp = await asyncio.gather(
         buscar_saldos_async(token, emp_nome),
         buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", emp_nome, params),
         buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar", emp_nome, params)
     )
-    return res_saldo, res_rec, res_desp
+    return res_bancos, res_rec, res_desp
 
 # --- ENDPOINTS ---
 
@@ -212,14 +222,12 @@ async def listar_empresas():
 @app.get("/api/dados")
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
-        # Seleção de empresas
         if empresa.lower() == "todas":
             res_emp = supabase.table("tokens").select("empresa").execute()
             empresas_nomes = [r["empresa"] for r in res_emp.data]
         else:
             empresas_nomes = [empresa.strip()]
 
-        # Semáforo para controle de concorrência na API
         sem = asyncio.Semaphore(5) 
         
         async def sem_processar(nome):
@@ -228,13 +236,23 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
         resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # Consolidar saldos e listas
-        total_saldo_banco = sum(r[0] for r in resultados)
+        # Consolidar saldos detalhados para o sidebar
+        todos_bancos_detalhado = []
+        mapa_bancos = {} # Para agrupar saldos se houver nomes repetidos entre empresas
+
+        for r in resultados:
+            for b in r[0]:
+                nome = b["nome"]
+                mapa_bancos[nome] = mapa_bancos.get(nome, 0) + b["saldo"]
+
+        for nome, saldo in mapa_bancos.items():
+            todos_bancos_detalhado.append({"nome": nome, "saldo": saldo})
+
+        total_saldo_banco = sum(b["saldo"] for b in todos_bancos_detalhado)
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
-        # Processamento com Pandas para garantir range de datas completo
-        # Convertemos strings para datetime para evitar erros de índice
+        # Processamento com Pandas
         d_inicio = pd.to_datetime(data_inicio)
         d_fim = pd.to_datetime(data_fim)
         datas_range = pd.date_range(d_inicio, d_fim)
@@ -251,11 +269,9 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
             df["despesas"] = df.index.map(df_p).fillna(0)
 
-        # Cálculo do fluxo projetado
         df["movimentacao_dia"] = df["receitas"] - df["despesas"]
         df["saldo_projetado"] = total_saldo_banco + df["movimentacao_dia"].cumsum()
         
-        # Formatação para o Chart.js (Frontend)
         labels = [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index]
 
         return {
@@ -263,6 +279,7 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             "receitas": df["receitas"].tolist(),
             "despesas": df["despesas"].tolist(),
             "saldo": df["saldo_projetado"].tolist(),
+            "saldos_por_banco": todos_bancos_detalhado, # O FRONT PRECISA DISSO
             "resumo": {
                 "banco": round(float(total_saldo_banco), 2),
                 "total_rec": round(float(df["receitas"].sum()), 2),
