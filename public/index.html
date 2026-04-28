@@ -26,7 +26,6 @@
             overflow: hidden;
         }
 
-        /* ESTRUTURA DA SIDEBAR */
         .sidebar { 
             width: 280px; 
             padding: 40px 20px; 
@@ -49,11 +48,10 @@
             transition: margin-left 0.3s ease;
         }
 
-        /* BOTÃO DISCRETO (FORA DA SIDEBAR PARA NÃO SUMIR) */
         .toggle-btn {
             position: fixed;
             top: 20px;
-            left: 240px; /* Alinhado com o topo interno da barra */
+            left: 240px;
             background: transparent;
             border: none;
             color: var(--text);
@@ -66,21 +64,10 @@
 
         .toggle-btn:hover { opacity: 1; }
 
-        /* ESTADOS QUANDO FECHADO */
-        body.sidebar-closed .sidebar {
-            transform: translateX(-100%);
-        }
+        body.sidebar-closed .sidebar { transform: translateX(-100%); }
+        body.sidebar-closed .main { margin-left: 0; }
+        body.sidebar-closed .toggle-btn { left: 20px; color: var(--blue); }
 
-        body.sidebar-closed .main {
-            margin-left: 0;
-        }
-
-        body.sidebar-closed .toggle-btn {
-            left: 20px; /* Move para o canto da tela quando a barra some */
-            color: var(--blue); /* Muda de cor para indicar que pode abrir */
-        }
-
-        /* FILTROS E CARDS */
         .sidebar h3 { font-size: 1.2rem; margin-bottom: 25px; }
         .sidebar label { font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 8px; }
 
@@ -199,19 +186,12 @@
 <script>
     let chart;
 
-    // Lógica do Menu Retrátil
     function toggleSidebar() {
         document.body.classList.toggle('sidebar-closed');
         const btn = document.getElementById('btnToggle');
-        
-        if (document.body.classList.contains('sidebar-closed')) {
-            btn.innerHTML = "»"; // Seta para voltar
-        } else {
-            btn.innerHTML = "«"; // Seta para fechar
-        }
+        btn.innerHTML = document.body.classList.contains('sidebar-closed') ? "»" : "«";
     }
 
-    // Carregar empresas via API
     async function carregarEmpresas() {
         try {
             const res = await fetch('/api/empresas');
@@ -288,45 +268,44 @@
                 ]
             },
             options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    // ESSENCIAL: Faz o gráfico detectar o mouse em toda a coluna vertical
-    interaction: {
-        mode: 'index',
-        intersect: false,
-    },
-    plugins: { 
-        legend: { labels: { color: '#ffffff' }, position: 'bottom' },
-        tooltip: {
-            mode: 'index',
-            intersect: false,
-            callbacks: {
-                // Opcional: Formata os valores para R$ no balão
-                label: function(context) {
-                    let label = context.dataset.label || '';
-                    if (label) label += ': ';
-                    if (context.parsed.y !== null) {
-                        label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed.y);
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: { 
+                    legend: { labels: { color: '#ffffff' }, position: 'bottom' },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed.y !== null) {
+                                    label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed.y);
+                                }
+                                return label;
+                            }
+                        }
                     }
-                    return label;
+                },
+                scales: {
+                    x: { ticks: { color: '#ffffff' }, grid: { display: false } },
+                    y: { 
+                        ticks: { 
+                            color: '#ffffff',
+                            callback: function(value) {
+                                return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+                            }
+                        }, 
+                        grid: { color: 'rgba(255,255,255,0.05)' } 
+                    }
                 }
             }
-        }
-    },
-    scales: {
-        x: { ticks: { color: '#ffffff' }, grid: { display: false } },
-        y: { 
-            ticks: { 
-                color: '#ffffff',
-                // Formata os números do eixo Y para R$
-                callback: function(value) {
-                    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-                }
-            }, 
-            grid: { color: 'rgba(255,255,255,0.05)' } 
-        }
+        });
     }
-}
 
     document.addEventListener('DOMContentLoaded', async () => {
         await carregarEmpresas();
