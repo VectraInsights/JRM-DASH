@@ -40,6 +40,13 @@
             transition: background-color 0.3s ease;
         }
 
+        /* CORREÇÃO DO CORTE BRANCO NOS SELECTS/INPUTS */
+        select:focus, input:focus {
+            outline: none !important;
+            box-shadow: 0 0 0 2px var(--red) !important; /* Destaque sutil em vez do corte branco */
+            border-color: transparent !important;
+        }
+
         #loading-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -81,27 +88,39 @@
             z-index: 100;
             display: flex;
             flex-direction: column;
-            transition: transform 0.3s ease;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-
-        .sidebar-content { flex: 1; overflow-y: auto; padding-right: 5px; }
 
         .main { 
             flex: 1; margin-left: 300px; padding: 40px; 
             overflow-y: auto;
-            transition: margin-left 0.3s ease;
+            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
+        /* CORREÇÃO DA SETINHA (TOGGLE BTN) */
         .toggle-btn {
-            position: fixed; top: 20px; left: 260px;
-            background: var(--sidebar); border: 1px solid var(--border);
-            color: var(--text); padding: 5px 10px; border-radius: 4px;
-            cursor: pointer; z-index: 1000; transition: all 0.3s ease;
+            position: fixed; 
+            top: 25px; 
+            left: 280px; /* Ajustado para ficar na borda */
+            background: var(--red); 
+            border: 1px solid var(--border);
+            color: white; 
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer; 
+            z-index: 1002; 
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            font-weight: bold;
         }
 
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
         body.sidebar-closed .main { margin-left: 0; }
-        body.sidebar-closed .toggle-btn { left: 20px; }
+        body.sidebar-closed .toggle-btn { left: 20px; transform: rotate(180deg); }
 
         .sidebar h3 { font-size: 1.1rem; margin: 20px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
         .sidebar label { font-size: 0.8rem; opacity: 0.8; display: block; margin-bottom: 5px; }
@@ -109,9 +128,10 @@
         .sidebar select, .sidebar input {
             width: 100%; background: var(--bg);
             border: 1px solid var(--border);
-            color: var(--text); padding: 8px;
-            border-radius: 4px; margin-bottom: 15px;
+            color: var(--text); padding: 10px;
+            border-radius: 6px; margin-bottom: 15px;
             box-sizing: border-box; font-size: 0.9rem;
+            appearance: none; /* Remove seta padrão do Windows no select */
         }
 
         .bank-card {
@@ -172,7 +192,7 @@
     <span id="theme-icon">🌙</span>
 </button>
 
-<button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">«</button>
+<button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">❮</button>
 
 <aside class="sidebar">
     <div class="sidebar-content">
@@ -197,11 +217,11 @@
             <input type="date" id="data_fim">
         </div>
 
-        <button class="btn-sync" onclick="sincronizar()">Sincronizar</button>
+        <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
 
         <h3>Saldos Bancários</h3>
         <div id="cards-bancos">
-            <div style="font-size: 0.8rem; opacity: 0.5; text-align: center;">Aguardando dados...</div>
+            <div style="font-size: 0.8rem; opacity: 0.5; text-align: center;">Aguardando sincronização...</div>
         </div>
     </div>
 </aside>
@@ -212,7 +232,7 @@
     <span class="section-label">RESUMO DO PERÍODO</span>
     <div class="cards">
         <div class="card" style="border-left-color: #9b59b6;">
-            <div class="card-label">SALDO TOTAL</div>
+            <div class="card-label">SALDO EM BANCO</div>
             <div id="v-banco" class="card-val" style="color: #9b59b6;">R$ 0,00</div>
         </div>
         <div class="card" style="border-left-color: var(--green);">
@@ -224,7 +244,7 @@
             <div id="v-desp" class="card-val" style="color:var(--red)">R$ 0,00</div>
         </div>
         <div class="card" id="card-resultado" style="border-left-color: var(--blue);">
-            <div class="card-label">RESULTADO</div>
+            <div class="card-label">RESULTADO LÍQUIDO</div>
             <div id="v-res" class="card-val">R$ 0,00</div>
         </div>
     </div>
@@ -240,7 +260,7 @@
     function toggleSidebar() {
         document.body.classList.toggle('sidebar-closed');
         const btn = document.getElementById('btnToggle');
-        btn.innerHTML = document.body.classList.contains('sidebar-closed') ? "»" : "«";
+        // A lógica de rotação está no CSS agora, aqui apenas mantemos o clique funcional
     }
 
     function toggleTheme() {
@@ -313,16 +333,14 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // 1. Renderizar Bancos na SIDEBAR (Ordenados Alfabeticamente)
+        // 1. Renderizar Bancos na SIDEBAR
         const containerBancos = document.getElementById('cards-bancos');
         containerBancos.innerHTML = '';
         
-        let bancos = data.saldos_por_banco || data.bancos || [];
+        let bancos = data.bancos || data.saldos_por_banco || [];
         
         if (bancos.length > 0) {
-            // ORDENAÇÃO ALFABÉTICA
             bancos.sort((a, b) => a.nome.localeCompare(b.nome));
-
             bancos.forEach(banco => {
                 const card = document.createElement('div');
                 card.className = 'bank-card';
@@ -333,7 +351,7 @@
                 containerBancos.appendChild(card);
             });
         } else {
-            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum banco encontrado.</div>';
+            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo bancário disponível.</div>';
         }
 
         // 2. Resumo Geral
@@ -346,7 +364,7 @@
         elRes.innerText = fmt(saldoFinal);
         elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
 
-        // 3. Gráfico (Com STACKED: TRUE para empilhamento)
+        // 3. Gráfico
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
         chart = new Chart(ctx, {
@@ -376,12 +394,12 @@
                 },
                 scales: {
                     x: { 
-                        stacked: true, // EMPILHAMENTO NO EIXO X
+                        stacked: true, 
                         ticks: { color: textColor }, 
                         grid: { display: false } 
                     },
                     y: { 
-                        stacked: true, // EMPILHAMENTO NO EIXO Y
+                        stacked: true, 
                         ticks: { 
                             color: textColor, 
                             callback: v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) 
