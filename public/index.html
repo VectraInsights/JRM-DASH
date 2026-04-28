@@ -41,6 +41,7 @@
             transition: background-color 0.3s ease;
         }
 
+        /* --- LOADING --- */
         #loading-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -60,6 +61,7 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* --- THEME & TOGGLE --- */
         .theme-toggle {
             position: fixed; top: 20px; right: 25px;
             background: var(--sidebar);
@@ -92,30 +94,19 @@
         }
 
         .toggle-btn {
-            position: fixed; 
-            top: 25px; 
-            left: 285px; 
-            background: var(--sidebar); 
-            border: 1px solid var(--border);
-            color: var(--text); 
-            width: 32px;
-            height: 32px;
-            border-radius: 6px;
-            cursor: pointer; 
-            z-index: 1002; 
+            position: fixed; top: 25px; left: 285px; 
+            background: var(--sidebar); border: 1px solid var(--border);
+            color: var(--text); width: 32px; height: 32px;
+            border-radius: 6px; cursor: pointer; z-index: 1002; 
             transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            font-size: 14px;
+            display: flex; align-items: center; justify-content: center;
         }
 
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
         body.sidebar-closed .main { margin-left: 0; }
         body.sidebar-closed .toggle-btn { left: 20px; transform: rotate(180deg); }
 
-        .sidebar h3 { font-size: 1.1rem; margin: 20px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+        .sidebar h3 { font-size: 1rem; margin: 25px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
         .sidebar label { font-size: 0.8rem; opacity: 0.8; display: block; margin-bottom: 5px; }
 
         .sidebar select, .sidebar input {
@@ -126,33 +117,41 @@
             box-sizing: border-box; font-size: 0.9rem;
         }
 
-        .bank-card {
-            background: var(--bg);
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 10px;
-            border-left: 4px solid var(--blue);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        /* --- ESTILO BANCOS (NOVO) --- */
+        .bank-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
         }
-        .bank-name { font-size: 0.7rem; text-transform: uppercase; opacity: 0.7; font-weight: bold; }
-        .bank-value { font-size: 1rem; font-weight: 600; margin-top: 3px; }
+        .bank-info { display: flex; align-items: center; gap: 10px; }
+        .bank-logo {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            background: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: bold; color: #000;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .bank-logo img { width: 100%; height: 100%; object-fit: contain; }
+        .bank-name-text { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+        .bank-val-text { font-size: 0.9rem; font-weight: 600; text-align: right; }
 
+        /* --- DASHBOARD --- */
         h1 { 
             margin-top: 0; 
             font-size: 1.8rem; 
             margin-bottom: 25px; 
-            border-bottom: 2px solid var(--red); 
             display: inline-block; 
             padding-bottom: 5px;
+            /* Sublinhado removido como solicitado */
         }
 
         .section-label {
-            display: block;
-            font-size: 0.75rem;
-            font-weight: bold;
-            opacity: 0.6;
-            margin-bottom: 15px;
-            letter-spacing: 1px;
+            display: block; font-size: 0.75rem; font-weight: bold;
+            opacity: 0.6; margin-bottom: 15px; letter-spacing: 1px;
         }
 
         .cards { 
@@ -163,10 +162,8 @@
         }
 
         .card { 
-            background: var(--sidebar); 
-            padding: 20px; 
-            border-radius: 8px; 
-            border-left: 5px solid transparent;
+            background: var(--sidebar); padding: 20px; 
+            border-radius: 8px; border-left: 5px solid transparent;
             box-shadow: var(--card-shadow);
         }
 
@@ -224,8 +221,8 @@
 
         <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
 
-        <h3>Saldos Bancários</h3>
-        <div id="cards-bancos">
+        <h3>Bancos</h3>
+        <div id="lista-bancos">
             <div style="font-size: 0.8rem; opacity: 0.5; text-align: center;">Aguardando sincronização...</div>
         </div>
     </div>
@@ -262,9 +259,7 @@
 <script>
     let chart;
 
-    function toggleSidebar() {
-        document.body.classList.toggle('sidebar-closed');
-    }
+    function toggleSidebar() { document.body.classList.toggle('sidebar-closed'); }
 
     function toggleTheme() {
         const body = document.body;
@@ -273,11 +268,9 @@
         const isLight = body.classList.contains('light-mode');
         icon.innerText = isLight ? "☀️" : "🌙";
         localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        
         if(chart) {
             const textColor = isLight ? '#31333f' : '#ffffff';
             const gridColor = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
-            
             chart.options.plugins.legend.labels.color = textColor;
             chart.options.scales.x.ticks.color = textColor;
             chart.options.scales.y.ticks.color = textColor;
@@ -293,8 +286,7 @@
             const select = document.getElementById('empresa');
             empresas.forEach(emp => {
                 const opt = document.createElement('option');
-                opt.value = emp.nome; 
-                opt.innerText = emp.nome;
+                opt.value = emp.nome; opt.innerText = emp.nome;
                 select.appendChild(opt);
             });
         } catch (err) { console.error("Erro ao carregar empresas."); }
@@ -304,7 +296,6 @@
         const intervaloSelect = document.getElementById('intervalo');
         const containerDatas = document.getElementById('container-datas');
         const hoje = new Date().toISOString().split('T')[0];
-        
         if (intervaloSelect.value === 'personalizado') {
             containerDatas.style.display = 'block';
         } else {
@@ -326,17 +317,28 @@
             const data_inicio = document.getElementById('data_inicio').value;
             const data_fim = document.getElementById('data_fim').value;
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
-            
             const res = await fetch(`/api/dados?${query.toString()}`);
-            if (res.status === 401) throw new Error("Sessão Expirada");
             const data = await res.json();
             renderizarDashboard(data);
         } catch (err) {
-            console.error(err);
-            alert("Erro ao buscar dados do servidor.");
+            alert("Erro ao buscar dados.");
         } finally {
             setTimeout(() => { loader.style.display = 'none'; }, 600);
         }
+    }
+
+    // Retorna a URL da logo baseada no nome do banco
+    function getLogoUrl(nome) {
+        const n = nome.toUpperCase();
+        if (n.includes('ITAU')) return 'https://www.itau.com.br/favicon.ico';
+        if (n.includes('BRADESCO')) return 'https://banco.bradesco/assets/common/img/favicon.ico';
+        if (n.includes('SANTANDER')) return 'https://www.santander.com.br/favicon.ico';
+        if (n.includes('INTER')) return 'https://inter.co/favicon.ico';
+        if (n.includes('NUBANK')) return 'https://nubank.com.br/favicon.ico';
+        if (n.includes('SICREDI')) return 'https://www.sicredi.com.br/favicon.ico';
+        if (n.includes('SICOOB')) return 'https://www.sicoob.com.br/favicon.ico';
+        if (n.includes('BRASIL')) return 'https://www.bb.com.br/favicon.ico';
+        return ''; // Caso não encontre, fica o círculo com a letra
     }
 
     function renderizarDashboard(data) {
@@ -344,24 +346,35 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // SALDOS BANCÁRIOS (SIDEBAR)
-        const containerBancos = document.getElementById('cards-bancos');
+        // LISTA DE BANCOS (COM FILTRO DE SALDO > 0)
+        const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
-        let bancos = data.bancos || data.saldos_por_banco || [];
+        let bancos = data.saldos_por_banco || [];
         
-        if (bancos && bancos.length > 0) {
-            bancos.sort((a, b) => (b.saldo || 0) - (a.saldo || 0)); // Ordena por maior saldo
-            bancos.forEach(banco => {
-                const card = document.createElement('div');
-                card.className = 'bank-card';
-                card.innerHTML = `
-                    <div class="bank-name">${banco.nome}</div>
-                    <div class="bank-value">${fmt(banco.saldo)}</div>
+        // FILTRO: Só mostra bancos com saldo diferente de zero
+        const bancosAtivos = bancos.filter(b => Math.abs(b.saldo) > 0.01);
+
+        if (bancosAtivos.length > 0) {
+            bancosAtivos.sort((a, b) => b.saldo - a.saldo);
+            bancosAtivos.forEach(banco => {
+                const logo = getLogoUrl(banco.nome);
+                const item = document.createElement('div');
+                item.className = 'bank-item';
+                item.innerHTML = `
+                    <div class="bank-info">
+                        <div class="bank-logo">
+                            ${logo ? `<img src="${logo}" alt="logo">` : banco.nome.charAt(0)}
+                        </div>
+                        <div class="bank-name-text">${banco.nome}</div>
+                    </div>
+                    <div class="bank-val-text" style="color: ${banco.saldo < 0 ? 'var(--red)' : 'inherit'}">
+                        ${fmt(banco.saldo)}
+                    </div>
                 `;
-                containerBancos.appendChild(card);
+                containerBancos.appendChild(item);
             });
         } else {
-            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo disponível.</div>';
+            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo ativo no período.</div>';
         }
 
         // CARDS RESUMO
@@ -369,11 +382,7 @@
         document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
         document.getElementById('v-desp').innerText = fmt(-Math.abs(data.resumo?.total_desp || 0));
         
-        // RESULTADO LÍQUIDO (Receita - Despesa do período)
-        const totalRec = Number(data.resumo?.total_rec || 0);
-        const totalDesp = Number(data.resumo?.total_desp || 0);
-        const liq = totalRec - Math.abs(totalDesp);
-        
+        const liq = Number(data.resumo?.total_rec || 0) - Math.abs(Number(data.resumo?.total_desp || 0));
         const elRes = document.getElementById('v-res');
         elRes.innerText = fmt(liq);
         elRes.style.color = liq >= 0 ? 'var(--green)' : 'var(--red)';
@@ -381,76 +390,31 @@
         // GRÁFICO
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
-        
         chart = new Chart(ctx, {
             data: {
                 labels: data.labels || [],
                 datasets: [
-                    { 
-                        type: 'line', 
-                        label: 'Saldo Acumulado', 
-                        data: data.saldo || [], 
-                        borderColor: '#3498db', 
-                        borderWidth: 3, 
-                        pointRadius: 4, 
-                        tension: 0.3, 
-                        fill: false, 
-                        order: 0 
-                    },
-                    { 
-                        type: 'bar', 
-                        label: 'Receitas', 
-                        data: data.receitas || [], 
-                        backgroundColor: '#2ecc71', 
-                        borderRadius: 4, 
-                        order: 1 
-                    },
-                    { 
-                        type: 'bar', 
-                        label: 'Despesas', 
-                        data: (data.despesas || []).map(d => -Math.abs(d)), 
-                        backgroundColor: '#ff4b4b', 
-                        borderRadius: 4, 
-                        order: 1
-                    }
+                    { type: 'line', label: 'Saldo Acumulado', data: data.saldo || [], borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.3, fill: false, order: 0 },
+                    { type: 'bar', label: 'Receitas', data: data.receitas || [], backgroundColor: '#2ecc71', borderRadius: 4, order: 1 },
+                    { type: 'bar', label: 'Despesas', data: (data.despesas || []).map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', borderRadius: 4, order: 1 }
                 ]
             },
             options: {
-                responsive: true, 
-                maintainAspectRatio: false,
+                responsive: true, maintainAspectRatio: false,
                 plugins: { 
-                    legend: { 
-                        labels: { color: textColor, font: { weight: 'bold' } }, 
-                        position: 'bottom' 
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (context) => `${context.dataset.label}: ${fmt(context.raw)}`
-                        }
-                    }
+                    legend: { labels: { color: textColor, font: { weight: 'bold' } }, position: 'bottom' },
+                    tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw)}` } }
                 },
                 scales: {
-                    x: { 
-                        stacked: true, 
-                        ticks: { color: textColor }, 
-                        grid: { display: false } 
-                    },
-                    y: { 
-                        stacked: true, 
-                        ticks: { 
-                            color: textColor, 
-                            callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) 
-                        },
-                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } 
-                    }
+                    x: { stacked: true, ticks: { color: textColor }, grid: { display: false } },
+                    y: { stacked: true, ticks: { color: textColor, callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) }, grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } }
                 }
             }
         });
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
-        const savedTheme = localStorage.getItem('theme');
-        if(savedTheme === 'light') toggleTheme();
+        if(localStorage.getItem('theme') === 'light') toggleTheme();
         await carregarEmpresas();
         ajustarDatas();
     });
