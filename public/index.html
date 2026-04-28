@@ -107,78 +107,53 @@
         .sidebar h3 { font-size: 1rem; margin: 25px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
         .sidebar label { font-size: 0.8rem; opacity: 0.8; display: block; margin-bottom: 5px; }
 
-        .sidebar select, .sidebar input {
+        .sidebar select, .sidebar input[type="date"] {
             width: 100%; background: var(--bg);
             border: 1px solid var(--border);
             color: var(--text); padding: 10px;
             border-radius: 6px; margin-bottom: 15px;
             box-sizing: border-box; font-size: 0.9rem;
+            color-scheme: dark; /* Essencial para o calendário aparecer no dark mode */
+        }
+        body.light-mode .sidebar select, body.light-mode .sidebar input[type="date"] {
+            color-scheme: light;
         }
 
         .bank-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 0; border-bottom: 1px solid var(--border);
         }
         .bank-info { display: flex; align-items: center; gap: 10px; }
         .bank-logo {
-            width: 28px; height: 28px;
-            border-radius: 4px;
-            background: #fff;
+            width: 28px; height: 28px; border-radius: 4px; background: #fff;
             display: flex; align-items: center; justify-content: center;
-            font-size: 10px; font-weight: bold; color: #000;
-            overflow: hidden;
-            flex-shrink: 0;
+            font-size: 10px; font-weight: bold; color: #000; overflow: hidden; flex-shrink: 0;
         }
         .bank-logo img { width: 100%; height: 100%; object-fit: contain; }
         .bank-name-text { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
         .bank-val-text { font-size: 0.9rem; font-weight: 600; text-align: right; }
 
-        h1 { 
-            margin-top: 0; 
-            font-size: 1.8rem; 
-            margin-bottom: 25px; 
-            display: inline-block; 
-            padding-bottom: 5px;
-        }
+        h1 { margin-top: 0; font-size: 1.8rem; margin-bottom: 25px; display: inline-block; padding-bottom: 5px; }
 
-        .section-label {
-            display: block; font-size: 0.75rem; font-weight: bold;
-            opacity: 0.6; margin-bottom: 15px; letter-spacing: 1px;
-        }
+        .section-label { display: block; font-size: 0.75rem; font-weight: bold; opacity: 0.6; margin-bottom: 15px; letter-spacing: 1px; }
 
-        .cards { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 30px; 
-        }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
 
-        .card { 
-            background: var(--sidebar); padding: 20px; 
-            border-radius: 8px; border-left: 5px solid transparent;
-            box-shadow: var(--card-shadow);
-        }
+        .card { background: var(--sidebar); padding: 20px; border-radius: 8px; border-left: 5px solid transparent; box-shadow: var(--card-shadow); }
 
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 8px; font-weight: bold;}
         .card-val { font-size: 1.4rem; font-weight: 600; }
 
         .btn-sync { 
             width: 100%; padding: 12px; background: var(--red); 
-            color: white; border: none;
-            border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.3s;
-            margin-top: 10px;
+            color: white; border: none; border-radius: 4px; font-weight: bold; 
+            cursor: pointer; transition: 0.3s; margin-top: 10px;
         }
         .btn-sync:hover { filter: brightness(1.2); }
 
         .chart-container { 
-            background: var(--sidebar); padding: 25px; 
-            border-radius: 12px; height: 480px; 
-            border: 1px solid var(--border);
-            box-shadow: var(--card-shadow);
-            position: relative;
+            background: var(--sidebar); padding: 25px; border-radius: 12px; height: 480px; 
+            border: 1px solid var(--border); box-shadow: var(--card-shadow); position: relative;
         }
     </style>
 </head>
@@ -210,9 +185,9 @@
 
         <div id="container-datas" style="display:none;">
             <label>Início</label>
-            <input type="date" id="data_inicio" onchange="sincronizar()">
+            <input type="date" id="data_inicio">
             <label>Fim</label>
-            <input type="date" id="data_fim" onchange="sincronizar()">
+            <input type="date" id="data_fim">
         </div>
 
         <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
@@ -313,8 +288,12 @@
         const data_inicio = document.getElementById('data_inicio').value;
         const data_fim = document.getElementById('data_fim').value;
 
-        // Evita disparar sem datas no modo personalizado
-        if (!data_inicio || !data_fim) return;
+        if (!data_inicio || !data_fim) {
+            if (document.getElementById('intervalo').value === 'personalizado') {
+                alert("Por favor, selecione as datas.");
+            }
+            return;
+        }
 
         const loader = document.getElementById('loading-overlay');
         loader.style.display = 'flex';
