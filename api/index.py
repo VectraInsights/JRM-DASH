@@ -7,10 +7,22 @@ import pandas as pd
 import os
 import unicodedata
 from datetime import datetime
+from contextlib import asynccontextmanager
 from supabase import create_client, Client
 from typing import List, Dict, Any
 
-app = FastAPI()
+# --- GERENCIAMENTO DE CICLO DE VIDA ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Inicialização do Pool de conexões otimizado
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    global http_client
+    http_client = httpx.AsyncClient(limits=limits, timeout=30)
+    yield
+    # Fechamento seguro
+    await http_client.aclose()
+
+app = FastAPI(lifespan=lifespan)
 
 # --- CONFIGURAÇÃO DE CORS ---
 app.add_middleware(
@@ -20,21 +32,14 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# --- CONFIGURAÇÃO CLIENTE HTTP ---
-# Pool de conexões otimizado para requisições paralelas às APIs da Conta Azul
-limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
-http_client = httpx.AsyncClient(limits=limits, timeout=30)
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await http_client.aclose()
-
-# --- INICIALIZAÇÃO SUPABASE ---
+# --- CONFIGURAÇÕES DE AMBIENTE ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+CLIENT_ID = os.environ.get("CONTA_AZUL_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("ERRO: Variáveis de ambiente SUPABASE não configuradas.")
+if not all([SUPABASE_URL, SUPABASE_KEY, CLIENT_ID, CLIENT_SECRET]):
+    print("⚠️ AVISO: Variáveis de ambiente incompletas. Verifique seu arquivo .env")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -44,27 +49,17 @@ def remover_acentos(texto: str) -> str:
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-# --- LÓGICA DE AUTENTICAÇÃO E TOKENS ---
+# --- LÓGICA DE AUTENTICAÇÃO ---
 
 async def renovar_e_obter_novo_token(empresa_nome: str):
     """Renova o access_token usando o refresh_token do Supabase."""
     try:
-        print(f"DEBUG: [RENOVAÇÃO] Solicitando novo token para: {empresa_nome}")
-        
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).execute()
         if not res.data:
-            print(f"ERRO: Empresa {empresa_nome} não encontrada no banco.")
             return None
 
         refresh_token = res.data[0].get("refresh_token")
-        cid = os.environ.get("CONTA_AZUL_CLIENT_ID")
-        cs = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
-        
-        if not cid or not cs:
-            print("ERRO: CLIENT_ID ou CLIENT_SECRET da Conta Azul não configurados.")
-            return None
-
-        auth_b64 = base64.b64encode(f"{cid}:{cs}".encode()).decode()
+        auth_b64 = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
 
         url_token = "https://auth.contaazul.com/oauth2/token"
         headers = {
@@ -90,29 +85,24 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             }).eq("empresa", empresa_nome).execute()
             
             return novo_access
-        else:
-            print(f"ERRO: Conta Azul recusou refresh ({r.status_code}) para {empresa_nome}: {r.text}")
-            return None
-
+        return None
     except Exception as e:
-        print(f"DEBUG: [ERRO CRÍTICO RENOVAÇÃO] {e}")
+        print(f"Erro na renovação de token ({empresa_nome}): {e}")
         return None
 
 async def obter_token_atual(empresa_nome: str):
-    """Tenta recuperar o token atual, se não existir ou falhar, renova."""
     try:
         res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).execute()
         if res.data and res.data[0].get("access_token"):
             return res.data[0]["access_token"]
-    except Exception as e:
-        print(f"Erro ao ler token do Supabase: {e}")
-    
+    except Exception:
+        pass
     return await renovar_e_obter_novo_token(empresa_nome)
 
 # --- BUSCAS NA API CONTA AZUL ---
 
 async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
-    """Busca paginada de lançamentos financeiros (A Pagar/Receber)."""
+    """Busca paginada de lançamentos financeiros em aberto."""
     token = await obter_token_atual(empresa_nome)
     itens_acumulados = []
     
@@ -137,9 +127,7 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
                 tentativas += 1
                 continue 
             
-            if res.status_code != 200: 
-                print(f"Erro API v2 {res.status_code} em {endpoint} para {empresa_nome}")
-                break
+            if res.status_code != 200: break
             
             dados = res.json()
             itens = dados.get('itens', [])
@@ -158,13 +146,13 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             tentativas = 0 
             
         except Exception as e:
-            print(f"Erro de conexão em {endpoint} para {empresa_nome}: {e}")
+            print(f"Erro de conexão em {endpoint}: {e}")
             break
             
     return itens_acumulados
 
 async def buscar_saldos_async(token: str, empresa_nome: str):
-    """Busca saldo consolidado de contas bancárias específicas."""
+    """Busca saldo consolidado de contas bancárias."""
     headers = {"Authorization": f"Bearer {token}"}
     saldo_total = 0
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB", "SICREDI", "SANTANDER", "BANCO DO BRASIL", "NUBANK", "INTER"]
@@ -192,11 +180,11 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
                 for r in respostas:
                     if r.status_code == 200:
                         saldo_total += r.json().get('saldo_atual', 0)
-    except Exception as e:
-        print(f"Erro ao buscar saldos de {empresa_nome}: {e}")
+    except Exception:
+        pass
     return saldo_total
 
-# --- ENDPOINTS API ---
+# --- LOGICA DE PROCESSAMENTO ---
 
 async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
     token = await obter_token_atual(emp_nome)
@@ -211,6 +199,8 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
     )
     return res_saldo, res_rec, res_desp
 
+# --- ENDPOINTS ---
+
 @app.get("/api/empresas")
 async def listar_empresas():
     try:
@@ -222,31 +212,33 @@ async def listar_empresas():
 @app.get("/api/dados")
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
-        # 1. Definir quais empresas processar
+        # Seleção de empresas
         if empresa.lower() == "todas":
             res_emp = supabase.table("tokens").select("empresa").execute()
             empresas_nomes = [r["empresa"] for r in res_emp.data]
         else:
             empresas_nomes = [empresa.strip()]
 
-        # 2. Controle de concorrência (Semáforo para não travar a API do Conta Azul)
+        # Semáforo para controle de concorrência na API
         sem = asyncio.Semaphore(5) 
         
         async def sem_processar(nome):
             async with sem:
                 return await processar_empresa(nome, data_inicio, data_fim)
 
-        tarefas = [sem_processar(e) for e in empresas_nomes]
-        resultados = await asyncio.gather(*tarefas)
+        resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # 3. Consolidação dos dados brutos
+        # Consolidar saldos e listas
         total_saldo_banco = sum(r[0] for r in resultados)
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
-        # 4. Processamento com Pandas para o Gráfico
-        # Criamos um range completo de datas para garantir que dias sem movimento apareçam como zero
-        datas_range = pd.date_range(data_inicio, data_fim)
+        # Processamento com Pandas para garantir range de datas completo
+        # Convertemos strings para datetime para evitar erros de índice
+        d_inicio = pd.to_datetime(data_inicio)
+        d_fim = pd.to_datetime(data_fim)
+        datas_range = pd.date_range(d_inicio, d_fim)
+        
         df = pd.DataFrame(index=datas_range.strftime('%Y-%m-%d'))
         df["receitas"] = 0.0
         df["despesas"] = 0.0
@@ -259,11 +251,11 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             df_p = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum()
             df["despesas"] = df.index.map(df_p).fillna(0)
 
-        # 5. Cálculo da projeção de caixa (Saldo Inicial + Acumulado do dia)
+        # Cálculo do fluxo projetado
         df["movimentacao_dia"] = df["receitas"] - df["despesas"]
         df["saldo_projetado"] = total_saldo_banco + df["movimentacao_dia"].cumsum()
         
-        # Formatação de labels para o frontend (DD/MM)
+        # Formatação para o Chart.js (Frontend)
         labels = [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index]
 
         return {
@@ -272,15 +264,15 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             "despesas": df["despesas"].tolist(),
             "saldo": df["saldo_projetado"].tolist(),
             "resumo": {
-                "banco": float(total_saldo_banco),
-                "total_rec": float(df["receitas"].sum()),
-                "total_desp": float(df["despesas"].sum()),
-                "saldo_final": float(df["saldo_projetado"].iloc[-1]) if not df.empty else float(total_saldo_banco)
+                "banco": round(float(total_saldo_banco), 2),
+                "total_rec": round(float(df["receitas"].sum()), 2),
+                "total_desp": round(float(df["despesas"].sum()), 2),
+                "saldo_final": round(float(df["saldo_projetado"].iloc[-1]), 2) if not df.empty else total_saldo_banco
             }
         }
     except Exception as e:
-        print(f"Erro no processamento do dashboard: {e}")
-        raise HTTPException(status_code=500, detail="Erro interno ao processar dados do dashboard.")
+        print(f"Erro Crítico: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao processar fluxo de caixa.")
 
 if __name__ == "__main__":
     import uvicorn
