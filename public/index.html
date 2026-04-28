@@ -7,6 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
+            /* Tema Dark (Padrão) */
             --bg: #0e1117; 
             --sidebar: #262730; 
             --text: #ffffff;
@@ -14,23 +15,22 @@
             --red: #ff4b4b; 
             --blue: #3498db;
             --border: rgba(255, 255, 255, 0.1);
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }
 
-        /* Melhoria 3: Barra de rolagem customizada para o Dark Mode */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        body.light-mode {
+            --bg: #f0f2f6;
+            --sidebar: #ffffff;
+            --text: #31333f;
+            --border: rgba(0, 0, 0, 0.1);
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
-        ::-webkit-scrollbar-track {
-            background: var(--bg);
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
+
+        /* Scrollbar Customizada */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
 
         body { 
             background-color: var(--bg); 
@@ -40,7 +40,50 @@
             display: flex; 
             height: 100vh;
             overflow: hidden;
+            transition: background-color 0.3s ease;
         }
+
+        /* Overlay de Loading */
+        #loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            backdrop-filter: blur(3px);
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--red);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Botão de Tema */
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 25px;
+            background: var(--sidebar);
+            border: 1px solid var(--border);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 1001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.2s;
+        }
+        .theme-toggle:hover { transform: scale(1.1); }
 
         .sidebar { 
             width: 280px; 
@@ -48,8 +91,7 @@
             background: var(--sidebar); 
             height: 100vh; 
             position: fixed;
-            left: 0;
-            top: 0;
+            left: 0; top: 0;
             box-sizing: border-box;
             border-right: 1px solid var(--border);
             z-index: 100;
@@ -68,21 +110,19 @@
             position: fixed;
             top: 20px;
             left: 240px;
-            background: transparent;
-            border: none;
+            background: var(--sidebar);
+            border: 1px solid var(--border);
             color: var(--text);
-            font-size: 1.4rem;
+            padding: 5px 10px;
+            border-radius: 4px;
             cursor: pointer;
             z-index: 1000;
-            transition: left 0.3s ease, color 0.3s ease;
-            opacity: 0.6;
+            transition: all 0.3s ease;
         }
-
-        .toggle-btn:hover { opacity: 1; }
 
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
         body.sidebar-closed .main { margin-left: 0; }
-        body.sidebar-closed .toggle-btn { left: 20px; color: var(--blue); }
+        body.sidebar-closed .toggle-btn { left: 20px; }
 
         .sidebar h3 { font-size: 1.2rem; margin-bottom: 25px; }
         .sidebar label { font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 8px; }
@@ -91,7 +131,7 @@
             width: 100%;
             background: var(--bg);
             border: 1px solid var(--border);
-            color: white;
+            color: var(--text);
             padding: 10px;
             border-radius: 4px;
             margin-bottom: 20px;
@@ -114,43 +154,37 @@
             padding: 20px; 
             border-radius: 8px; 
             border-left: 5px solid transparent;
-            /* Melhoria 2: Transição suave para o efeito de Hover */
-            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
-        /* Melhoria 2: Efeito flutuante ao passar o mouse */
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-        }
+        .card:hover { transform: translateY(-5px); }
 
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; font-weight: bold;}
-        .card-val { font-size: 1.5rem; font-weight: 600; transition: color 0.3s ease;}
+        .card-val { font-size: 1.5rem; font-weight: 600; }
 
         .btn-sync { 
-            width: 100%; 
-            padding: 12px; 
-            background: transparent; 
-            color: var(--red); 
-            border: 1px solid var(--red);
-            border-radius: 4px; 
-            font-weight: bold; 
-            cursor: pointer; 
-            transition: 0.3s;
+            width: 100%; padding: 12px; background: transparent; 
+            color: var(--red); border: 1px solid var(--red);
+            border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.3s;
         }
-
         .btn-sync:hover { background: var(--red); color: white; }
 
         .chart-container { 
-            background: var(--sidebar); 
-            padding: 25px; 
-            border-radius: 12px; 
-            height: 480px; 
+            background: var(--sidebar); padding: 25px; 
+            border-radius: 12px; height: 480px; 
             border: 1px solid var(--border);
+            box-shadow: var(--card-shadow);
         }
     </style>
 </head>
 <body>
+
+<div id="loading-overlay"><div class="spinner"></div></div>
+
+<button class="theme-toggle" onclick="toggleTheme()" title="Alternar Tema">
+    <span id="theme-icon">🌙</span>
+</button>
 
 <button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">«</button>
 
@@ -216,6 +250,24 @@
         btn.innerHTML = document.body.classList.contains('sidebar-closed') ? "»" : "«";
     }
 
+    function toggleTheme() {
+        const body = document.body;
+        const icon = document.getElementById('theme-icon');
+        body.classList.toggle('light-mode');
+        
+        const isLight = body.classList.contains('light-mode');
+        icon.innerText = isLight ? "☀️" : "🌙";
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+
+        if(chart) {
+            const textColor = isLight ? '#31333f' : '#ffffff';
+            chart.options.plugins.legend.labels.color = textColor;
+            chart.options.scales.x.ticks.color = textColor;
+            chart.options.scales.y.ticks.color = textColor;
+            chart.update();
+        }
+    }
+
     async function carregarEmpresas() {
         try {
             const res = await fetch('/api/empresas');
@@ -228,9 +280,7 @@
                 opt.innerText = emp.nome;
                 select.appendChild(opt);
             });
-        } catch (err) {
-            console.error("Erro ao carregar empresas.");
-        }
+        } catch (err) { console.error("Erro ao carregar empresas."); }
     }
 
     function ajustarDatas() {
@@ -253,6 +303,9 @@
     }
 
     async function sincronizar() {
+        const loader = document.getElementById('loading-overlay');
+        loader.style.display = 'flex';
+
         try {
             const empresa = document.getElementById('empresa').value;
             const data_inicio = document.getElementById('data_inicio').value;
@@ -264,11 +317,15 @@
             renderizarDashboard(data);
         } catch (err) {
             console.error("Erro na sincronização:", err);
+        } finally {
+            setTimeout(() => { loader.style.display = 'none'; }, 600);
         }
     }
 
     function renderizarDashboard(data) {
         const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const isLight = document.body.classList.contains('light-mode');
+        const textColor = isLight ? '#31333f' : '#ffffff';
 
         document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
         document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
@@ -294,79 +351,25 @@
             data: {
                 labels: data.labels,
                 datasets: [
-                    // Melhoria 1: Adicionado borderRadius para deixar os gráficos de barra mais modernos
-                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1', order: 2, borderRadius: 4 },
-                    { type: 'bar', label: 'Despesas', data: data.despesas.map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', stack: 'stack1', order: 2, borderRadius: 4 },
+                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', borderRadius: 4 },
+                    { type: 'bar', label: 'Despesas', data: data.despesas.map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', borderRadius: 4 },
                     { 
-                        type: 'line', 
-                        label: 'Saldo Acumulado', 
-                        data: data.saldo, 
-                        borderColor: '#3498db', 
-                        borderWidth: 3, 
-                        pointRadius: 4, 
-                        tension: 0.3, 
-                        fill: false, // Área azul removida (fill: false)
-                        order: 1 
+                        type: 'line', label: 'Saldo Acumulado', data: data.saldo, 
+                        borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.3, fill: false
                     }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
                 plugins: { 
-                    legend: { labels: { color: '#ffffff' }, position: 'bottom' },
-                    tooltip: {
-                        // Melhoria 4: Tooltips estilizados, arredondados e com mais respiro
-                        backgroundColor: 'rgba(20, 23, 31, 0.95)',
-                        titleFont: { size: 14, family: '"Source Sans Pro", sans-serif' },
-                        bodyFont: { size: 13, family: '"Source Sans Pro", sans-serif' },
-                        padding: 12,
-                        cornerRadius: 8,
-                        boxPadding: 4,
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: function(context) {
-                                let label = context.dataset.label || '';
-                                if (label) label += ': ';
-                                if (context.parsed.y !== null) {
-                                    label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed.y);
-                                }
-                                return label;
-                            }
-                        }
-                    }
+                    legend: { labels: { color: textColor }, position: 'bottom' }
                 },
                 scales: {
-                    x: { 
-                        ticks: { 
-                            color: '#ffffff',
-                            callback: function(value) {
-                                let label = this.getLabelForValue(value);
-                                if (label.includes('/')) {
-                                    let parts = label.split('/');
-                                    return `${parts[0]}/${parts[1]}`;
-                                } else if (label.includes('-')) {
-                                    let parts = label.split('-');
-                                    return `${parts[2]}/${parts[1]}`;
-                                }
-                                return label;
-                            }
-                        }, 
-                        grid: { display: false } 
-                    },
+                    x: { ticks: { color: textColor }, grid: { display: false } },
                     y: { 
-                        ticks: { 
-                            color: '#ffffff',
-                            callback: function(value) {
-                                return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-                            }
-                        }, 
-                        grid: { color: 'rgba(255,255,255,0.05)' } 
+                        ticks: { color: textColor, callback: v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) },
+                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } 
                     }
                 }
             }
@@ -374,6 +377,8 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
+        const savedTheme = localStorage.getItem('theme');
+        if(savedTheme === 'light') toggleTheme();
         await carregarEmpresas();
         ajustarDatas();
     });
