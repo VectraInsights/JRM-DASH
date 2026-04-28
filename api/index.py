@@ -201,7 +201,6 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
     
     params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
     
-    # Mudança: res_bancos agora é uma lista de objetos {"nome": ..., "saldo": ...}
     res_bancos, res_rec, res_desp = await asyncio.gather(
         buscar_saldos_async(token, emp_nome),
         buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", emp_nome, params),
@@ -236,23 +235,20 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
         resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # Consolidar saldos detalhados para o sidebar
-        todos_bancos_detalhado = []
-        mapa_bancos = {} # Para agrupar saldos se houver nomes repetidos entre empresas
-
+        # Consolidar saldos detalhados para o sidebar e cálculo total
+        mapa_bancos = {} 
         for r in resultados:
             for b in r[0]:
                 nome = b["nome"]
                 mapa_bancos[nome] = mapa_bancos.get(nome, 0) + b["saldo"]
 
-        for nome, saldo in mapa_bancos.items():
-            todos_bancos_detalhado.append({"nome": nome, "saldo": saldo})
-
-        total_saldo_banco = sum(b["saldo"] for b in todos_bancos_detalhado)
+        todos_bancos_detalhado = [{"nome": n, "saldo": s} for n, s in mapa_bancos.items()]
+        total_saldo_banco = sum(mapa_bancos.values())
+        
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
-        # Processamento com Pandas
+        # Processamento com Pandas para Série Temporal
         d_inicio = pd.to_datetime(data_inicio)
         d_fim = pd.to_datetime(data_fim)
         datas_range = pd.date_range(d_inicio, d_fim)
@@ -279,7 +275,7 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             "receitas": df["receitas"].tolist(),
             "despesas": df["despesas"].tolist(),
             "saldo": df["saldo_projetado"].tolist(),
-            "saldos_por_banco": todos_bancos_detalhado, # O FRONT PRECISA DISSO
+            "saldos_por_banco": todos_bancos_detalhado,
             "resumo": {
                 "banco": round(float(total_saldo_banco), 2),
                 "total_rec": round(float(df["receitas"].sum()), 2),
