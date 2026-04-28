@@ -16,6 +16,22 @@
             --border: rgba(255, 255, 255, 0.1);
         }
 
+        /* Melhoria 3: Barra de rolagem customizada para o Dark Mode */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
         body { 
             background-color: var(--bg); 
             color: var(--text); 
@@ -98,7 +114,14 @@
             padding: 20px; 
             border-radius: 8px; 
             border-left: 5px solid transparent;
-            transition: border-color 0.3s ease;
+            /* Melhoria 2: Transição suave para o efeito de Hover */
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+
+        /* Melhoria 2: Efeito flutuante ao passar o mouse */
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
         }
 
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; font-weight: bold;}
@@ -255,7 +278,6 @@
         const elRes = document.getElementById('v-res');
         const cardRes = document.getElementById('card-resultado');
         
-        // Melhoria 2: Lógica Dinâmica de Cores para o Card de Resultado (Texto e Borda)
         elRes.innerText = fmt(saldoFinal);
         if (saldoFinal >= 0) {
             elRes.style.color = 'var(--green)';
@@ -268,27 +290,22 @@
         if(chart) chart.destroy();
         const ctx = document.getElementById('mainChart').getContext('2d');
         
-        // Melhoria 1: Criando o Gradiente para a linha de Saldo Acumulado
-        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, 'rgba(52, 152, 219, 0.4)'); // Azul semi-transparente no topo
-        gradient.addColorStop(1, 'rgba(52, 152, 219, 0.0)'); // Transparente na base
-        
         chart = new Chart(ctx, {
             data: {
                 labels: data.labels,
                 datasets: [
-                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1', order: 2 },
-                    { type: 'bar', label: 'Despesas', data: data.despesas.map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', stack: 'stack1', order: 2 },
+                    // Melhoria 1: Adicionado borderRadius para deixar os gráficos de barra mais modernos
+                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1', order: 2, borderRadius: 4 },
+                    { type: 'bar', label: 'Despesas', data: data.despesas.map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', stack: 'stack1', order: 2, borderRadius: 4 },
                     { 
                         type: 'line', 
                         label: 'Saldo Acumulado', 
                         data: data.saldo, 
                         borderColor: '#3498db', 
-                        backgroundColor: gradient, // Aplica o gradiente
                         borderWidth: 3, 
                         pointRadius: 4, 
-                        tension: 0.3, // Curvatura suave
-                        fill: true,   // Preenche a área abaixo da linha
+                        tension: 0.3, 
+                        fill: false, // Área azul removida (fill: false)
                         order: 1 
                     }
                 ]
@@ -303,6 +320,13 @@
                 plugins: { 
                     legend: { labels: { color: '#ffffff' }, position: 'bottom' },
                     tooltip: {
+                        // Melhoria 4: Tooltips estilizados, arredondados e com mais respiro
+                        backgroundColor: 'rgba(20, 23, 31, 0.95)',
+                        titleFont: { size: 14, family: '"Source Sans Pro", sans-serif' },
+                        bodyFont: { size: 13, family: '"Source Sans Pro", sans-serif' },
+                        padding: 12,
+                        cornerRadius: 8,
+                        boxPadding: 4,
                         mode: 'index',
                         intersect: false,
                         callbacks: {
@@ -321,7 +345,6 @@
                     x: { 
                         ticks: { 
                             color: '#ffffff',
-                            // Melhoria 3: Formatação dinâmica para mostrar apenas Dia/Mês no eixo X
                             callback: function(value) {
                                 let label = this.getLabelForValue(value);
                                 if (label.includes('/')) {
