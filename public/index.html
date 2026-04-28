@@ -113,7 +113,7 @@
             color: var(--text); padding: 10px;
             border-radius: 6px; margin-bottom: 15px;
             box-sizing: border-box; font-size: 0.9rem;
-            color-scheme: dark; /* Essencial para o calendário aparecer no dark mode */
+            color-scheme: dark;
         }
         body.light-mode .sidebar select, body.light-mode .sidebar input[type="date"] {
             color-scheme: light;
@@ -123,15 +123,15 @@
             display: flex; align-items: center; justify-content: space-between;
             padding: 10px 0; border-bottom: 1px solid var(--border);
         }
-        .bank-info { display: flex; align-items: center; gap: 10px; }
+        .bank-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .bank-logo {
             width: 28px; height: 28px; border-radius: 4px; background: #fff;
             display: flex; align-items: center; justify-content: center;
             font-size: 10px; font-weight: bold; color: #000; overflow: hidden; flex-shrink: 0;
         }
         .bank-logo img { width: 100%; height: 100%; object-fit: contain; }
-        .bank-name-text { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-        .bank-val-text { font-size: 0.9rem; font-weight: 600; text-align: right; }
+        .bank-name-text { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .bank-val-text { font-size: 0.9rem; font-weight: 600; text-align: right; flex-shrink: 0; }
 
         h1 { margin-top: 0; font-size: 1.8rem; margin-bottom: 25px; display: inline-block; padding-bottom: 5px; }
 
@@ -301,19 +301,19 @@
         try {
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const res = await fetch(`/api/dados?${query.toString()}`);
-            if (!res.ok) throw new Error();
+            if (!res.ok) throw new Error("Erro na resposta da rede");
             const data = await res.json();
             renderizarDashboard(data);
         } catch (err) {
             console.error(err);
-            alert("Erro ao buscar dados da API.");
+            alert("Erro ao buscar dados da API. Verifique a conexão.");
         } finally {
             setTimeout(() => { loader.style.display = 'none'; }, 500);
         }
     }
 
     function getLogoUrl(nome) {
-        const n = nome.toUpperCase();
+        const n = (nome || '').toUpperCase();
         if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Itau_unibanco_logo.svg/100px-Itau_unibanco_logo.svg.png';
         if (n.includes('BRADESCO')) return 'https://banco.bradesco/assets/common/img/favicon.ico';
         if (n.includes('SANTANDER')) return 'https://www.santander.com.br/favicon.ico';
@@ -336,9 +336,10 @@
         containerBancos.innerHTML = '';
         const bancos = data.saldos_por_banco || [];
         const nomesVistos = new Set();
+        
         const bancosFiltrados = bancos.filter(b => {
-            const nomeUp = b.nome.toUpperCase();
-            if (nomesVistos.has(nomeUp) || nomeUp.includes('BRASIL') || Math.abs(b.saldo) < 0.01) return false;
+            const nomeUp = (b.nome || '').toUpperCase();
+            if (!nomeUp || nomesVistos.has(nomeUp) || nomeUp.includes('BRASIL') || Math.abs(b.saldo) < 0.01) return false;
             nomesVistos.add(nomeUp);
             return true;
         }).sort((a, b) => b.saldo - a.saldo);
@@ -351,9 +352,9 @@
                 item.innerHTML = `
                     <div class="bank-info">
                         <div class="bank-logo">
-                            ${logo ? `<img src="${logo}" alt="logo">` : banco.nome.charAt(0)}
+                            ${logo ? `<img src="${logo}" alt="logo">` : (banco.nome || '?').charAt(0)}
                         </div>
-                        <div class="bank-name-text">${banco.nome}</div>
+                        <div class="bank-name-text" title="${banco.nome}">${banco.nome}</div>
                     </div>
                     <div class="bank-val-text" style="color: ${banco.saldo < 0 ? 'var(--red)' : 'inherit'}">
                         ${fmt(banco.saldo)}
@@ -366,7 +367,7 @@
         }
 
         // CARDS RESUMO
-        const resumo = data.resumo || {};
+        const resumo = data.resumo || { banco: 0, total_rec: 0, total_desp: 0 };
         document.getElementById('v-banco').innerText = fmt(resumo.banco);
         document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
         document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
@@ -383,20 +384,64 @@
             data: {
                 labels: data.labels || [],
                 datasets: [
-                    { type: 'line', label: 'Saldo Acumulado', data: data.saldo || [], borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.3, fill: false, order: 0 },
-                    { type: 'bar', label: 'Receitas', data: data.receitas || [], backgroundColor: '#2ecc71', borderRadius: 4, order: 1 },
-                    { type: 'bar', label: 'Despesas', data: (data.despesas || []).map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', borderRadius: 4, order: 1 }
+                    { 
+                        type: 'line', 
+                        label: 'Saldo Acumulado', 
+                        data: data.saldo || [], 
+                        borderColor: '#3498db', 
+                        backgroundColor: '#3498db',
+                        borderWidth: 3, 
+                        pointRadius: 4, 
+                        tension: 0.3, 
+                        fill: false, 
+                        order: 0 
+                    },
+                    { 
+                        type: 'bar', 
+                        label: 'Receitas', 
+                        data: data.receitas || [], 
+                        backgroundColor: '#2ecc71', 
+                        borderRadius: 4, 
+                        order: 1 
+                    },
+                    { 
+                        type: 'bar', 
+                        label: 'Despesas', 
+                        data: (data.despesas || []).map(d => -Math.abs(d)), 
+                        backgroundColor: '#ff4b4b', 
+                        borderRadius: 4, 
+                        order: 1 
+                    }
                 ]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
+                responsive: true, 
+                maintainAspectRatio: false,
                 plugins: { 
-                    legend: { labels: { color: textColor, font: { weight: 'bold' } }, position: 'bottom' },
-                    tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw)}` } }
+                    legend: { 
+                        labels: { color: textColor, font: { weight: 'bold' } }, 
+                        position: 'bottom' 
+                    },
+                    tooltip: { 
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw)}` } 
+                    }
                 },
                 scales: {
-                    x: { stacked: true, ticks: { color: textColor }, grid: { display: false } },
-                    y: { stacked: true, ticks: { color: textColor, callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) }, grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } }
+                    x: { 
+                        stacked: true, 
+                        ticks: { color: textColor }, 
+                        grid: { display: false } 
+                    },
+                    y: { 
+                        stacked: false, // Desempilhado para o saldo linear aparecer corretamente sobre as barras
+                        ticks: { 
+                            color: textColor, 
+                            callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) 
+                        }, 
+                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } 
+                    }
                 }
             }
         });
