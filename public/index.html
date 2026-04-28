@@ -375,7 +375,7 @@
                         pointHoverRadius: 8,
                         tension: 0.3, 
                         fill: false,
-                        order: 0 // Garante que a linha seja desenhada POR CIMA
+                        order: 0 // <--- CORREÇÃO: Desenha POR CIMA das barras (ordem menor = topo)
                     },
                     { 
                         type: 'bar', 
@@ -399,8 +399,8 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 interaction: {
-                    mode: 'index',      // Mostra todos os dados do dia no tooltip
-                    intersect: false    // Não precisa estar exatamente em cima da bolinha
+                    mode: 'index',
+                    intersect: false
                 },
                 plugins: { 
                     legend: { labels: { color: textColor }, position: 'bottom' },
@@ -411,7 +411,11 @@
                     }
                 },
                 scales: {
-                    x: { ticks: { color: textColor }, grid: { display: false } },
+                    x: { 
+                        ticks: { color: textColor }, 
+                        grid: { display: false },
+                        offset: false // <--- CORREÇÃO: Centraliza a bolinha exatamente no meio das barras
+                    },
                     y: { 
                         ticks: { 
                             color: textColor, 
