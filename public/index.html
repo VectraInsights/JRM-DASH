@@ -41,7 +41,6 @@
             transition: background-color 0.3s ease;
         }
 
-        /* --- LOADING --- */
         #loading-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -61,7 +60,6 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* --- THEME & TOGGLE --- */
         .theme-toggle {
             position: fixed; top: 20px; right: 25px;
             background: var(--sidebar);
@@ -117,7 +115,6 @@
             box-sizing: border-box; font-size: 0.9rem;
         }
 
-        /* --- ESTILO BANCOS --- */
         .bank-item {
             display: flex;
             align-items: center;
@@ -139,7 +136,6 @@
         .bank-name-text { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
         .bank-val-text { font-size: 0.9rem; font-weight: 600; text-align: right; }
 
-        /* --- DASHBOARD --- */
         h1 { 
             margin-top: 0; 
             font-size: 1.8rem; 
@@ -182,6 +178,7 @@
             border-radius: 12px; height: 480px; 
             border: 1px solid var(--border);
             box-shadow: var(--card-shadow);
+            position: relative;
         }
     </style>
 </head>
@@ -213,9 +210,9 @@
 
         <div id="container-datas" style="display:none;">
             <label>Início</label>
-            <input type="date" id="data_inicio">
+            <input type="date" id="data_inicio" onchange="sincronizar()">
             <label>Fim</label>
-            <input type="date" id="data_fim">
+            <input type="date" id="data_fim" onchange="sincronizar()">
         </div>
 
         <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
@@ -267,6 +264,7 @@
         const isLight = body.classList.contains('light-mode');
         icon.innerText = isLight ? "☀️" : "🌙";
         localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        
         if(chart) {
             const textColor = isLight ? '#31333f' : '#ffffff';
             const gridColor = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
@@ -281,6 +279,7 @@
     async function carregarEmpresas() {
         try {
             const res = await fetch('/api/empresas');
+            if (!res.ok) throw new Error();
             const empresas = await res.json();
             const select = document.getElementById('empresa');
             empresas.forEach(emp => {
@@ -295,6 +294,7 @@
         const intervaloSelect = document.getElementById('intervalo');
         const containerDatas = document.getElementById('container-datas');
         const hoje = new Date().toISOString().split('T')[0];
+
         if (intervaloSelect.value === 'personalizado') {
             containerDatas.style.display = 'block';
         } else {
@@ -309,27 +309,32 @@
     }
 
     async function sincronizar() {
+        const empresa = document.getElementById('empresa').value;
+        const data_inicio = document.getElementById('data_inicio').value;
+        const data_fim = document.getElementById('data_fim').value;
+
+        // Evita disparar sem datas no modo personalizado
+        if (!data_inicio || !data_fim) return;
+
         const loader = document.getElementById('loading-overlay');
         loader.style.display = 'flex';
+
         try {
-            const empresa = document.getElementById('empresa').value;
-            const data_inicio = document.getElementById('data_inicio').value;
-            const data_fim = document.getElementById('data_fim').value;
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const res = await fetch(`/api/dados?${query.toString()}`);
+            if (!res.ok) throw new Error();
             const data = await res.json();
             renderizarDashboard(data);
         } catch (err) {
-            alert("Erro ao buscar dados.");
+            console.error(err);
+            alert("Erro ao buscar dados da API.");
         } finally {
-            setTimeout(() => { loader.style.display = 'none'; }, 600);
+            setTimeout(() => { loader.style.display = 'none'; }, 500);
         }
     }
 
-    // Retorna a URL da logo baseada no nome do banco
     function getLogoUrl(nome) {
         const n = nome.toUpperCase();
-        // Logo oficial Itaú (Laranja)
         if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Itau_unibanco_logo.svg/100px-Itau_unibanco_logo.svg.png';
         if (n.includes('BRADESCO')) return 'https://banco.bradesco/assets/common/img/favicon.ico';
         if (n.includes('SANTANDER')) return 'https://www.santander.com.br/favicon.ico';
@@ -337,39 +342,29 @@
         if (n.includes('NUBANK')) return 'https://nubank.com.br/favicon.ico';
         if (n.includes('SICREDI')) return 'https://www.sicredi.com.br/favicon.ico';
         if (n.includes('SICOOB')) return 'https://www.sicoob.com.br/favicon.ico';
-        // Banco do Brasil removido da detecção de logo por segurança, embora filtrado na renderização
         return ''; 
     }
 
     function renderizarDashboard(data) {
+        if (!data) return;
+        
         const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // LISTA DE BANCOS COM CORREÇÕES
+        // LISTA DE BANCOS
         const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
-        let bancos = data.saldos_por_banco || [];
-        
-        // 1. Filtragem: Remove Banco do Brasil e Saldos Zerados
-        // 2. Remoção de Duplicados: Garante que cada nome de banco apareça apenas uma vez
-        const bancosFiltrados = [];
+        const bancos = data.saldos_por_banco || [];
         const nomesVistos = new Set();
-
-        bancos.forEach(b => {
+        const bancosFiltrados = bancos.filter(b => {
             const nomeUp = b.nome.toUpperCase();
-            const jaExiste = nomesVistos.has(nomeUp);
-            const naoEhBB = !nomeUp.includes('BRASIL');
-            const temSaldo = Math.abs(b.saldo) > 0.01;
-
-            if (!jaExiste && naoEhBB && temSaldo) {
-                bancosFiltrados.push(b);
-                nomesVistos.add(nomeUp);
-            }
-        });
+            if (nomesVistos.has(nomeUp) || nomeUp.includes('BRASIL') || Math.abs(b.saldo) < 0.01) return false;
+            nomesVistos.add(nomeUp);
+            return true;
+        }).sort((a, b) => b.saldo - a.saldo);
 
         if (bancosFiltrados.length > 0) {
-            bancosFiltrados.sort((a, b) => b.saldo - a.saldo);
             bancosFiltrados.forEach(banco => {
                 const logo = getLogoUrl(banco.nome);
                 const item = document.createElement('div');
@@ -388,15 +383,16 @@
                 containerBancos.appendChild(item);
             });
         } else {
-            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo ativo no período.</div>';
+            containerBancos.innerHTML = '<div style="font-size:0.8rem; opacity:0.5; text-align: center; margin-top: 10px;">Nenhum saldo ativo.</div>';
         }
 
         // CARDS RESUMO
-        document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
-        document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
-        document.getElementById('v-desp').innerText = fmt(-Math.abs(data.resumo?.total_desp || 0));
+        const resumo = data.resumo || {};
+        document.getElementById('v-banco').innerText = fmt(resumo.banco);
+        document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
+        document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
         
-        const liq = Number(data.resumo?.total_rec || 0) - Math.abs(Number(data.resumo?.total_desp || 0));
+        const liq = (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
         const elRes = document.getElementById('v-res');
         elRes.innerText = fmt(liq);
         elRes.style.color = liq >= 0 ? 'var(--green)' : 'var(--red)';
