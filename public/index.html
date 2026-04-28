@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluxo de Caixa - JRM Gestão</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #0e1117; 
+            --sidebar: #262730; 
+            --text: #ffffff;
+            --green: #2ecc71; 
+            --red: #ff4b4b; 
+            --blue: #3498db;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body { 
+            background-color: var(--bg); 
+            color: var(--text); 
+            font-family: "Source Sans Pro", sans-serif; 
+            margin: 0; 
+            display: flex; 
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ESTRUTURA DA SIDEBAR */
+        .sidebar { 
+            width: 280px; 
+            padding: 40px 20px; 
+            background: var(--sidebar); 
+            height: 100vh; 
+            position: fixed;
+            left: 0;
+            top: 0;
+            box-sizing: border-box;
+            border-right: 1px solid var(--border);
+            z-index: 100;
+            transition: transform 0.3s ease;
+        }
+
+        .main { 
+            flex: 1; 
+            margin-left: 280px; 
+            padding: 40px; 
+            overflow-y: auto;
+            transition: margin-left 0.3s ease;
+        }
+
+        /* BOTÃO DISCRETO (FORA DA SIDEBAR PARA NÃO SUMIR) */
+        .toggle-btn {
+            position: fixed;
+            top: 20px;
+            left: 240px; /* Alinhado com o topo interno da barra */
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 1.4rem;
+            cursor: pointer;
+            z-index: 1000;
+            transition: left 0.3s ease, color 0.3s ease;
+            opacity: 0.6;
+        }
+
+        .toggle-btn:hover { opacity: 1; }
+
+        /* ESTADOS QUANDO FECHADO */
+        body.sidebar-closed .sidebar {
+            transform: translateX(-100%);
+        }
+
+        body.sidebar-closed .main {
+            margin-left: 0;
+        }
+
+        body.sidebar-closed .toggle-btn {
+            left: 20px; /* Move para o canto da tela quando a barra some */
+            color: var(--blue); /* Muda de cor para indicar que pode abrir */
+        }
+
+        /* FILTROS E CARDS */
+        .sidebar h3 { font-size: 1.2rem; margin-bottom: 25px; }
+        .sidebar label { font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 8px; }
+
+        .sidebar select, .sidebar input {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+
+        #container-datas { display: none; }
+
+        h1 { margin-top: 0; font-size: 2.2rem; margin-bottom: 30px; border-bottom: 2px solid var(--red); display: inline-block; padding-bottom: 5px;}
+
+        .cards { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
+            gap: 20px; 
+            margin-bottom: 40px; 
+        }
+
+        .card { 
+            background: var(--sidebar); 
+            padding: 20px; 
+            border-radius: 8px; 
+            border-left: 5px solid transparent;
+        }
+
+        .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; font-weight: bold;}
+        .card-val { font-size: 1.5rem; font-weight: 600; }
+
+        .btn-sync { 
+            width: 100%; 
+            padding: 12px; 
+            background: transparent; 
+            color: var(--red); 
+            border: 1px solid var(--red);
+            border-radius: 4px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            transition: 0.3s;
+        }
+
+        .btn-sync:hover { background: var(--red); color: white; }
+
+        .chart-container { 
+            background: var(--sidebar); 
+            padding: 25px; 
+            border-radius: 12px; 
+            height: 480px; 
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+
+<button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">«</button>
+
+<aside class="sidebar">
+    <h3>Filtros</h3>
+    
+    <label>Selecione a empresa</label>
+    <select id="empresa" onchange="sincronizar()">
+        <option value="todas" selected>Todas as Empresas</option>
+    </select>
+
+    <label>Selecione o intervalo</label>
+    <select id="intervalo" onchange="ajustarDatas()">
+        <option value="7" selected>7 dias</option>
+        <option value="15">15 dias</option>
+        <option value="30">30 dias</option>
+        <option value="personalizado">Personalizado</option>
+    </select>
+
+    <div id="container-datas">
+        <label>Data Início</label>
+        <input type="date" id="data_inicio">
+        <label>Data Fim</label>
+        <input type="date" id="data_fim">
+    </div>
+
+    <button class="btn-sync" onclick="sincronizar()">Sincronizar Agora</button>
+</aside>
+
+<main class="main">
+    <h1>Fluxo de Caixa</h1>
+
+    <div class="cards">
+        <div class="card" style="border-left-color: #9b59b6;">
+            <div class="card-label">SALDO EM BANCO</div>
+            <div id="v-banco" class="card-val" style="color: #9b59b6;">R$ 0,00</div>
+        </div>
+        <div class="card" style="border-left-color: var(--green);">
+            <div class="card-label">RECEITAS</div>
+            <div id="v-rec" class="card-val" style="color:var(--green)">R$ 0,00</div>
+        </div>
+        <div class="card" style="border-left-color: var(--red);">
+            <div class="card-label">DESPESAS</div>
+            <div id="v-desp" class="card-val" style="color:var(--red)">R$ 0,00</div>
+        </div>
+        <div class="card" style="border-left-color: var(--blue);">
+            <div class="card-label">RESULTADO</div>
+            <div id="v-res" class="card-val">R$ 0,00</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="mainChart"></canvas>
+    </div>
+</main>
+
+<script>
+    let chart;
+
+    // Lógica do Menu Retrátil
+    function toggleSidebar() {
+        document.body.classList.toggle('sidebar-closed');
+        const btn = document.getElementById('btnToggle');
+        
+        if (document.body.classList.contains('sidebar-closed')) {
+            btn.innerHTML = "»"; // Seta para voltar
+        } else {
+            btn.innerHTML = "«"; // Seta para fechar
+        }
+    }
+
+    // Carregar empresas via API
+    async function carregarEmpresas() {
+        try {
+            const res = await fetch('/api/empresas');
+            if (!res.ok) throw new Error();
+            const empresas = await res.json();
+            const select = document.getElementById('empresa');
+            empresas.forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp.nome;
+                opt.innerText = emp.nome;
+                select.appendChild(opt);
+            });
+        } catch (err) {
+            console.error("Erro ao carregar empresas.");
+        }
+    }
+
+    function ajustarDatas() {
+        const intervaloSelect = document.getElementById('intervalo');
+        const containerDatas = document.getElementById('container-datas');
+        const valor = intervaloSelect.value;
+
+        if (valor === 'personalizado') {
+            containerDatas.style.display = 'block';
+        } else {
+            containerDatas.style.display = 'none';
+            const dias = parseInt(valor);
+            const hoje = new Date();
+            const futuro = new Date();
+            futuro.setDate(hoje.getDate() + dias);
+            document.getElementById('data_inicio').value = hoje.toISOString().split('T')[0];
+            document.getElementById('data_fim').value = futuro.toISOString().split('T')[0];
+            sincronizar();
+        }
+    }
+
+    async function sincronizar() {
+        try {
+            const empresa = document.getElementById('empresa').value;
+            const data_inicio = document.getElementById('data_inicio').value;
+            const data_fim = document.getElementById('data_fim').value;
+            const query = new URLSearchParams({ empresa, data_inicio, data_fim });
+            const res = await fetch(`/api/dados?${query.toString()}`);
+            if (!res.ok) throw new Error("Erro na API");
+            const data = await res.json();
+            renderizarDashboard(data);
+        } catch (err) {
+            console.error("Erro na sincronização:", err);
+        }
+    }
+
+    function renderizarDashboard(data) {
+        const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        document.getElementById('v-banco').innerText = fmt(data.resumo?.banco);
+        document.getElementById('v-rec').innerText = fmt(data.resumo?.total_rec);
+        document.getElementById('v-desp').innerText = fmt(-Math.abs(data.resumo?.total_desp));
+        
+        const saldoFinal = data.saldo?.length > 0 ? data.saldo[data.saldo.length - 1] : 0;
+        const elRes = document.getElementById('v-res');
+        elRes.innerText = fmt(saldoFinal);
+        elRes.style.color = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
+
+        if(chart) chart.destroy();
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        
+        chart = new Chart(ctx, {
+            data: {
+                labels: data.labels,
+                datasets: [
+                    { type: 'bar', label: 'Receitas', data: data.receitas, backgroundColor: '#2ecc71', stack: 'stack1', order: 2 },
+                    { type: 'bar', label: 'Despesas', data: data.despesas.map(d => -Math.abs(d)), backgroundColor: '#ff4b4b', stack: 'stack1', order: 2 },
+                    { type: 'line', label: 'Saldo Acumulado', data: data.saldo, borderColor: '#3498db', borderWidth: 3, pointRadius: 4, tension: 0.1, fill: false, order: 1 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#ffffff' }, position: 'bottom' } },
+                scales: {
+                    x: { ticks: { color: '#ffffff' }, grid: { display: false } },
+                    y: { ticks: { color: '#ffffff' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                }
+            }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await carregarEmpresas();
+        ajustarDatas();
+    });
+</script>
+</body>
+</html>
