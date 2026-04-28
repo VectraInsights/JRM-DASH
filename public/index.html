@@ -288,16 +288,45 @@
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { labels: { color: '#ffffff' }, position: 'bottom' } },
-                scales: {
-                    x: { ticks: { color: '#ffffff' }, grid: { display: false } },
-                    y: { ticks: { color: '#ffffff' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+    responsive: true,
+    maintainAspectRatio: false,
+    // ESSENCIAL: Faz o gráfico detectar o mouse em toda a coluna vertical
+    interaction: {
+        mode: 'index',
+        intersect: false,
+    },
+    plugins: { 
+        legend: { labels: { color: '#ffffff' }, position: 'bottom' },
+        tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+                // Opcional: Formata os valores para R$ no balão
+                label: function(context) {
+                    let label = context.dataset.label || '';
+                    if (label) label += ': ';
+                    if (context.parsed.y !== null) {
+                        label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed.y);
+                    }
+                    return label;
                 }
             }
-        });
+        }
+    },
+    scales: {
+        x: { ticks: { color: '#ffffff' }, grid: { display: false } },
+        y: { 
+            ticks: { 
+                color: '#ffffff',
+                // Formata os números do eixo Y para R$
+                callback: function(value) {
+                    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+                }
+            }, 
+            grid: { color: 'rgba(255,255,255,0.05)' } 
+        }
     }
+}
 
     document.addEventListener('DOMContentLoaded', async () => {
         await carregarEmpresas();
