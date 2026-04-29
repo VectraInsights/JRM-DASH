@@ -11,7 +11,399 @@
             --sidebar: #262730; 
             --text: #ffffff;
             --green: #2ecc71; 
+            --red: #ff4b4b; <!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluxo de Caixa - JRM Gestão</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #0e1117; 
+            --sidebar: #262730; 
+            --text: #ffffff;
+            --green: #2ecc71; 
             --red: #ff4b4b; 
+            --blue: #3498db;
+            --border: rgba(255, 255, 255, 0.1);
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        body.light-mode {
+            --bg: #f8f9fa;
+            --sidebar: #ffffff;
+            --text: #31333f;
+            --border: rgba(0, 0, 0, 0.08);
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        body.light-mode ::-webkit-scrollbar-thumb { background: #ccc; }
+
+        body { 
+            background-color: var(--bg); 
+            color: var(--text); 
+            font-family: "Source Sans Pro", sans-serif; 
+            margin: 0; 
+            display: flex; 
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.3s ease;
+        }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            backdrop-filter: blur(3px);
+        }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--red);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 25px;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            cursor: pointer;
+            z-index: 1001;
+            font-size: 1.2rem;
+        }
+        
+        .sidebar { 
+            width: 300px; padding: 30px 20px; 
+            background: var(--sidebar); 
+            height: 100vh; position: fixed; left: 0; top: 0;
+            box-sizing: border-box;
+            border-right: 1px solid var(--border);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .main { 
+            flex: 1; margin-left: 300px; padding: 40px; 
+            overflow-y: auto;
+            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .toggle-btn {
+            position: fixed; 
+            top: 32px; 
+            left: 270px; 
+            background: transparent;
+            border: none;
+            color: var(--text); 
+            cursor: pointer; 
+            z-index: 1002; 
+            font-size: 22px; 
+            opacity: 0.5;
+        }
+
+        body.sidebar-closed .sidebar { transform: translateX(-100%); }
+        body.sidebar-closed .main { margin-left: 0; }
+        body.sidebar-closed .toggle-btn { left: 15px; }
+
+        h1 { font-size: 1.8rem; margin-bottom: 25px; }
+        .sidebar h3 { font-size: 0.9rem; margin: 25px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; text-transform: uppercase; opacity: 0.8; }
+        .sidebar label { font-size: 0.8rem; opacity: 0.8; display: block; margin-bottom: 5px; }
+
+        .sidebar select, .sidebar input[type="date"] {
+            width: 100%; background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text); padding: 10px;
+            border-radius: 6px; margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+
+        .bank-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 0; border-bottom: 1px solid var(--border);
+        }
+        .bank-info { display: flex; align-items: center; gap: 10px; }
+        .bank-logo {
+            width: 28px; height: 28px; border-radius: 4px; background: #fff;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; flex-shrink: 0;
+        }
+        .bank-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+        .section-label { display: block; font-size: 0.75rem; font-weight: bold; opacity: 0.6; margin-bottom: 15px; letter-spacing: 1px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .card { background: var(--sidebar); padding: 20px; border-radius: 8px; border-left: 5px solid transparent; box-shadow: var(--card-shadow); }
+        .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 8px; font-weight: bold;}
+        .card-val { font-size: 1.4rem; font-weight: 600; }
+
+        .btn-sync { 
+            width: 100%; padding: 12px; background: var(--red); 
+            color: white; border: none; border-radius: 4px; font-weight: bold; 
+            cursor: pointer; transition: 0.3s;
+        }
+        .btn-sync:hover { filter: brightness(1.2); }
+
+        .chart-container { 
+            background: var(--sidebar); padding: 25px; border-radius: 12px; height: 480px; 
+            border: 1px solid var(--border); box-shadow: var(--card-shadow); position: relative;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading-overlay"><div class="spinner"></div></div>
+
+<button class="theme-toggle" onclick="toggleTheme()"><span id="theme-icon">🌙</span></button>
+<button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">«</button>
+
+<aside class="sidebar">
+    <h3>Filtros</h3>
+    <label>Empresa</label>
+    <select id="empresa" onchange="sincronizar()">
+        <option value="todas">Todas as Empresas</option>
+    </select>
+
+    <label>Intervalo de Previsão</label>
+    <select id="intervalo" onchange="ajustarDatas()">
+        <option value="7" selected>Próximos 7 dias</option>
+        <option value="15">Próximos 15 dias</option>
+        <option value="30">Próximos 30 dias</option>
+        <option value="personalizado">Personalizado</option>
+    </select>
+
+    <div id="container-datas" style="display:none;">
+        <label>Início</label>
+        <input type="date" id="data_inicio">
+        <label>Fim</label>
+        <input type="date" id="data_fim">
+    </div>
+
+    <button class="btn-sync" onclick="limparCacheESincronizar()">Sincronizar Agora</button>
+
+    <h3>Bancos</h3>
+    <div id="lista-bancos">
+        <div style="font-size: 0.8rem; opacity: 0.5; text-align: center;">Carregando...</div>
+    </div>
+</aside>
+
+<main class="main">
+    <h1>Fluxo de Caixa (Previsto)</h1>
+
+    <div class="section-label">RESUMO DA PREVISÃO</div>
+    <div class="cards">
+        <div class="card" style="border-left-color: #9b59b6;">
+            <div class="card-label">SALDO EM BANCO</div>
+            <div id="v-banco" class="card-val" style="color: #9b59b6;">R$ 0,00</div>
+        </div>
+        <div class="card" style="border-left-color: var(--green);">
+            <div class="card-label">ENTRADAS PREVISTAS</div>
+            <div id="v-rec" class="card-val" style="color:var(--green)">R$ 0,00</div>
+        </div>
+        <div class="card" style="border-left-color: var(--red);">
+            <div class="card-label">SAÍDAS PREVISTAS</div>
+            <div id="v-desp" class="card-val" style="color:var(--red)">R$ 0,00</div>
+        </div>
+        <div class="card" id="card-resultado" style="border-left-color: var(--blue);">
+            <div class="card-label">SALDO FINAL PREVISTO</div>
+            <div id="v-res" class="card-val">R$ 0,00</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="mainChart"></canvas>
+    </div>
+</main>
+
+<script>
+    let chart;
+
+    function toggleSidebar() { 
+        const body = document.body;
+        body.classList.toggle('sidebar-closed');
+        document.getElementById('btnToggle').innerText = body.classList.contains('sidebar-closed') ? '»' : '«';
+        if(chart) setTimeout(() => chart.resize(), 350);
+    }
+
+    function toggleTheme() {
+        const body = document.body;
+        body.classList.toggle('light-mode');
+        const isLight = body.classList.contains('light-mode');
+        document.getElementById('theme-icon').innerText = isLight ? "☀️" : "🌙";
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        if(chart) renderizarDashboard(null, true); // Atualiza cores do gráfico
+    }
+
+    async function carregarEmpresas() {
+        try {
+            const res = await fetch('/api/empresas');
+            const empresas = await res.json();
+            const select = document.getElementById('empresa');
+            empresas.forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp.nome; opt.innerText = emp.nome;
+                select.appendChild(opt);
+            });
+        } catch (err) { console.error("Erro ao carregar empresas."); }
+    }
+
+    function ajustarDatas() {
+        const intervalo = document.getElementById('intervalo').value;
+        const container = document.getElementById('container-datas');
+        const hoje = new Date();
+        
+        container.style.display = intervalo === 'personalizado' ? 'block' : 'none';
+        
+        if (intervalo !== 'personalizado') {
+            const dataFim = new Date();
+            dataFim.setDate(hoje.getDate() + parseInt(intervalo));
+            document.getElementById('data_inicio').value = hoje.toISOString().split('T')[0];
+            document.getElementById('data_fim').value = dataFim.toISOString().split('T')[0];
+            sincronizar();
+        }
+    }
+
+    function limparCacheESincronizar() {
+        sessionStorage.clear();
+        sincronizar();
+    }
+
+    async function sincronizar() {
+        const empresa = document.getElementById('empresa').value;
+        const data_inicio = document.getElementById('data_inicio').value;
+        const data_fim = document.getElementById('data_fim').value;
+
+        if (!data_inicio || !data_fim) return;
+
+        // Tenta buscar do Cache de Sessão (Otimização de Velocidade)
+        const cacheKey = `fluxo_${empresa}_${data_inicio}_${data_fim}`;
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+            renderizarDashboard(JSON.parse(cached));
+            return;
+        }
+
+        const loader = document.getElementById('loading-overlay');
+        loader.style.display = 'flex';
+
+        try {
+            const query = new URLSearchParams({ empresa, data_inicio, data_fim });
+            const res = await fetch(`/api/dados?${query.toString()}`);
+            const data = await res.json();
+            sessionStorage.setItem(cacheKey, JSON.stringify(data));
+            renderizarDashboard(data);
+        } catch (err) {
+            console.error("Erro na sincronização:", err);
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    function getLogoUrl(nome) {
+        const n = (nome || '').toUpperCase();
+        if (n.includes('ITAU')) return 'https://upload.wikimedia.org/wikipedia/commons/8/8a/Banco_Ita%C3%BA_logo.svg';
+        if (n.includes('BRADESCO')) return 'https://upload.wikimedia.org/wikipedia/commons/9/90/Bradesco_logo.svg';
+        if (n.includes('SICOOB')) return 'https://upload.wikimedia.org/wikipedia/commons/d/de/Logo_Sicoob.svg';
+        if (n.includes('SANTANDER')) return 'https://upload.wikimedia.org/wikipedia/commons/b/b8/Logo_Santander.svg';
+        if (n.includes('NUBANK')) return 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Nubank_logo_2021.svg';
+        if (n.includes('INTER')) return 'https://upload.wikimedia.org/wikipedia/commons/e/e3/Banco_Inter_logo.svg';
+        if (n.includes('BRASIL')) return 'https://upload.wikimedia.org/wikipedia/commons/f/f3/Logo_do_Banco_do_Brasil.svg';
+        if (n.includes('SICREDI')) return 'https://upload.wikimedia.org/wikipedia/commons/3/3f/Logo_Sicredi.svg';
+        return ''; 
+    }
+
+    let dadosAtuais = null;
+
+    function renderizarDashboard(data, apenasCores = false) {
+        if (!data && !apenasCores) return;
+        if (data) dadosAtuais = data;
+        const d = dadosAtuais;
+
+        const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const isLight = document.body.classList.contains('light-mode');
+        const textColor = isLight ? '#31333f' : '#ffffff';
+
+        // Bancos
+        const containerBancos = document.getElementById('lista-bancos');
+        if (!apenasCores) {
+            containerBancos.innerHTML = '';
+            (d.saldos_por_banco || []).forEach(b => {
+                const logo = getLogoUrl(b.nome);
+                const item = document.createElement('div');
+                item.className = 'bank-item';
+                item.innerHTML = `
+                    <div class="bank-info">
+                        <div class="bank-logo">${logo ? `<img src="${logo}">` : b.nome.charAt(0)}</div>
+                        <div class="bank-name-text">${b.nome}</div>
+                    </div>
+                    <div class="bank-val-text">${fmt(b.saldo)}</div>
+                `;
+                containerBancos.appendChild(item);
+            });
+        }
+
+        // Cards
+        document.getElementById('v-banco').innerText = fmt(d.resumo.banco);
+        document.getElementById('v-rec').innerText = fmt(d.resumo.total_rec);
+        document.getElementById('v-desp').innerText = fmt(-d.resumo.total_desp);
+        
+        const saldoFinal = d.resumo.saldo_final;
+        const elRes = document.getElementById('v-res');
+        elRes.innerText = fmt(saldoFinal);
+        const cor = saldoFinal >= 0 ? 'var(--green)' : 'var(--red)';
+        elRes.style.color = cor;
+        document.getElementById('card-resultado').style.borderLeftColor = cor;
+
+        // Gráfico
+        if(chart) chart.destroy();
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        chart = new Chart(ctx, {
+            data: {
+                labels: d.labels,
+                datasets: [
+                    { type: 'line', label: 'Saldo Previsto', data: d.saldo, borderColor: '#3498db', borderWidth: 3, tension: 0.3, pointRadius: 2 },
+                    { type: 'bar', label: 'Receitas', data: d.receitas, backgroundColor: '#2ecc71', borderRadius: 4 },
+                    { type: 'bar', label: 'Despesas', data: d.despesas.map(v => -Math.abs(v)), backgroundColor: '#ff4b4b', borderRadius: 4 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { 
+                    legend: { labels: { color: textColor }, position: 'bottom' },
+                    tooltip: { mode: 'index', intersect: false }
+                },
+                scales: {
+                    x: { ticks: { color: textColor }, grid: { display: false } },
+                    y: { 
+                        ticks: { color: textColor, callback: v => v.toLocaleString('pt-BR', { notation: 'compact' }) },
+                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }
+                    }
+                }
+            }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if(localStorage.getItem('theme') === 'light') toggleTheme();
+        // Carregamento paralelo
+        Promise.all([carregarEmpresas(), ajustarDatas()]);
+    });
+</script>
+</body>
+</html>
             --blue: #3498db;
             --border: rgba(255, 255, 255, 0.1);
             --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
