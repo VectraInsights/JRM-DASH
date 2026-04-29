@@ -415,12 +415,12 @@
         document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
         document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
         
-        const saldoProjetado = saldoAtualBancos + (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
+        const saldoPrevisto = saldoAtualBancos + (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
         const elRes = document.getElementById('v-res');
         const cardRes = document.getElementById('card-resultado');
         
-        elRes.innerText = fmt(saldoProjetado);
-        const corFinal = saldoProjetado >= 0 ? 'var(--green)' : 'var(--red)';
+        elRes.innerText = fmt(saldoPrevisto);
+        const corFinal = saldoPrevisto >= 0 ? 'var(--green)' : 'var(--red)';
         elRes.style.color = corFinal;
         cardRes.style.borderLeftColor = corFinal;
 
