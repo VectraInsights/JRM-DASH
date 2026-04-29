@@ -448,6 +448,7 @@
                         data: data.receitas || [], 
                         backgroundColor: '#2ecc71', 
                         borderRadius: 4
+                        stack: 'combined'
                     },
                     { 
                         type: 'bar', 
@@ -455,6 +456,7 @@
                         data: (data.despesas || []).map(d => -Math.abs(d)), 
                         backgroundColor: '#ff4b4b', 
                         borderRadius: 4
+                        stack: 'combined'
                     }
                 ]
             },
@@ -466,8 +468,9 @@
                     tooltip: { mode: 'index', intersect: false }
                 },
                 scales: {
-                    x: { ticks: { color: textColor }, grid: { display: false } },
+                    x: { stacked: true, { ticks: { color: textColor }, grid: { display: false } },
                     y: { 
+                        stacked: true,
                         ticks: { 
                             color: textColor, 
                             callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) 
