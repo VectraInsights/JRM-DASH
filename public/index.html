@@ -99,7 +99,6 @@
             transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* --- BOTÃO DE TOGGLE AJUSTADO (Maior e mais visível) --- */
         .toggle-btn {
             position: fixed; 
             top: 32px; 
@@ -113,7 +112,7 @@
             display: flex; 
             align-items: center; 
             justify-content: center;
-            font-size: 22px; /* Tamanho aumentado */
+            font-size: 22px; 
             font-weight: bold;
             opacity: 0.5;
             padding: 5px;
@@ -124,7 +123,6 @@
             color: var(--blue);
         }
 
-        /* --- ESCONDER TOOLBAR PADRÃO --- */
         [class*="toolbar"], [id*="toolbar"], .chart-container button {
             display: none !important;
         }
@@ -447,7 +445,7 @@
                         label: 'Receitas', 
                         data: data.receitas || [], 
                         backgroundColor: '#2ecc71', 
-                        borderRadius: 4
+                        borderRadius: 4,
                         stack: 'combined'
                     },
                     { 
@@ -455,7 +453,7 @@
                         label: 'Despesas', 
                         data: (data.despesas || []).map(d => -Math.abs(d)), 
                         backgroundColor: '#ff4b4b', 
-                        borderRadius: 4
+                        borderRadius: 4,
                         stack: 'combined'
                     }
                 ]
@@ -468,7 +466,11 @@
                     tooltip: { mode: 'index', intersect: false }
                 },
                 scales: {
-                    x: { stacked: true, ticks: { color: textColor }, grid: { display: false } },
+                    x: { 
+                        stacked: true, 
+                        ticks: { color: textColor }, 
+                        grid: { display: false } 
+                    },
                     y: { 
                         stacked: true,
                         ticks: { 
