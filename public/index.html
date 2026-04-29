@@ -61,18 +61,26 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .theme-toggle {
-            position: fixed; top: 20px; right: 25px;
-            background: var(--sidebar);
-            border: 1px solid var(--border);
+            position: fixed;
+            top: 20px;
+            right: 25px;
+            background: transparent;
+            border: none;
             color: var(--text);
-            width: 40px; height: 40px;
-            border-radius: 50%;
             cursor: pointer;
             z-index: 1001;
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: var(--card-shadow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: none;
+            font-size: 1.4rem;
+            transition: opacity 0.2s;
         }
 
+        .theme-toggle:hover {
+            opacity: 0.7;
+        }
+        
         .sidebar { 
             width: 300px; padding: 30px 20px; 
             background: var(--sidebar); 
