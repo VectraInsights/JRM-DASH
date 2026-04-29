@@ -6,13 +6,23 @@ import base64
 import pandas as pd
 import os
 import unicodedata
+import time
 from datetime import datetime
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
 from typing import List, Dict, Any
 
+# Importações do FastAPI Cache
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.decorator import cache
+
 # --- VARIÁVEIS GLOBAIS ---
 http_client: httpx.AsyncClient = None
+
+# Cache de tokens em memória para evitar consultas desnecessárias ao Supabase
+# Estrutura: { "nome_empresa": (token_string, validade_timestamp) }
+TOKEN_CACHE = {}
 
 # --- GERENCIAMENTO DE CICLO DE VIDA ---
 @asynccontextmanager
@@ -20,6 +30,10 @@ async def lifespan(app: FastAPI):
     global http_client
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     http_client = httpx.AsyncClient(limits=limits, timeout=30.0)
+    
+    # Inicializa o sistema de cache de respostas em memória
+    FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+    
     yield
     await http_client.aclose()
 
@@ -91,13 +105,28 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
         return None
 
 async def obter_token_atual(empresa_nome: str):
+    agora = time.time()
+    
+    # 1. Verifica se o token está no cache de memória e ainda é válido (50 minutos de margem de segurança)
+    if empresa_nome in TOKEN_CACHE and TOKEN_CACHE[empresa_nome][1] > agora:
+        return TOKEN_CACHE[empresa_nome][0]
+
+    # 2. Se não estiver no cache, busca no banco de dados (Supabase)
     try:
         res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).execute()
         if res.data and res.data[0].get("access_token"):
-            return res.data[0]["access_token"]
+            token = res.data[0]["access_token"]
+            TOKEN_CACHE[empresa_nome] = (token, agora + 3000) # Salva no cache por 3000 segundos (50 min)
+            return token
     except Exception:
         pass
-    return await renovar_e_obter_novo_token(empresa_nome)
+    
+    # 3. Se falhar ou não tiver token, tenta renovar e salva no cache
+    novo_token = await renovar_e_obter_novo_token(empresa_nome)
+    if novo_token:
+        TOKEN_CACHE[empresa_nome] = (novo_token, agora + 3000)
+    
+    return novo_token
 
 # --- BUSCAS NA API CONTA AZUL ---
 
@@ -122,7 +151,11 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             
             if res.status_code == 401:
                 token = await renovar_e_obter_novo_token(empresa_nome)
-                if not token: break
+                if token:
+                    # Atualiza o cache forçadamente se renovou por erro 401
+                    TOKEN_CACHE[empresa_nome] = (token, time.time() + 3000)
+                else:
+                    break
                 tentativas += 1
                 continue 
             
@@ -163,6 +196,7 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
         if res.status_code == 401:
             token = await renovar_e_obter_novo_token(empresa_nome)
             if not token: return []
+            TOKEN_CACHE[empresa_nome] = (token, time.time() + 3000) # Atualiza o cache
             headers = {"Authorization": f"Bearer {token}"}
             res = await http_client.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers)
 
@@ -212,6 +246,7 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
 # --- ENDPOINTS ---
 
 @app.get("/api/empresas")
+@cache(expire=3600) # Cache de 1 hora para a lista de empresas
 async def listar_empresas():
     try:
         res = supabase.table("tokens").select("empresa").order("empresa").execute()
@@ -220,6 +255,7 @@ async def listar_empresas():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/dados")
+@cache(expire=120) # Cache de 2 minutos para evitar requisições idênticas simultâneas
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
         if empresa.lower() == "todas":
@@ -241,16 +277,14 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         for r in resultados:
             for b in r[0]:
                 nome_bruto = b["nome"]
-                # Normaliza para identificar duplicidades (Ex: ITAU)
                 chave_unica = remover_acentos(nome_bruto).upper()
                 saldo = b["saldo"]
                 
                 if chave_unica in mapa_bancos:
                     mapa_bancos[chave_unica]["saldo"] += saldo
                 else:
-                    # Mantém o nome normalizado como padrão para a logo no front-end
                     mapa_bancos[chave_unica] = {
-                        "nome": chave_unica.capitalize(), # Ex: Itau
+                        "nome": chave_unica.capitalize(),
                         "saldo": saldo
                     }
 
