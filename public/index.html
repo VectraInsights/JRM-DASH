@@ -91,31 +91,30 @@
             transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* MELHORIA DA SETA: Menor, mais discreta e sem sobreposição */
+        /* MELHORIA DA SETA: Minimalista (estilo Image 2), discreta e sem sobreposição */
         .toggle-btn {
             position: fixed; 
-            top: 32px; /* Alinhado ao centro do H1 */
+            top: 35px; /* Alinhado ao centro do H1 */
             left: 285px; 
-            background: var(--sidebar); 
-            border: 1px solid var(--border);
+            background: transparent; /* Remove o fundo sólido */
+            border: none; /* Remove a borda quadrada */
             color: var(--text); 
-            width: 26px; 
-            height: 26px;
-            border-radius: 4px; 
+            width: auto; /* Deixa o tamanho natural do caractere */
+            height: auto;
             cursor: pointer; 
             z-index: 1002; 
             transition: all 0.3s ease;
             display: flex; 
             align-items: center; 
             justify-content: center;
-            font-size: 10px;
-            opacity: 0.5; /* Fica discreta por padrão */
+            font-size: 14px; /* Seta pequena e discreta */
+            opacity: 0.3; /* Fica muito discreta por padrão */
+            padding: 0;
         }
 
         .toggle-btn:hover {
-            opacity: 1;
-            background: var(--blue);
-            color: white;
+            opacity: 1; /* Ganha destaque apenas no hover */
+            color: var(--blue); /* Muda de cor no hover para feedback visual */
         }
 
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
@@ -133,7 +132,7 @@
         }
 
         body.sidebar-closed h1 {
-            padding-left: 40px; /* Abre espaço para a seta quando fechado */
+            padding-left: 30px; /* Abre espaço suficiente para a seta minimalista */
         }
 
         .sidebar h3 { font-size: 1rem; margin: 25px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
@@ -192,7 +191,7 @@
     <span id="theme-icon">🌙</span>
 </button>
 
-<button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">❮</button>
+<button class="toggle-btn" id="btnToggle" onclick="toggleSidebar()">«</button>
 
 <aside class="sidebar">
     <div class="sidebar-content">
@@ -263,9 +262,9 @@
         body.classList.toggle('sidebar-closed');
         
         if (body.classList.contains('sidebar-closed')) {
-            btn.innerText = '❯'; 
+            btn.innerText = '»'; // Seta minimalista para direita (abrir)
         } else {
-            btn.innerText = '❮'; 
+            btn.innerText = '«'; // Seta minimalista para esquerda (fechar)
         }
     }
 
