@@ -1,21 +1,16 @@
 {
   "name": "JRM Gestão Financeira",
   "short_name": "JRM Dash",
-  "start_url": "index.html",
+  "start_url": "https://jrm-dashboard.vercel.app/",
   "display": "standalone",
   "background_color": "#0e1117",
   "theme_color": "#0e1117",
   "icons": [
     {
-      "src": "logo.png",
-      "sizes": "512x512",
+      "src": "https://jrm-dashboard.vercel.app/logo.png",
+      "sizes": "300x296",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "logo.png",
-      "sizes": "192x192",
-      "type": "image/png"
     }
   ]
 }
