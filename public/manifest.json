@@ -8,7 +8,7 @@
   "icons": [
     {
       "src": "https://jrm-dashboard.vercel.app/logo.png",
-      "sizes": "300x296",
+      "sizes": "320x320",
       "type": "image/png",
       "purpose": "any"
     }
