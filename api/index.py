@@ -40,7 +40,7 @@ CLIENT_ID = os.environ.get("CONTA_AZUL_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, CLIENT_ID, CLIENT_SECRET]):
-    print("⚠️ AVISO: Variáveis de ambiente incompletas (.env)")
+    print("⚠️ AVISO: Variáveis de ambiente incompletas no Vercel/Env")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -50,7 +50,7 @@ def remover_acentos(texto: str) -> str:
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-# --- LÓGICA DE AUTENTICAÇÃO ---
+# --- LÓGICA DE AUTENTICAÇÃO COM AVISO NO SUPABASE ---
 
 async def renovar_e_obter_novo_token(empresa_nome: str):
     try:
@@ -78,21 +78,43 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             novo_access = dados.get("access_token")
             novo_refresh = dados.get("refresh_token")
 
+            # SUCESSO: Atualiza tokens e limpa qualquer erro anterior
             supabase.table("tokens").update({
                 "access_token": novo_access,
                 "refresh_token": novo_refresh,
+                "status": "ATIVO",
+                "mensagem_erro": None,
                 "updated_at": datetime.now().isoformat()
             }).eq("empresa", empresa_nome).execute()
             
             return novo_access
-        return None
+        else:
+            # ERRO DE AUTENTICAÇÃO: Registra o aviso no Supabase
+            erro_detalhe = f"Erro {r.status_code} ao renovar: {r.text}"
+            supabase.table("tokens").update({
+                "status": "ERRO",
+                "mensagem_erro": f"Token expirado ou revogado. Reautentique manualmente.",
+                "updated_at": datetime.now().isoformat()
+            }).eq("empresa", empresa_nome).execute()
+            return None
+
     except Exception as e:
+        # ERRO DE CONEXÃO/SISTEMA: Registra a falha crítica
+        supabase.table("tokens").update({
+            "status": "ERRO",
+            "mensagem_erro": f"Falha crítica no sistema: {str(e)}",
+            "updated_at": datetime.now().isoformat()
+        }).eq("empresa", empresa_nome).execute()
         print(f"Erro na renovação de token ({empresa_nome}): {e}")
         return None
 
 async def obter_token_atual(empresa_nome: str):
     try:
-        res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).execute()
+        res = supabase.table("tokens").select("access_token, status").eq("empresa", empresa_nome).execute()
+        # Se já estiver com erro marcado, tenta renovar uma última vez
+        if res.data and res.data[0].get("status") == "ERRO":
+             return await renovar_e_obter_novo_token(empresa_nome)
+             
         if res.data and res.data[0].get("access_token"):
             return res.data[0]["access_token"]
     except Exception:
@@ -103,8 +125,9 @@ async def obter_token_atual(empresa_nome: str):
 
 async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     token = await obter_token_atual(empresa_nome)
-    itens_acumulados = []
+    if not token: return []
     
+    itens_acumulados = []
     p = {
         **params, 
         "status": "EM_ABERTO", 
@@ -214,8 +237,15 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
 @app.get("/api/empresas")
 async def listar_empresas():
     try:
-        res = supabase.table("tokens").select("empresa").order("empresa").execute()
-        return [{"nome": row["empresa"]} for row in res.data]
+        # Agora retorna também o status e a mensagem de erro para o frontend
+        res = supabase.table("tokens").select("empresa, status, mensagem_erro").order("empresa").execute()
+        return [
+            {
+                "nome": row["empresa"], 
+                "status": row.get("status", "ATIVO"), 
+                "erro": row.get("mensagem_erro")
+            } for row in res.data
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -236,28 +266,24 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
         resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # --- CORREÇÃO DA DUPLICIDADE E LOGO ---
         mapa_bancos = {} 
         for r in resultados:
             for b in r[0]:
                 nome_bruto = b["nome"]
-                # Normaliza para identificar duplicidades (Ex: ITAU)
                 chave_unica = remover_acentos(nome_bruto).upper()
                 saldo = b["saldo"]
                 
                 if chave_unica in mapa_bancos:
                     mapa_bancos[chave_unica]["saldo"] += saldo
                 else:
-                    # Mantém o nome normalizado como padrão para a logo no front-end
                     mapa_bancos[chave_unica] = {
-                        "nome": chave_unica.capitalize(), # Ex: Itau
+                        "nome": chave_unica.capitalize(),
                         "saldo": saldo
                     }
 
         todos_bancos_detalhado = [{"nome": v["nome"], "saldo": round(v["saldo"], 2)} for v in mapa_bancos.values()]
         total_saldo_banco = sum(v["saldo"] for v in mapa_bancos.values())
         
-        # --- RESTANTE DA LÓGICA MANTIDA ---
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
