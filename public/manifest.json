@@ -1,15 +1,16 @@
 {
-  "name": "Meu BPO Financeiro",
-  "short_name": "DashFinance",
+  "name": "Fluxo de Caixa JRM",
+  "short_name": "JRM Dash",
   "start_url": "index.html",
   "display": "standalone",
-  "background_color": "#121212",
-  "theme_color": "#121212",
+  "background_color": "#0e1117",
+  "theme_color": "#0e1117",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/2454/2454282.png",
+      "src": "logo.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
