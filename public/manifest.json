@@ -1,5 +1,5 @@
 {
-  "name": "Fluxo de Caixa JRM",
+  "name": "JRM Gestão Financeira",
   "short_name": "JRM Dash",
   "start_url": "index.html",
   "display": "standalone",
@@ -7,10 +7,15 @@
   "theme_color": "#0e1117",
   "icons": [
     {
-      "src": "logo.png?v=2",
+      "src": "logo.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
     }
   ]
 }
