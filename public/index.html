@@ -212,6 +212,7 @@
 
         <label>Intervalo de Projeção</label>
         <select id="intervalo" onchange="ajustarDatas()">
+            <option value="0">Hoje</option>
             <option value="7" selected>Próximos 7 dias</option>
             <option value="15">Próximos 15 dias</option>
             <option value="30">Próximos 30 dias</option>
@@ -315,26 +316,35 @@
     }
 
     function ajustarDatas() {
-        const intervaloSelect = document.getElementById('intervalo');
-        const containerDatas = document.getElementById('container-datas');
-        const hoje = new Date();
-        const dataInicioFormatada = hoje.toISOString().split('T')[0];
+    const intervaloSelect = document.getElementById('intervalo');
+    const containerDatas = document.getElementById('container-datas');
+    const hoje = new Date();
+    
+    // ISOString lida com UTC, então garantimos a data local correta
+    const offset = hoje.getTimezoneOffset();
+    const dataLocal = new Date(hoje.getTime() - (offset * 60 * 1000));
+    const dataInicioFormatada = dataLocal.toISOString().split('T')[0];
 
-        if (intervaloSelect.value === 'personalizado') {
-            containerDatas.style.display = 'block';
-        } else {
-            containerDatas.style.display = 'none';
-            const dias = parseInt(intervaloSelect.value);
-            const dataFim = new Date();
-            dataFim.setDate(hoje.getDate() + dias);
-            const dataFimFormatada = dataFim.toISOString().split('T')[0];
+    if (intervaloSelect.value === 'personalizado') {
+        containerDatas.style.display = 'block';
+    } else {
+        containerDatas.style.display = 'none';
+        const dias = parseInt(intervaloSelect.value);
+        const dataFim = new Date(hoje);
+        
+        // Se for "Hoje" (dias = 0), a data fim é igual a hoje. 
+        // Se for 7, adiciona 7 dias.
+        dataFim.setDate(hoje.getDate() + dias);
+        
+        const dataFimLocal = new Date(dataFim.getTime() - (offset * 60 * 1000));
+        const dataFimFormatada = dataFimLocal.toISOString().split('T')[0];
 
-            document.getElementById('data_inicio').value = dataInicioFormatada;
-            document.getElementById('data_fim').value = dataFimFormatada;
-            
-            sincronizar();
-        }
+        document.getElementById('data_inicio').value = dataInicioFormatada;
+        document.getElementById('data_fim').value = dataFimFormatada;
+        
+        sincronizar();
     }
+}
 
     async function sincronizar() {
         const empresa = document.getElementById('empresa').value;
