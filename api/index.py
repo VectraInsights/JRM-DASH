@@ -38,6 +38,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 CLIENT_ID = os.environ.get("CONTA_AZUL_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
+WHATSAPP_NUMBER = "+5531993875191"
 
 if not all([SUPABASE_URL, SUPABASE_KEY, CLIENT_ID, CLIENT_SECRET]):
     print("⚠️ AVISO: Variáveis de ambiente incompletas (.env)")
@@ -49,6 +50,16 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def remover_acentos(texto: str) -> str:
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+
+async def notificar_erro_whatsapp(empresa: str, erro: str):
+    """
+    Função para enviar alerta de erro. 
+    Configure aqui a URL da sua instância de WhatsApp (Ex: Evolution API).
+    """
+    mensagem = f"⚠️ *ALERTA BPO FINANCEIRO*\n\nEmpresa: {empresa}\nErro: O token da Conta Azul expirou ou foi invalidado.\nDetalhes: {erro}"
+    print(f"Enviando WhatsApp para {WHATSAPP_NUMBER}: {mensagem}")
+    # Exemplo de chamada para Evolution API (descomente e ajuste se usar):
+    # await http_client.post("SUA_URL_API_WA", json={"number": WHATSAPP_NUMBER, "text": mensagem})
 
 # --- LÓGICA DE AUTENTICAÇÃO ---
 
@@ -81,19 +92,33 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             supabase.table("tokens").update({
                 "access_token": novo_access,
                 "refresh_token": novo_refresh,
+                "status": "ATIVO",
+                "last_error": None,
                 "updated_at": datetime.now().isoformat()
             }).eq("empresa", empresa_nome).execute()
             
             return novo_access
-        return None
+        else:
+            detalhe_erro = r.text
+            # Atualiza status de erro no Supabase
+            supabase.table("tokens").update({
+                "status": "ERRO",
+                "last_error": detalhe_erro,
+                "updated_at": datetime.now().isoformat()
+            }).eq("empresa", empresa_nome).execute()
+            
+            # Dispara notificação para você
+            await notificar_erro_whatsapp(empresa_nome, detalhe_erro)
+            return None
+
     except Exception as e:
-        print(f"Erro na renovação de token ({empresa_nome}): {e}")
+        print(f"Erro crítico na renovação ({empresa_nome}): {e}")
         return None
 
 async def obter_token_atual(empresa_nome: str):
     try:
-        res = supabase.table("tokens").select("access_token").eq("empresa", empresa_nome).execute()
-        if res.data and res.data[0].get("access_token"):
+        res = supabase.table("tokens").select("access_token", "status").eq("empresa", empresa_nome).execute()
+        if res.data and res.data[0].get("status") == "ATIVO":
             return res.data[0]["access_token"]
     except Exception:
         pass
@@ -103,15 +128,10 @@ async def obter_token_atual(empresa_nome: str):
 
 async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     token = await obter_token_atual(empresa_nome)
-    itens_acumulados = []
+    if not token: return []
     
-    p = {
-        **params, 
-        "status": "EM_ABERTO", 
-        "tamanho_pagina": 100, 
-        "pagina": 1, 
-        "fields": "data_vencimento,total,pago"
-    }
+    itens_acumulados = []
+    p = {**params, "status": "EM_ABERTO", "tamanho_pagina": 100, "pagina": 1, "fields": "data_vencimento,total,pago"}
     
     tentativas = 0
     while tentativas < 2:
@@ -135,12 +155,8 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             for i in itens:
                 dt_venc = i.get("data_vencimento")[:10] if i.get("data_vencimento") else None
                 valor_aberto = i.get('total', 0) - i.get('pago', 0)
-                
                 if dt_venc and valor_aberto > 0:
-                    itens_acumulados.append({
-                        "data": dt_venc, 
-                        "valor": valor_aberto
-                    })
+                    itens_acumulados.append({"data": dt_venc, "valor": valor_aberto})
             
             if len(itens) < 100: break
             p["pagina"] += 1
@@ -153,6 +169,7 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     return itens_acumulados
 
 async def buscar_saldos_async(token: str, empresa_nome: str):
+    if not token: return []
     headers = {"Authorization": f"Bearer {token}"}
     lista_bancos = []
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB", "SICREDI", "SANTANDER", "BANCO DO BRASIL", "NUBANK", "INTER"]
@@ -185,10 +202,7 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
                 for i, r in enumerate(respostas):
                     if isinstance(r, httpx.Response) and r.status_code == 200:
                         saldo = r.json().get('saldo_atual', 0)
-                        lista_bancos.append({
-                            "nome": nomes_contas[i],
-                            "saldo": saldo
-                        })
+                        lista_bancos.append({"nome": nomes_contas[i], "saldo": saldo})
     except Exception as e:
         print(f"Erro ao buscar saldos ({empresa_nome}): {e}")
         
@@ -214,8 +228,8 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
 @app.get("/api/empresas")
 async def listar_empresas():
     try:
-        res = supabase.table("tokens").select("empresa").order("empresa").execute()
-        return [{"nome": row["empresa"]} for row in res.data]
+        res = supabase.table("tokens").select("empresa", "status").order("empresa").execute()
+        return [{"nome": row["empresa"], "status": row.get("status", "ATIVO")} for row in res.data]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -236,28 +250,24 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
 
         resultados = await asyncio.gather(*[sem_processar(e) for e in empresas_nomes])
 
-        # --- CORREÇÃO DA DUPLICIDADE E LOGO ---
         mapa_bancos = {} 
         for r in resultados:
             for b in r[0]:
                 nome_bruto = b["nome"]
-                # Normaliza para identificar duplicidades (Ex: ITAU)
                 chave_unica = remover_acentos(nome_bruto).upper()
                 saldo = b["saldo"]
                 
                 if chave_unica in mapa_bancos:
                     mapa_bancos[chave_unica]["saldo"] += saldo
                 else:
-                    # Mantém o nome normalizado como padrão para a logo no front-end
                     mapa_bancos[chave_unica] = {
-                        "nome": chave_unica.capitalize(), # Ex: Itau
+                        "nome": chave_unica.capitalize(), 
                         "saldo": saldo
                     }
 
         todos_bancos_detalhado = [{"nome": v["nome"], "saldo": round(v["saldo"], 2)} for v in mapa_bancos.values()]
         total_saldo_banco = sum(v["saldo"] for v in mapa_bancos.values())
         
-        # --- RESTANTE DA LÓGICA MANTIDA ---
         todas_receitas = [item for r in resultados for item in r[1]]
         todas_despesas = [item for r in resultados for item in r[2]]
 
