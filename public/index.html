@@ -128,10 +128,6 @@
             color: var(--blue);
         }
 
-        [class*="toolbar"], [id*="toolbar"], .chart-container button {
-            display: none !important;
-        }
-
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
         body.sidebar-closed .main { margin-left: 0; }
         body.sidebar-closed .toggle-btn { left: 15px; }
@@ -230,6 +226,7 @@
         </div>
 
         <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
+        <button class="btn-sync" onclick="exportarPDF()" style="background: var(--blue); margin-top: 8px;">Exportar PDF</button>
 
         <h3>Bancos</h3>
         <div id="lista-bancos">
@@ -314,7 +311,6 @@
     }
 
     function formatarDataISO(data) {
-        // Corrige o problema de fuso horário local ao converter para string YYYY-MM-DD
         const z = n => (n < 10 ? '0' : '') + n;
         return `${data.getFullYear()}-${z(data.getMonth() + 1)}-${z(data.getDate())}`;
     }
@@ -361,6 +357,42 @@
             console.error(err);
         } finally {
             setTimeout(() => { loader.style.display = 'none'; }, 500);
+        }
+    }
+
+    async function exportarPDF() {
+        const empresa = document.getElementById('empresa').value;
+        const data_inicio = document.getElementById('data_inicio').value;
+        const data_fim = document.getElementById('data_fim').value;
+
+        if (!data_inicio || !data_fim) {
+            alert("Selecione um período primeiro.");
+            return;
+        }
+
+        const loader = document.getElementById('loading-overlay');
+        loader.style.display = 'flex';
+
+        try {
+            const query = new URLSearchParams({ empresa, data_inicio, data_fim });
+            const response = await fetch(`/api/exportar-pdf?${query.toString()}`);
+            
+            if (!response.ok) throw new Error("Erro ao gerar PDF");
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `relatorio_${empresa}_${data_inicio}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+        } catch (err) {
+            console.error(err);
+            alert("Não foi possível exportar o PDF.");
+        } finally {
+            loader.style.display = 'none';
         }
     }
 
