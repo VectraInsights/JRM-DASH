@@ -475,16 +475,8 @@
                     padding: { top: 35 } // Aumenta o respiro no topo para as legendas
                 },
                 plugins: { 
-                    legend: { 
-                        display: true,
-                        position: 'bottom',
-                        align: 'center',
-                        labels: { 
-                            color: textColor,
-                            padding: 25, // Espaçamento entre legenda e gráfico
-                            font: { size: 12, weight: 'bold' }
-                        } 
-                    } 
+                    legend: { labels: { color: textColor, font: { weight: 'bold' } }, position: 'bottom' },
+                    tooltip: { mode: 'index', intersect: false }
                 },
                 scales: {
                     x: { 
