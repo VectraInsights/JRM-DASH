@@ -454,7 +454,7 @@
                 plugins: { 
                     legend: { 
                         display: true,
-                        position: 'top',
+                        position: 'bottom',
                         align: 'center',
                         labels: { 
                             color: textColor,
@@ -464,15 +464,24 @@
                     } 
                 },
                 scales: {
-                    x: { ticks: { color: textColor } },
+                    x: { 
+                        stacked: true, 
+                        ticks: { color: textColor }, 
+                        grid: { display: false } 
+                    },
                     y: { 
-                        ticks: { color: textColor },
-                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }
+                        stacked: true,
+                        ticks: { 
+                            color: textColor, 
+                            callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) 
+                        }, 
+                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } 
                     }
                 }
             }
         });
     }
+
 
     document.addEventListener('DOMContentLoaded', async () => {
         if(localStorage.getItem('theme') === 'light') toggleTheme();
