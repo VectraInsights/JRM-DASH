@@ -360,33 +360,56 @@
     }
 
     async function exportarPDF() {
-        const empresa = document.getElementById('empresa').value;
-        const data_inicio = document.getElementById('data_inicio').value;
-        const data_fim = document.getElementById('data_fim').value;
+    const empresa = document.getElementById('empresa').value;
+    const data_inicio = document.getElementById('data_inicio').value;
+    const data_fim = document.getElementById('data_fim').value;
 
-        if (!data_inicio || !data_fim) {
-            alert("Por favor, selecione um período antes de exportar.");
-            return;
-        }
-
-        const loader = document.getElementById('loading-overlay');
-        loader.style.display = 'flex';
-
-        try {
-            const query = new URLSearchParams({ empresa, data_inicio, data_fim });
-            const response = await fetch(`/api/exportar-pdf?${query.toString()}`);
-            if (!response.ok) throw new Error();
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Relatorio_${empresa}_${data_inicio}_a_${data_fim}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-        } catch (err) { alert("Erro ao exportar PDF."); }
-        finally { loader.style.display = 'none'; }
+    if (!data_inicio || !data_fim) {
+        alert("Por favor, selecione um período antes de exportar.");
+        return;
     }
+
+    const loader = document.getElementById('loading-overlay');
+    loader.style.display = 'flex';
+
+    try {
+        // 1. Captura o gráfico como imagem Base64
+        const chartCanvas = document.getElementById('mainChart');
+        const chartImage = chartCanvas.toDataURL('image/png');
+
+        // 2. Mudamos para POST para conseguir enviar a imagem (que é uma string longa)
+        // Também enviamos um sinalizador para o backend filtrar as contas "AP."
+        const response = await fetch('/api/exportar-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                empresa,
+                data_inicio,
+                data_fim,
+                chart_image: chartImage,
+                exclude_ap: true // Sinal para o backend aplicar o mesmo filtro do dashboard
+            })
+        });
+
+        if (!response.ok) throw new Error();
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Relatorio_${empresa}_${data_inicio}_a_${data_fim}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        
+    } catch (err) { 
+        console.error(err);
+        alert("Erro ao exportar PDF. Verifique se o servidor suporta recebimento de imagem."); 
+    } finally { 
+        loader.style.display = 'none'; 
+    }
+}
 
     function getLogoUrl(nome) {
         const n = (nome || '').toUpperCase();
