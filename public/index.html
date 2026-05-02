@@ -373,7 +373,6 @@
         loader.style.display = 'flex';
 
         try {
-            // Enviando o período exato selecionado na tela
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const response = await fetch(`/api/exportar-pdf?${query.toString()}`);
             if (!response.ok) throw new Error();
@@ -403,15 +402,15 @@
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // Filtragem para manter apenas os bancos desejados
-        const bancosPermitidos = ["ITAU", "SICOOB", "BRADESCO"];
-        const bancos = data.saldos_por_banco || [];
+        // FILTRO RIGOROSO PARA REMOVER CONTAS DE APLICAÇÃO (EX: BRADESCO AP.)
+        const bancosRaw = data.saldos_por_banco || [];
         const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
         
-        const bancosFiltrados = bancos.filter(b => {
+        const bancosFiltrados = bancosRaw.filter(b => {
             const nomeUp = (b.nome || '').toUpperCase();
-            return bancosPermitidos.some(p => nomeUp.includes(p));
+            // Remove se contiver "AP." ou "APLICAÇÃO"
+            return !nomeUp.includes('AP.') && !nomeUp.includes('APLICAÇÃO');
         });
 
         bancosFiltrados.forEach(banco => {
@@ -441,12 +440,37 @@
             data: {
                 labels: data.labels || [],
                 datasets: [
-                    { type: 'line', label: 'Saldo', data: data.saldo || [], borderColor: '#3498db', tension: 0.3, fill: false },
+                    { type: 'line', label: 'Saldo', data: data.saldo || [], borderColor: '#3498db', tension: 0.3, fill: false, yAxisID: 'y' },
                     { type: 'bar', label: 'Receitas', data: data.receitas || [], backgroundColor: '#2ecc71' },
                     { type: 'bar', label: 'Despesas', data: (data.despesas || []).map(d => -Math.abs(d)), backgroundColor: '#ff4b4b' }
                 ]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: textColor } } } }
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                layout: {
+                    padding: { top: 35 } // Aumenta o respiro no topo para as legendas
+                },
+                plugins: { 
+                    legend: { 
+                        display: true,
+                        position: 'top',
+                        align: 'center',
+                        labels: { 
+                            color: textColor,
+                            padding: 25, // Espaçamento entre legenda e gráfico
+                            font: { size: 12, weight: 'bold' }
+                        } 
+                    } 
+                },
+                scales: {
+                    x: { ticks: { color: textColor } },
+                    y: { 
+                        ticks: { color: textColor },
+                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }
+                    }
+                }
+            }
         });
     }
 
