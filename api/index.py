@@ -6,14 +6,24 @@ import base64
 import pandas as pd
 import os
 import unicodedata
+import io
 from datetime import datetime
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi.responses import Response
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 from io import BytesIO
+from pydantic import BaseModel
+
+# --- MODELOS DE DADOS ---
+class ExportarRequest(BaseModel):
+    empresa: str
+    data_inicio: str
+    data_fim: str
+    chart_image: Optional[str] = None
 
 # --- VARIÁVEIS GLOBAIS ---
 http_client: httpx.AsyncClient = None
@@ -149,7 +159,6 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
 async def buscar_saldos_async(token: str, empresa_nome: str):
     headers = {"Authorization": f"Bearer {token}"}
     lista_bancos = []
-    # Busca primária ampla, a filtragem restrita é feita na consolidação final
     bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB"]
     
     try:
@@ -160,7 +169,10 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
             nomes_contas = []
             for conta in contas:
                 nome_raw = conta.get('nome', '')
-                if any(b in remover_acentos(nome_raw).upper() for b in bancos_permitidos):
+                nome_limpo = remover_acentos(nome_raw).upper()
+                
+                # Filtro: Deve ser dos bancos permitidos E NÃO pode ser conta de aplicação (AP.)
+                if any(b in nome_limpo for b in bancos_permitidos) and " AP." not in nome_limpo and "APLICACAO" not in nome_limpo:
                     url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual"
                     tarefas.append(http_client.get(url_saldo, headers={"Authorization": f"Bearer {token}"}))
                     nomes_contas.append(nome_raw)
@@ -191,9 +203,6 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
 
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
-        # Filtro fixo para bater com o Frontend
-        BANCOS_EXCLUSIVOS = ["ITAU", "BRADESCO", "SICOOB"]
-
         if empresa.lower() == "todas":
             res_emp = supabase.table("tokens").select("empresa").execute()
             empresas_nomes = [r["empresa"] for r in res_emp.data]
@@ -207,17 +216,15 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         total_saldo_banco = 0
 
         for r in resultados:
+            # r[0] já vem filtrado pela função buscar_saldos_async (sem AP.)
             for b in r[0]:
-                nome_up = remover_acentos(b["nome"]).upper()
-                if any(p in nome_up for p in BANCOS_EXCLUSIVOS):
-                    chave = nome_up
-                    mapa_bancos[chave] = mapa_bancos.get(chave, {"nome": b["nome"], "saldo": 0})
-                    mapa_bancos[chave]["saldo"] += b["saldo"]
-                    total_saldo_banco += b["saldo"]
+                chave = b["nome"].upper()
+                mapa_bancos[chave] = mapa_bancos.get(chave, {"nome": b["nome"], "saldo": 0})
+                mapa_bancos[chave]["saldo"] += b["saldo"]
+                total_saldo_banco += b["saldo"]
             todas_receitas.extend(r[1])
             todas_despesas.extend(r[2])
 
-        # Construção do Fluxo de Caixa Diário com Pandas
         d_range = pd.date_range(start=data_inicio, end=data_fim)
         df = pd.DataFrame(index=d_range.strftime('%Y-%m-%d'))
         
@@ -270,9 +277,16 @@ async def listar_empresas():
 async def rota_dados(empresa: str, data_inicio: str, data_fim: str):
     return await get_dashboard_data(empresa, data_inicio, data_fim)
 
-@app.get("/api/exportar-pdf")
-async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
-    dados = await get_dashboard_data(empresa, data_inicio, data_fim)
+@app.post("/api/exportar-pdf")
+async def exportar_pdf(request: ExportarRequest):
+    dados = await get_dashboard_data(request.empresa, request.data_inicio, request.data_fim)
+    
+    # Filtro de segurança adicional para o PDF (contas AP.)
+    dados["saldos_por_banco"] = [
+        b for b in dados["saldos_por_banco"] 
+        if " AP." not in b['nome'].upper() and " APLICACAO" not in remover_acentos(b['nome']).upper()
+    ]
+
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
@@ -284,16 +298,29 @@ async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
     p.setFont("Helvetica-Bold", 16)
     p.drawString(50, altura - 50, "RELATÓRIO FINANCEIRO PROJETADO")
     p.setFont("Helvetica", 10)
-    p.drawString(50, altura - 65, f"Empresa: {empresa.upper()}")
-    p.drawString(50, altura - 78, f"Período: {data_inicio} até {data_fim}")
+    p.drawString(50, altura - 65, f"Empresa: {request.empresa.upper()}")
+    p.drawString(50, altura - 78, f"Período: {request.data_inicio} até {request.data_fim}")
     p.line(50, altura - 85, 545, altura - 85)
+
+    # Inserção do Gráfico (se enviado)
+    y_texto = altura - 110
+    if request.chart_image:
+        try:
+            header, encoded = request.chart_image.split(",", 1)
+            img_data = base64.b64decode(encoded)
+            img_io = io.BytesIO(img_data)
+            chart_img = ImageReader(img_io)
+            p.drawImage(chart_img, 50, altura - 300, width=500, height=200, preserveAspectRatio=True)
+            y_texto = altura - 320 # Move o texto para baixo do gráfico
+        except Exception as e:
+            print(f"Erro ao processar imagem do gráfico: {e}")
 
     # Resumo
     p.setFont("Helvetica-Bold", 12)
-    p.drawString(50, altura - 110, "1. Resumo Consolidado")
+    p.drawString(50, y_texto, "1. Resumo Consolidado")
     resumo = dados["resumo"]
     
-    y = altura - 135
+    y = y_texto - 25
     p.setFont("Helvetica", 11)
     itens = [("Saldo Atual (Bancos Filtrados)", resumo['banco']), 
              ("Total Receitas", resumo['total_rec']), 
@@ -327,7 +354,7 @@ async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
     return Response(
         content=pdf_out, 
         media_type="application/pdf", 
-        headers={"Content-Disposition": f"attachment; filename=relatorio_{empresa}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=relatorio_{request.empresa}.pdf"}
     )
 
 if __name__ == "__main__":
