@@ -96,6 +96,7 @@
             display: flex;
             flex-direction: column;
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
         }
 
         .main { 
@@ -178,12 +179,21 @@
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 8px; font-weight: bold;}
         .card-val { font-size: 1.4rem; font-weight: 600; }
 
-        .btn-sync { 
-            width: 100%; padding: 12px; background: var(--red); 
-            color: white; border: none; border-radius: 4px; font-weight: bold; 
-            cursor: pointer; transition: 0.3s; margin-top: 10px;
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 10px;
         }
-        .btn-sync:hover { filter: brightness(1.2); }
+
+        .btn-action { 
+            width: 100%; padding: 12px; 
+            color: white; border: none; border-radius: 4px; font-weight: bold; 
+            cursor: pointer; transition: 0.3s; font-size: 0.9rem;
+        }
+        .btn-sync { background: var(--red); }
+        .btn-pdf { background: var(--blue); }
+        .btn-action:hover { filter: brightness(1.2); transform: translateY(-1px); }
 
         .chart-container { 
             background: var(--sidebar); padding: 25px; border-radius: 12px; height: 480px; 
@@ -225,8 +235,10 @@
             <input type="date" id="data_fim">
         </div>
 
-        <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
-        <button class="btn-sync" onclick="exportarPDF()" style="background: var(--blue); margin-top: 10px;">Exportar PDF</button>
+        <div class="action-buttons">
+            <button class="btn-action btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
+            <button class="btn-action btn-pdf" onclick="exportarPDF()">Exportar PDF</button>
+        </div>
 
         <h3>Bancos</h3>
         <div id="lista-bancos">
@@ -271,10 +283,7 @@
         const btn = document.getElementById('btnToggle');
         body.classList.toggle('sidebar-closed');
         btn.innerText = body.classList.contains('sidebar-closed') ? '»' : '«';
-
-        if(chart) {
-            setTimeout(() => { chart.resize(); }, 350);
-        }
+        if(chart) setTimeout(() => { chart.resize(); }, 350);
     }
 
     function toggleTheme() {
@@ -325,14 +334,11 @@
         } else {
             containerDatas.style.display = 'none';
             const dias = parseInt(intervaloSelect.value);
-            
             const dataInicio = new Date(hoje);
             const dataFim = new Date(hoje);
             dataFim.setDate(hoje.getDate() + dias);
-
             document.getElementById('data_inicio').value = formatarDataISO(dataInicio);
             document.getElementById('data_fim').value = formatarDataISO(dataFim);
-            
             sincronizar();
         }
     }
@@ -341,23 +347,16 @@
         const empresa = document.getElementById('empresa').value;
         const data_inicio = document.getElementById('data_inicio').value;
         const data_fim = document.getElementById('data_fim').value;
-
         if (!data_inicio || !data_fim) return;
-
         const loader = document.getElementById('loading-overlay');
         loader.style.display = 'flex';
-
         try {
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const res = await fetch(`/api/dados?${query.toString()}`);
-            if (!res.ok) throw new Error("Erro na resposta da rede");
             const data = await res.json();
             renderizarDashboard(data);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setTimeout(() => { loader.style.display = 'none'; }, 500);
-        }
+        } catch (err) { console.error(err); } 
+        finally { setTimeout(() => { loader.style.display = 'none'; }, 500); }
     }
 
     async function exportarPDF() {
@@ -366,7 +365,7 @@
         const data_fim = document.getElementById('data_fim').value;
 
         if (!data_inicio || !data_fim) {
-            alert("Por favor, sincronize ou selecione as datas antes de exportar.");
+            alert("Por favor, selecione um período antes de exportar.");
             return;
         }
 
@@ -374,26 +373,20 @@
         loader.style.display = 'flex';
 
         try {
+            // Enviando o período exato selecionado na tela
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const response = await fetch(`/api/exportar-pdf?${query.toString()}`);
-            
-            if (!response.ok) throw new Error("Erro ao gerar PDF no servidor.");
-
+            if (!response.ok) throw new Error();
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Fluxo_Caixa_${empresa}_${data_inicio}.pdf`;
+            a.download = `Relatorio_${empresa}_${data_inicio}_a_${data_fim}.pdf`;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
             a.remove();
-        } catch (err) {
-            console.error(err);
-            alert("Erro ao exportar PDF. Verifique se o backend está ativo.");
-        } finally {
-            loader.style.display = 'none';
-        }
+        } catch (err) { alert("Erro ao exportar PDF."); }
+        finally { loader.style.display = 'none'; }
     }
 
     function getLogoUrl(nome) {
@@ -406,116 +399,54 @@
 
     function renderizarDashboard(data) {
         if (!data) return;
-        
         const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
+        // Filtragem para manter apenas os bancos desejados
         const bancosPermitidos = ["ITAU", "SICOOB", "BRADESCO"];
         const bancos = data.saldos_por_banco || [];
-        const nomesVistos = new Set();
+        const containerBancos = document.getElementById('lista-bancos');
+        containerBancos.innerHTML = '';
         
         const bancosFiltrados = bancos.filter(b => {
             const nomeUp = (b.nome || '').toUpperCase();
-            const ePermitido = bancosPermitidos.some(p => nomeUp.includes(p));
-            if (!ePermitido || nomesVistos.has(nomeUp) || Math.abs(b.saldo) < 0.01) return false;
-            nomesVistos.add(nomeUp);
-            return true;
-        }).sort((a, b) => a.nome.localeCompare(b.nome));
+            return bancosPermitidos.some(p => nomeUp.includes(p));
+        });
 
-        const containerBancos = document.getElementById('lista-bancos');
-        containerBancos.innerHTML = '';
         bancosFiltrados.forEach(banco => {
             const logo = getLogoUrl(banco.nome);
             const item = document.createElement('div');
             item.className = 'bank-item';
             item.innerHTML = `
                 <div class="bank-info">
-                    <div class="bank-logo">
-                        ${logo ? `<img src="${logo}" alt="logo">` : (banco.nome || '?').charAt(0)}
-                    </div>
-                    <div class="bank-name-text" title="${banco.nome}">${banco.nome}</div>
+                    <div class="bank-logo">${logo ? `<img src="${logo}">` : banco.nome[0]}</div>
+                    <div class="bank-name-text">${banco.nome}</div>
                 </div>
-                <div class="bank-val-text" style="color: ${banco.saldo < 0 ? 'var(--red)' : 'inherit'}">
-                    ${fmt(banco.saldo)}
-                </div>
-            `;
+                <div class="bank-val-text">${fmt(banco.saldo)}</div>`;
             containerBancos.appendChild(item);
         });
 
         const resumo = data.resumo || { total_rec: 0, total_desp: 0 };
-        const saldoAtualBancos = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
-        
-        document.getElementById('v-banco').innerText = fmt(saldoAtualBancos);
+        const saldoBancos = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
+        document.getElementById('v-banco').innerText = fmt(saldoBancos);
         document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
-        document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
-        
-        const saldoPrevisto = saldoAtualBancos + (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
-        const elRes = document.getElementById('v-res');
-        const cardRes = document.getElementById('card-resultado');
-        
-        elRes.innerText = fmt(saldoPrevisto);
-        const corFinal = saldoPrevisto >= 0 ? 'var(--green)' : 'var(--red)';
-        elRes.style.color = corFinal;
-        cardRes.style.borderLeftColor = corFinal;
+        document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp));
+        const previsto = saldoBancos + resumo.total_rec - Math.abs(resumo.total_desp);
+        document.getElementById('v-res').innerText = fmt(previsto);
+        document.getElementById('v-res').style.color = previsto >= 0 ? 'var(--green)' : 'var(--red)';
 
         if(chart) chart.destroy();
-        const ctx = document.getElementById('mainChart').getContext('2d');
-        chart = new Chart(ctx, {
+        chart = new Chart(document.getElementById('mainChart').getContext('2d'), {
             data: {
                 labels: data.labels || [],
                 datasets: [
-                    { 
-                        type: 'line', 
-                        label: 'Saldo Acumulado', 
-                        data: data.saldo || [], 
-                        borderColor: '#3498db', 
-                        borderWidth: 3, 
-                        pointRadius: 4, 
-                        tension: 0.3, 
-                        fill: false 
-                    },
-                    { 
-                        type: 'bar', 
-                        label: 'Receitas', 
-                        data: data.receitas || [], 
-                        backgroundColor: '#2ecc71', 
-                        borderRadius: 4,
-                        stack: 'combined'
-                    },
-                    { 
-                        type: 'bar', 
-                        label: 'Despesas', 
-                        data: (data.despesas || []).map(d => -Math.abs(d)), 
-                        backgroundColor: '#ff4b4b', 
-                        borderRadius: 4,
-                        stack: 'combined'
-                    }
+                    { type: 'line', label: 'Saldo', data: data.saldo || [], borderColor: '#3498db', tension: 0.3, fill: false },
+                    { type: 'bar', label: 'Receitas', data: data.receitas || [], backgroundColor: '#2ecc71' },
+                    { type: 'bar', label: 'Despesas', data: (data.despesas || []).map(d => -Math.abs(d)), backgroundColor: '#ff4b4b' }
                 ]
             },
-            options: {
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: { 
-                    legend: { labels: { color: textColor, font: { weight: 'bold' } }, position: 'bottom' },
-                    tooltip: { mode: 'index', intersect: false }
-                },
-                scales: {
-                    x: { 
-                        stacked: true, 
-                        ticks: { color: textColor }, 
-                        grid: { display: false } 
-                    },
-                    y: { 
-                        stacked: true,
-                        ticks: { 
-                            color: textColor, 
-                            callback: v => v.toLocaleString('pt-BR', { compactDisplay: 'short', notation: 'compact' }) 
-                        }, 
-                        grid: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' } 
-                    }
-                }
-            }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: textColor } } } }
         });
     }
 
