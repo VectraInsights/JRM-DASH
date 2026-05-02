@@ -22,7 +22,6 @@ http_client: httpx.AsyncClient = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global http_client
-    # Limites otimizados para múltiplas requisições simultâneas (várias empresas)
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     http_client = httpx.AsyncClient(limits=limits, timeout=30.0)
     yield
@@ -44,7 +43,6 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 CLIENT_ID = os.environ.get("CONTA_AZUL_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
 
-# Inicialização segura
 if not all([SUPABASE_URL, SUPABASE_KEY]):
     raise RuntimeError("Erro: SUPABASE_URL ou SUPABASE_KEY não configurados.")
 
@@ -56,10 +54,9 @@ def remover_acentos(texto: str) -> str:
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-# --- LÓGICA DE AUTENTICAÇÃO (OAUTH2) ---
+# --- LÓGICA DE AUTENTICAÇÃO ---
 
 async def renovar_e_obter_novo_token(empresa_nome: str):
-    """Renova o access_token usando o refresh_token do Supabase."""
     try:
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).execute()
         if not res.data: return None
@@ -93,16 +90,14 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
         else:
             supabase.table("tokens").update({
                 "status": "ERRO",
-                "mensagem_erro": f"Falha na renovação (HTTP {r.status_code}). Reautentique.",
+                "mensagem_erro": f"Falha na renovação (HTTP {r.status_code}).",
                 "updated_at": datetime.now().isoformat()
             }).eq("empresa", empresa_nome).execute()
             return None
-    except Exception as e:
-        print(f"Erro ao renovar token para {empresa_nome}: {str(e)}")
+    except Exception:
         return None
 
 async def obter_token_atual(empresa_nome: str):
-    """Retorna o token ativo ou dispara a renovação."""
     try:
         res = supabase.table("tokens").select("access_token, status").eq("empresa", empresa_nome).execute()
         if res.data and res.data[0].get("status") == "ERRO":
@@ -115,7 +110,6 @@ async def obter_token_atual(empresa_nome: str):
 # --- BUSCAS NA API CONTA AZUL ---
 
 async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
-    """Busca paginada com tratamento automático de expiração (401)."""
     token = await obter_token_atual(empresa_nome)
     if not token: return []
     
@@ -143,7 +137,6 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
             
             for i in itens:
                 dt_venc = i.get("data_vencimento")[:10] if i.get("data_vencimento") else None
-                # Cálculo do valor em aberto
                 valor_aberto = i.get('total', 0) - i.get('pago', 0)
                 if dt_venc and valor_aberto > 0:
                     itens_acumulados.append({"data": dt_venc, "valor": valor_aberto})
@@ -154,10 +147,10 @@ async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     return itens_acumulados
 
 async def buscar_saldos_async(token: str, empresa_nome: str):
-    """Busca o saldo de todas as contas bancárias configuradas."""
     headers = {"Authorization": f"Bearer {token}"}
     lista_bancos = []
-    bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB", "SICREDI", "SANTANDER", "BANCO DO BRASIL", "NUBANK", "INTER", "CAIXA"]
+    # Busca primária ampla, a filtragem restrita é feita na consolidação final
+    bancos_permitidos = ["ITAU", "BRADESCO", "SICOOB"]
     
     try:
         res = await http_client.get("https://api-v2.contaazul.com/v1/conta-financeira", headers=headers)
@@ -190,7 +183,6 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
     if not token: return [], [], []
     params = {"data_vencimento_de": data_inicio, "data_vencimento_ate": data_fim}
     
-    # Executa buscas de saldo e financeiro em paralelo para performance
     return await asyncio.gather(
         buscar_saldos_async(token, emp_nome),
         buscar_v2_async("/v1/financeiro/eventos-financeiros/contas-a-receber/buscar", emp_nome, params),
@@ -199,14 +191,15 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
 
 async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
     try:
-        # Lógica para consolidar "Todas" ou filtrar apenas uma empresa
+        # Filtro fixo para bater com o Frontend
+        BANCOS_EXCLUSIVOS = ["ITAU", "BRADESCO", "SICOOB"]
+
         if empresa.lower() == "todas":
             res_emp = supabase.table("tokens").select("empresa").execute()
             empresas_nomes = [r["empresa"] for r in res_emp.data]
         else:
             empresas_nomes = [empresa.strip()]
 
-        # Processamento assíncrono paralelo de todas as empresas selecionadas
         resultados = await asyncio.gather(*[processar_empresa(e, data_inicio, data_fim) for e in empresas_nomes])
 
         mapa_bancos = {} 
@@ -214,36 +207,45 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         total_saldo_banco = 0
 
         for r in resultados:
-            # r[0] = saldos, r[1] = receitas, r[2] = despesas
             for b in r[0]:
-                chave = remover_acentos(b["nome"]).upper()
-                mapa_bancos[chave] = mapa_bancos.get(chave, {"nome": b["nome"], "saldo": 0})
-                mapa_bancos[chave]["saldo"] += b["saldo"]
-                total_saldo_banco += b["saldo"]
+                nome_up = remover_acentos(b["nome"]).upper()
+                if any(p in nome_up for p in BANCOS_EXCLUSIVOS):
+                    chave = nome_up
+                    mapa_bancos[chave] = mapa_bancos.get(chave, {"nome": b["nome"], "saldo": 0})
+                    mapa_bancos[chave]["saldo"] += b["saldo"]
+                    total_saldo_banco += b["saldo"]
             todas_receitas.extend(r[1])
             todas_despesas.extend(r[2])
 
-        # Construção do Fluxo de Caixa Diário usando Pandas
-        d_range = pd.date_range(data_inicio, data_fim)
+        # Construção do Fluxo de Caixa Diário com Pandas
+        d_range = pd.date_range(start=data_inicio, end=data_fim)
         df = pd.DataFrame(index=d_range.strftime('%Y-%m-%d'))
         
-        # Agrupamento por data
-        df_rec = pd.DataFrame(todas_receitas).groupby("data")["valor"].sum() if todas_receitas else pd.Series(dtype=float)
-        df_desp = pd.DataFrame(todas_despesas).groupby("data")["valor"].sum() if todas_despesas else pd.Series(dtype=float)
-        
-        df["receitas"] = df_rec
-        df["despesas"] = df_desp
+        if todas_receitas:
+            df_rec = pd.DataFrame(todas_receitas)
+            df_rec['data'] = pd.to_datetime(df_rec['data']).dt.strftime('%Y-%m-%d')
+            df_rec = df_rec.groupby("data")["valor"].sum()
+            df["receitas"] = df_rec
+        else:
+            df["receitas"] = 0
+
+        if todas_despesas:
+            df_desp = pd.DataFrame(todas_despesas)
+            df_desp['data'] = pd.to_datetime(df_desp['data']).dt.strftime('%Y-%m-%d')
+            df_desp = df_desp.groupby("data")["valor"].sum()
+            df["despesas"] = df_desp
+        else:
+            df["despesas"] = 0
+            
         df = df.fillna(0)
-        
-        # Projeção de Saldo Acumulado
         df["saldo_projetado"] = total_saldo_banco + (df["receitas"] - df["despesas"]).cumsum()
 
         return {
             "labels": [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m') for d in df.index],
-            "receitas": df["receitas"].tolist(),
-            "despesas": df["despesas"].tolist(),
-            "saldo": df["saldo_projetado"].tolist(),
-            "saldos_por_banco": list(mapa_bancos.values()),
+            "receitas": [round(x, 2) for x in df["receitas"].tolist()],
+            "despesas": [round(x, 2) for x in df["despesas"].tolist()],
+            "saldo": [round(x, 2) for x in df["saldo_projetado"].tolist()],
+            "saldos_por_banco": sorted(list(mapa_bancos.values()), key=lambda x: x['nome']),
             "resumo": {
                 "banco": round(total_saldo_banco, 2),
                 "total_rec": round(df["receitas"].sum(), 2),
@@ -252,91 +254,82 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
             }
         }
     except Exception as e:
-        print(f"Erro no processamento: {str(e)}")
-        raise HTTPException(status_code=500, detail="Erro interno ao consolidar dados.")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- ENDPOINTS ---
 
 @app.get("/api/empresas")
 async def listar_empresas():
-    """Retorna lista de empresas cadastradas e seus status de conexão."""
     try:
-        res = supabase.table("tokens").select("empresa, status, mensagem_erro").order("empresa").execute()
-        return [{"nome": r["empresa"], "status": r.get("status", "ATIVO"), "erro": r.get("mensagem_erro")} for r in res.data]
+        res = supabase.table("tokens").select("empresa, status").order("empresa").execute()
+        return [{"nome": r["empresa"], "status": r.get("status", "ATIVO")} for r in res.data]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/dados")
 async def rota_dados(empresa: str, data_inicio: str, data_fim: str):
-    """Endpoint principal para o gráfico do dashboard."""
     return await get_dashboard_data(empresa, data_inicio, data_fim)
 
 @app.get("/api/exportar-pdf")
 async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
-    """Gera um relatório profissional em PDF."""
     dados = await get_dashboard_data(empresa, data_inicio, data_fim)
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
+    def fmt_br(valor):
+        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     # Cabeçalho
     p.setFont("Helvetica-Bold", 16)
-    p.drawString(50, altura - 50, f"RELATÓRIO FINANCEIRO PROJETADO")
+    p.drawString(50, altura - 50, "RELATÓRIO FINANCEIRO PROJETADO")
     p.setFont("Helvetica", 10)
     p.drawString(50, altura - 65, f"Empresa: {empresa.upper()}")
     p.drawString(50, altura - 78, f"Período: {data_inicio} até {data_fim}")
     p.line(50, altura - 85, 545, altura - 85)
 
-    # Resumo Financeiro
+    # Resumo
     p.setFont("Helvetica-Bold", 12)
     p.drawString(50, altura - 110, "1. Resumo Consolidado")
     resumo = dados["resumo"]
     
     y = altura - 135
-    itens_resumo = [
-        ("Saldo Atual em Bancos", resumo['banco']),
-        ("Total de Receitas no Período", resumo['total_rec']),
-        ("Total de Despesas no Período", resumo['total_desp']),
-    ]
+    p.setFont("Helvetica", 11)
+    itens = [("Saldo Atual (Bancos Filtrados)", resumo['banco']), 
+             ("Total Receitas", resumo['total_rec']), 
+             ("Total Despesas", resumo['total_desp'])]
     
-    for label, valor in itens_resumo:
-        p.setFont("Helvetica", 11)
+    for label, val in itens:
         p.drawString(70, y, label)
-        p.drawRightString(500, y, f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        p.drawRightString(500, y, fmt_br(val))
         y -= 20
     
     p.setFont("Helvetica-Bold", 11)
     p.drawString(70, y, "Saldo Final Projetado")
-    p.drawRightString(500, y, f"R$ {resumo['saldo_final']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    p.drawRightString(500, y, fmt_br(resumo['saldo_final']))
 
-    # Detalhamento por Banco
+    # Instituições
     y -= 40
     p.setFont("Helvetica-Bold", 12)
-    p.drawString(50, y, "2. Saldos por Instituição")
+    p.drawString(50, y, "2. Detalhamento por Banco")
     y -= 25
+    p.setFont("Helvetica", 10)
     for b in dados["saldos_por_banco"]:
-        if y < 100: # Nova página se necessário
-            p.showPage()
-            y = altura - 50
-        p.setFont("Helvetica", 10)
         p.drawString(70, y, b['nome'])
-        p.drawRightString(500, y, f"R$ {b['saldo']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        p.drawRightString(500, y, fmt_br(b['saldo']))
         y -= 18
 
     p.showPage()
     p.save()
-    
     pdf_out = buffer.getvalue()
     buffer.close()
     
-    filename = f"relatorio_{empresa.lower().replace(' ', '_')}.pdf"
     return Response(
         content=pdf_out, 
         media_type="application/pdf", 
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename=relatorio_{empresa}.pdf"}
     )
 
 if __name__ == "__main__":
     import uvicorn
-    # Recomendo usar variáveis de ambiente para host e port no deploy
     uvicorn.run(app, host="0.0.0.0", port=8000)
