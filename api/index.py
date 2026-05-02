@@ -10,6 +10,10 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
 from typing import List, Dict, Any
+from fastapi.responses import Response
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from io import BytesIO
 
 # --- VARIÁVEIS GLOBAIS ---
 http_client: httpx.AsyncClient = None
@@ -325,6 +329,66 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         print(f"Erro Crítico: {e}")
         raise HTTPException(status_code=500, detail="Erro ao processar fluxo de caixa.")
 
+async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
+    try:
+        # 1. Busca os dados reais (reaproveitando sua lógica existente)
+        dados = await get_dashboard_data(empresa, data_inicio, data_fim)
+        
+        # 2. Cria o arquivo PDF em memória
+        buffer = BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        largura, altura = A4
+
+        # Cabeçalho
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(50, altura - 50, f"Relatório Financeiro - {empresa}")
+        
+        p.setFont("Helvetica", 10)
+        p.drawString(50, altura - 70, f"Período: {data_inicio} até {data_fim}")
+        p.line(50, altura - 80, 550, altura - 80)
+
+        # Resumo Financeiro
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(50, altura - 110, "Resumo do Período:")
+        
+        p.setFont("Helvetica", 11)
+        resumo = dados["resumo"]
+        p.drawString(60, altura - 130, f"Saldo em Banco: R$ {resumo['banco']:,.2f}")
+        p.drawString(60, altura - 150, f"Total Receitas: R$ {resumo['total_rec']:,.2f}")
+        p.drawString(60, altura - 170, f"Total Despesas: R$ {resumo['total_desp']:,.2f}")
+        
+        p.setFont("Helvetica-Bold", 11)
+        p.drawString(60, altura - 190, f"Saldo Final Projetado: R$ {resumo['saldo_final']:,.2f}")
+
+        # Tabela de Saldos por Banco
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(50, altura - 230, "Saldos por Instituição:")
+        
+        y = altura - 250
+        p.setFont("Helvetica", 10)
+        for banco in dados["saldos_por_banco"]:
+            p.drawString(60, y, f"{banco['nome']}: R$ {banco['saldo']:,.2f}")
+            y -= 20
+
+        # Rodapé
+        p.setFont("Helvetica-Oblique", 8)
+        p.drawString(50, 30, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')} - Sistema BPO Financeiro")
+
+        p.showPage()
+        p.save()
+
+        # 3. Retorna o arquivo para o navegador
+        pdf_out = buffer.getvalue()
+        buffer.close()
+        
+        return Response(
+            content=pdf_out,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=relatorio_{empresa}.pdf"}
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
