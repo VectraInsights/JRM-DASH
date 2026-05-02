@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-<link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/png" href="logo.png">
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
-  }
-</script>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="logo.png">
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+      }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fluxo de Caixa - JRM Gestão</title>
@@ -84,9 +84,7 @@
             transition: opacity 0.2s;
         }
 
-        .theme-toggle:hover {
-            opacity: 0.7;
-        }
+        .theme-toggle:hover { opacity: 0.7; }
         
         .sidebar { 
             width: 300px; padding: 30px 20px; 
@@ -147,9 +145,7 @@
             transition: padding-left 0.3s ease;
         }
 
-        body.sidebar-closed h1 {
-            padding-left: 45px;
-        }
+        body.sidebar-closed h1 { padding-left: 45px; }
 
         .sidebar h3 { font-size: 1rem; margin: 25px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
         .sidebar label { font-size: 0.8rem; opacity: 0.8; display: block; margin-bottom: 5px; }
@@ -277,12 +273,7 @@
         const body = document.body;
         const btn = document.getElementById('btnToggle');
         body.classList.toggle('sidebar-closed');
-        
-        if (body.classList.contains('sidebar-closed')) {
-            btn.innerText = '»'; 
-        } else {
-            btn.innerText = '«'; 
-        }
+        btn.innerText = body.classList.contains('sidebar-closed') ? '»' : '«';
 
         if(chart) {
             setTimeout(() => { chart.resize(); }, 350);
@@ -322,36 +313,33 @@
         } catch (err) { console.error("Erro ao carregar empresas."); }
     }
 
-    function ajustarDatas() {
-    const intervaloSelect = document.getElementById('intervalo');
-    const containerDatas = document.getElementById('container-datas');
-    const hoje = new Date();
-    
-    // ISOString lida com UTC, então garantimos a data local correta
-    const offset = hoje.getTimezoneOffset();
-    const dataLocal = new Date(hoje.getTime() - (offset * 60 * 1000));
-    const dataInicioFormatada = dataLocal.toISOString().split('T')[0];
-
-    if (intervaloSelect.value === 'personalizado') {
-        containerDatas.style.display = 'block';
-    } else {
-        containerDatas.style.display = 'none';
-        const dias = parseInt(intervaloSelect.value);
-        const dataFim = new Date(hoje);
-        
-        // Se for "Hoje" (dias = 0), a data fim é igual a hoje. 
-        // Se for 7, adiciona 7 dias.
-        dataFim.setDate(hoje.getDate() + dias);
-        
-        const dataFimLocal = new Date(dataFim.getTime() - (offset * 60 * 1000));
-        const dataFimFormatada = dataFimLocal.toISOString().split('T')[0];
-
-        document.getElementById('data_inicio').value = dataInicioFormatada;
-        document.getElementById('data_fim').value = dataFimFormatada;
-        
-        sincronizar();
+    function formatarDataISO(data) {
+        // Corrige o problema de fuso horário local ao converter para string YYYY-MM-DD
+        const z = n => (n < 10 ? '0' : '') + n;
+        return `${data.getFullYear()}-${z(data.getMonth() + 1)}-${z(data.getDate())}`;
     }
-}
+
+    function ajustarDatas() {
+        const intervaloSelect = document.getElementById('intervalo');
+        const containerDatas = document.getElementById('container-datas');
+        const hoje = new Date();
+
+        if (intervaloSelect.value === 'personalizado') {
+            containerDatas.style.display = 'block';
+        } else {
+            containerDatas.style.display = 'none';
+            const dias = parseInt(intervaloSelect.value);
+            
+            const dataInicio = new Date(hoje);
+            const dataFim = new Date(hoje);
+            dataFim.setDate(hoje.getDate() + dias);
+
+            document.getElementById('data_inicio').value = formatarDataISO(dataInicio);
+            document.getElementById('data_fim').value = formatarDataISO(dataFim);
+            
+            sincronizar();
+        }
+    }
 
     async function sincronizar() {
         const empresa = document.getElementById('empresa').value;
@@ -405,25 +393,23 @@
 
         const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
-        if (bancosFiltrados.length > 0) {
-            bancosFiltrados.forEach(banco => {
-                const logo = getLogoUrl(banco.nome);
-                const item = document.createElement('div');
-                item.className = 'bank-item';
-                item.innerHTML = `
-                    <div class="bank-info">
-                        <div class="bank-logo">
-                            ${logo ? `<img src="${logo}" alt="logo">` : (banco.nome || '?').charAt(0)}
-                        </div>
-                        <div class="bank-name-text" title="${banco.nome}">${banco.nome}</div>
+        bancosFiltrados.forEach(banco => {
+            const logo = getLogoUrl(banco.nome);
+            const item = document.createElement('div');
+            item.className = 'bank-item';
+            item.innerHTML = `
+                <div class="bank-info">
+                    <div class="bank-logo">
+                        ${logo ? `<img src="${logo}" alt="logo">` : (banco.nome || '?').charAt(0)}
                     </div>
-                    <div class="bank-val-text" style="color: ${banco.saldo < 0 ? 'var(--red)' : 'inherit'}">
-                        ${fmt(banco.saldo)}
-                    </div>
-                `;
-                containerBancos.appendChild(item);
-            });
-        }
+                    <div class="bank-name-text" title="${banco.nome}">${banco.nome}</div>
+                </div>
+                <div class="bank-val-text" style="color: ${banco.saldo < 0 ? 'var(--red)' : 'inherit'}">
+                    ${fmt(banco.saldo)}
+                </div>
+            `;
+            containerBancos.appendChild(item);
+        });
 
         const resumo = data.resumo || { total_rec: 0, total_desp: 0 };
         const saldoAtualBancos = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
