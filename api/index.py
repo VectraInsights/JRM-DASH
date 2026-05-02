@@ -6,14 +6,24 @@ import base64
 import pandas as pd
 import os
 import unicodedata
+import io
 from datetime import datetime
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi.responses import Response
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 from io import BytesIO
+from pydantic import BaseModel
+
+# --- MODELOS DE DADOS PARA RECEBIMENTO DE IMAGEM ---
+class ExportarRequest(BaseModel):
+    empresa: str
+    data_inicio: str
+    data_fim: str
+    chart_image: Optional[str] = None
 
 # --- VARIÁVEIS GLOBAIS ---
 http_client: httpx.AsyncClient = None
@@ -53,7 +63,7 @@ def remover_acentos(texto: str) -> str:
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-# --- LÓGICA DE AUTENTICAÇÃO ---
+# --- LÓGICA DE AUTENTICAÇÃO E RENOVAÇÃO DE TOKEN ---
 async def renovar_e_obter_novo_token(empresa_nome: str):
     try:
         res = supabase.table("tokens").select("refresh_token").eq("empresa", empresa_nome).execute()
@@ -105,7 +115,7 @@ async def obter_token_atual(empresa_nome: str):
     except Exception: pass
     return await renovar_e_obter_novo_token(empresa_nome)
 
-# --- BUSCAS NA API CONTA AZUL ---
+# --- BUSCAS NA API CONTA AZUL (PAGINADAS) ---
 async def buscar_v2_async(endpoint: str, empresa_nome: str, params: dict):
     token = await obter_token_atual(empresa_nome)
     if not token: return []
@@ -157,7 +167,6 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
             for conta in contas:
                 nome_raw = conta.get('nome', '')
                 nome_limpo = remover_acentos(nome_raw).upper()
-                # Mantém filtro original: AP. não entra, bancos permitidos sim
                 if any(b in nome_limpo for b in bancos_permitidos) and " AP." not in nome_limpo:
                     url_saldo = f"https://api-v2.contaazul.com/v1/conta-financeira/{conta['id']}/saldo-atual"
                     tarefas.append(http_client.get(url_saldo, headers={"Authorization": f"Bearer {token}"}))
@@ -203,7 +212,6 @@ async def get_dashboard_data(empresa: str, data_inicio: str, data_fim: str):
         total_saldo_banco = 0
 
         for r in resultados:
-            # r[0] = saldos, r[1] = receitas, r[2] = despesas
             for b in r[0]:
                 nome_up = remover_acentos(b["nome"]).upper()
                 if any(p in nome_up for p in BANCOS_EXCLUSIVOS):
@@ -252,9 +260,9 @@ async def listar_empresas():
 async def rota_dados(empresa: str, data_inicio: str, data_fim: str):
     return await get_dashboard_data(empresa, data_inicio, data_fim)
 
-@app.get("/api/exportar-pdf")
-async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
-    dados = await get_dashboard_data(empresa, data_inicio, data_fim)
+@app.post("/api/exportar-pdf")
+async def exportar_pdf(request: ExportarRequest):
+    dados = await get_dashboard_data(request.empresa, request.data_inicio, request.data_fim)
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
@@ -262,18 +270,28 @@ async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
     def fmt_br(valor):
         return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+    # Cabeçalho
     p.setFont("Helvetica-Bold", 16)
     p.drawString(50, altura - 50, "RELATÓRIO FINANCEIRO PROJETADO")
     p.setFont("Helvetica", 10)
-    p.drawString(50, altura - 65, f"Empresa: {empresa.upper()}")
-    p.drawString(50, altura - 78, f"Período: {data_inicio} até {data_fim}")
+    p.drawString(50, altura - 65, f"Empresa: {request.empresa.upper()}")
+    p.drawString(50, altura - 78, f"Período: {request.data_inicio} até {request.data_fim}")
     p.line(50, altura - 85, 545, altura - 85)
 
+    y_topo = altura - 110
+    # Inserção de Imagem do Gráfico (Resolve o erro da imagem image_a63df1.jpg)
+    if request.chart_image:
+        try:
+            img_data = base64.b64decode(request.chart_image.split(",")[1])
+            p.drawImage(ImageReader(io.BytesIO(img_data)), 50, altura - 340, width=500, height=230)
+            y_topo = altura - 370
+        except: pass
+
     p.setFont("Helvetica-Bold", 12)
-    p.drawString(50, altura - 110, "1. Resumo Consolidado")
+    p.drawString(50, y_topo, "1. Resumo Consolidado")
     resumo = dados["resumo"]
+    y = y_topo - 25
     
-    y = altura - 135
     p.setFont("Helvetica", 11)
     itens = [("Saldo Atual (Bancos Filtrados)", resumo['banco']), 
              ("Total Receitas", resumo['total_rec']), 
@@ -298,15 +316,14 @@ async def exportar_pdf(empresa: str, data_inicio: str, data_fim: str):
         p.drawRightString(500, y, fmt_br(b['saldo']))
         y -= 18
 
-    p.showPage()
-    p.save()
+    p.showPage(); p.save()
     pdf_out = buffer.getvalue()
     buffer.close()
     
     return Response(
         content=pdf_out, 
         media_type="application/pdf", 
-        headers={"Content-Disposition": f"attachment; filename=relatorio_{empresa}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=relatorio_{request.empresa}.pdf"}
     )
 
 if __name__ == "__main__":
