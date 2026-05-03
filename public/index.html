@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/png" href="logo.png">
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js');
-      }
-    </script>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="logo.png">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fluxo de Caixa - JRM Gestão</title>
@@ -84,7 +84,9 @@
             transition: opacity 0.2s;
         }
 
-        .theme-toggle:hover { opacity: 0.7; }
+        .theme-toggle:hover {
+            opacity: 0.7;
+        }
         
         .sidebar { 
             width: 300px; padding: 30px 20px; 
@@ -96,7 +98,6 @@
             display: flex;
             flex-direction: column;
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            overflow-y: auto;
         }
 
         .main { 
@@ -129,6 +130,10 @@
             color: var(--blue);
         }
 
+        [class*="toolbar"], [id*="toolbar"], .chart-container button {
+            display: none !important;
+        }
+
         body.sidebar-closed .sidebar { transform: translateX(-100%); }
         body.sidebar-closed .main { margin-left: 0; }
         body.sidebar-closed .toggle-btn { left: 15px; }
@@ -142,7 +147,9 @@
             transition: padding-left 0.3s ease;
         }
 
-        body.sidebar-closed h1 { padding-left: 45px; }
+        body.sidebar-closed h1 {
+            padding-left: 45px;
+        }
 
         .sidebar h3 { font-size: 1rem; margin: 25px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
         .sidebar label { font-size: 0.8rem; opacity: 0.8; display: block; margin-bottom: 5px; }
@@ -179,21 +186,12 @@
         .card-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 8px; font-weight: bold;}
         .card-val { font-size: 1.4rem; font-weight: 600; }
 
-        .action-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-
-        .btn-action { 
-            width: 100%; padding: 12px; 
+        .btn-sync { 
+            width: 100%; padding: 12px; background: var(--red); 
             color: white; border: none; border-radius: 4px; font-weight: bold; 
-            cursor: pointer; transition: 0.3s; font-size: 0.9rem;
+            cursor: pointer; transition: 0.3s; margin-top: 10px;
         }
-        .btn-sync { background: var(--red); }
-        .btn-pdf { background: var(--blue); }
-        .btn-action:hover { filter: brightness(1.2); transform: translateY(-1px); }
+        .btn-sync:hover { filter: brightness(1.2); }
 
         .chart-container { 
             background: var(--sidebar); padding: 25px; border-radius: 12px; height: 480px; 
@@ -235,10 +233,7 @@
             <input type="date" id="data_fim">
         </div>
 
-        <div class="action-buttons">
-            <button class="btn-action btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
-            <button class="btn-action btn-pdf" onclick="exportarPDF()">Exportar PDF</button>
-        </div>
+        <button class="btn-sync" onclick="sincronizar()">Sincronizar Dados</button>
 
         <h3>Bancos</h3>
         <div id="lista-bancos">
@@ -282,8 +277,16 @@
         const body = document.body;
         const btn = document.getElementById('btnToggle');
         body.classList.toggle('sidebar-closed');
-        btn.innerText = body.classList.contains('sidebar-closed') ? '»' : '«';
-        if(chart) setTimeout(() => { chart.resize(); }, 350);
+        
+        if (body.classList.contains('sidebar-closed')) {
+            btn.innerText = '»'; 
+        } else {
+            btn.innerText = '«'; 
+        }
+
+        if(chart) {
+            setTimeout(() => { chart.resize(); }, 350);
+        }
     }
 
     function toggleTheme() {
@@ -319,97 +322,59 @@
         } catch (err) { console.error("Erro ao carregar empresas."); }
     }
 
-    function formatarDataISO(data) {
-        const z = n => (n < 10 ? '0' : '') + n;
-        return `${data.getFullYear()}-${z(data.getMonth() + 1)}-${z(data.getDate())}`;
-    }
-
     function ajustarDatas() {
-        const intervaloSelect = document.getElementById('intervalo');
-        const containerDatas = document.getElementById('container-datas');
-        const hoje = new Date();
+    const intervaloSelect = document.getElementById('intervalo');
+    const containerDatas = document.getElementById('container-datas');
+    const hoje = new Date();
+    
+    // ISOString lida com UTC, então garantimos a data local correta
+    const offset = hoje.getTimezoneOffset();
+    const dataLocal = new Date(hoje.getTime() - (offset * 60 * 1000));
+    const dataInicioFormatada = dataLocal.toISOString().split('T')[0];
 
-        if (intervaloSelect.value === 'personalizado') {
-            containerDatas.style.display = 'block';
-        } else {
-            containerDatas.style.display = 'none';
-            const dias = parseInt(intervaloSelect.value);
-            const dataInicio = new Date(hoje);
-            const dataFim = new Date(hoje);
-            dataFim.setDate(hoje.getDate() + dias);
-            document.getElementById('data_inicio').value = formatarDataISO(dataInicio);
-            document.getElementById('data_fim').value = formatarDataISO(dataFim);
-            sincronizar();
-        }
+    if (intervaloSelect.value === 'personalizado') {
+        containerDatas.style.display = 'block';
+    } else {
+        containerDatas.style.display = 'none';
+        const dias = parseInt(intervaloSelect.value);
+        const dataFim = new Date(hoje);
+        
+        // Se for "Hoje" (dias = 0), a data fim é igual a hoje. 
+        // Se for 7, adiciona 7 dias.
+        dataFim.setDate(hoje.getDate() + dias);
+        
+        const dataFimLocal = new Date(dataFim.getTime() - (offset * 60 * 1000));
+        const dataFimFormatada = dataFimLocal.toISOString().split('T')[0];
+
+        document.getElementById('data_inicio').value = dataInicioFormatada;
+        document.getElementById('data_fim').value = dataFimFormatada;
+        
+        sincronizar();
     }
+}
 
     async function sincronizar() {
         const empresa = document.getElementById('empresa').value;
         const data_inicio = document.getElementById('data_inicio').value;
         const data_fim = document.getElementById('data_fim').value;
+
         if (!data_inicio || !data_fim) return;
+
         const loader = document.getElementById('loading-overlay');
         loader.style.display = 'flex';
+
         try {
             const query = new URLSearchParams({ empresa, data_inicio, data_fim });
             const res = await fetch(`/api/dados?${query.toString()}`);
+            if (!res.ok) throw new Error("Erro na resposta da rede");
             const data = await res.json();
             renderizarDashboard(data);
-        } catch (err) { console.error(err); } 
-        finally { setTimeout(() => { loader.style.display = 'none'; }, 500); }
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setTimeout(() => { loader.style.display = 'none'; }, 500);
+        }
     }
-
-    async function exportarPDF() {
-    const empresa = document.getElementById('empresa').value;
-    const data_inicio = document.getElementById('data_inicio').value;
-    const data_fim = document.getElementById('data_fim').value;
-
-    if (!data_inicio || !data_fim) {
-        alert("Por favor, selecione um período antes de exportar.");
-        return;
-    }
-
-    const loader = document.getElementById('loading-overlay');
-    loader.style.display = 'flex';
-
-    try {
-        // 1. Captura o gráfico como imagem Base64
-        const chartCanvas = document.getElementById('mainChart');
-        const chartImage = chartCanvas.toDataURL('image/png');
-
-        // 2. Mudamos para POST para conseguir enviar a imagem (que é uma string longa)
-        // Também enviamos um sinalizador para o backend filtrar as contas "AP."
-        const response = await fetch('/api/exportar-pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                empresa,
-                data_inicio,
-                data_fim,
-                chart_image: chartImage,
-                exclude_ap: true // Sinal para o backend aplicar o mesmo filtro do dashboard
-            })
-        });
-
-        if (!response.ok) throw new Error();
-        
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Relatorio_${empresa}_${data_inicio}_a_${data_fim}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        
-    } catch (err) { 
-        console.error(err);
-        alert("Erro ao exportar PDF. Verifique se o servidor suporta recebimento de imagem."); 
-    } finally { 
-        loader.style.display = 'none'; 
-    }
-}
 
     function getLogoUrl(nome) {
         const n = (nome || '').toUpperCase();
@@ -421,59 +386,98 @@
 
     function renderizarDashboard(data) {
         if (!data) return;
+        
         const fmt = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         const isLight = document.body.classList.contains('light-mode');
         const textColor = isLight ? '#31333f' : '#ffffff';
 
-        // FILTRO RIGOROSO PARA REMOVER CONTAS DE APLICAÇÃO (EX: BRADESCO AP.)
-        const bancosRaw = data.saldos_por_banco || [];
+        const bancosPermitidos = ["ITAU", "SICOOB", "BRADESCO"];
+        const bancos = data.saldos_por_banco || [];
+        const nomesVistos = new Set();
+        
+        const bancosFiltrados = bancos.filter(b => {
+            const nomeUp = (b.nome || '').toUpperCase();
+            const ePermitido = bancosPermitidos.some(p => nomeUp.includes(p));
+            if (!ePermitido || nomesVistos.has(nomeUp) || Math.abs(b.saldo) < 0.01) return false;
+            nomesVistos.add(nomeUp);
+            return true;
+        }).sort((a, b) => a.nome.localeCompare(b.nome));
+
         const containerBancos = document.getElementById('lista-bancos');
         containerBancos.innerHTML = '';
-        
-        const bancosFiltrados = bancosRaw.filter(b => {
-            const nomeUp = (b.nome || '').toUpperCase();
-            // Remove se contiver "AP." ou "APLICAÇÃO"
-            return !nomeUp.includes('AP.') && !nomeUp.includes('APLICAÇÃO');
-        });
-
-        bancosFiltrados.forEach(banco => {
-            const logo = getLogoUrl(banco.nome);
-            const item = document.createElement('div');
-            item.className = 'bank-item';
-            item.innerHTML = `
-                <div class="bank-info">
-                    <div class="bank-logo">${logo ? `<img src="${logo}">` : banco.nome[0]}</div>
-                    <div class="bank-name-text">${banco.nome}</div>
-                </div>
-                <div class="bank-val-text">${fmt(banco.saldo)}</div>`;
-            containerBancos.appendChild(item);
-        });
+        if (bancosFiltrados.length > 0) {
+            bancosFiltrados.forEach(banco => {
+                const logo = getLogoUrl(banco.nome);
+                const item = document.createElement('div');
+                item.className = 'bank-item';
+                item.innerHTML = `
+                    <div class="bank-info">
+                        <div class="bank-logo">
+                            ${logo ? `<img src="${logo}" alt="logo">` : (banco.nome || '?').charAt(0)}
+                        </div>
+                        <div class="bank-name-text" title="${banco.nome}">${banco.nome}</div>
+                    </div>
+                    <div class="bank-val-text" style="color: ${banco.saldo < 0 ? 'var(--red)' : 'inherit'}">
+                        ${fmt(banco.saldo)}
+                    </div>
+                `;
+                containerBancos.appendChild(item);
+            });
+        }
 
         const resumo = data.resumo || { total_rec: 0, total_desp: 0 };
-        const saldoBancos = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
-        document.getElementById('v-banco').innerText = fmt(saldoBancos);
+        const saldoAtualBancos = bancosFiltrados.reduce((acc, b) => acc + b.saldo, 0);
+        
+        document.getElementById('v-banco').innerText = fmt(saldoAtualBancos);
         document.getElementById('v-rec').innerText = fmt(resumo.total_rec);
-        document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp));
-        const previsto = saldoBancos + resumo.total_rec - Math.abs(resumo.total_desp);
-        document.getElementById('v-res').innerText = fmt(previsto);
-        document.getElementById('v-res').style.color = previsto >= 0 ? 'var(--green)' : 'var(--red)';
+        document.getElementById('v-desp').innerText = fmt(-Math.abs(resumo.total_desp || 0));
+        
+        const saldoPrevisto = saldoAtualBancos + (Number(resumo.total_rec) || 0) - Math.abs(Number(resumo.total_desp) || 0);
+        const elRes = document.getElementById('v-res');
+        const cardRes = document.getElementById('card-resultado');
+        
+        elRes.innerText = fmt(saldoPrevisto);
+        const corFinal = saldoPrevisto >= 0 ? 'var(--green)' : 'var(--red)';
+        elRes.style.color = corFinal;
+        cardRes.style.borderLeftColor = corFinal;
 
         if(chart) chart.destroy();
-        chart = new Chart(document.getElementById('mainChart').getContext('2d'), {
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        chart = new Chart(ctx, {
             data: {
                 labels: data.labels || [],
                 datasets: [
-                    { type: 'line', label: 'Saldo', data: data.saldo || [], borderColor: '#3498db', tension: 0.3, fill: false, yAxisID: 'y' },
-                    { type: 'bar', label: 'Receitas', data: data.receitas || [], backgroundColor: '#2ecc71' },
-                    { type: 'bar', label: 'Despesas', data: (data.despesas || []).map(d => -Math.abs(d)), backgroundColor: '#ff4b4b' }
+                    { 
+                        type: 'line', 
+                        label: 'Saldo Acumulado', 
+                        data: data.saldo || [], 
+                        borderColor: '#3498db', 
+                        borderWidth: 3, 
+                        pointRadius: 4, 
+                        tension: 0.3, 
+                        fill: false 
+                    },
+                    { 
+                        type: 'bar', 
+                        label: 'Receitas', 
+                        data: data.receitas || [], 
+                        backgroundColor: '#2ecc71', 
+                        borderRadius: 4,
+                        stack: 'combined'
+                    },
+                    { 
+                        type: 'bar', 
+                        label: 'Despesas', 
+                        data: (data.despesas || []).map(d => -Math.abs(d)), 
+                        backgroundColor: '#ff4b4b', 
+                        borderRadius: 4,
+                        stack: 'combined'
+                    }
                 ]
             },
-            options: { 
+            options: {
                 responsive: true, 
                 maintainAspectRatio: false,
-                layout: {
-                    padding: { top: 35 } // Aumenta o respiro no topo para as legendas
-                },
                 plugins: { 
                     legend: { labels: { color: textColor, font: { weight: 'bold' } }, position: 'bottom' },
                     tooltip: { mode: 'index', intersect: false }
@@ -496,7 +500,6 @@
             }
         });
     }
-
 
     document.addEventListener('DOMContentLoaded', async () => {
         if(localStorage.getItem('theme') === 'light') toggleTheme();
