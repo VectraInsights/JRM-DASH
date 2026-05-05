@@ -89,10 +89,56 @@ def enviar_alerta_email(empresa_nome: str, mensagem_erro: str):
             server.send_message(msg)
             print(f"✅ E-mail de alerta enviado para {empresa_nome}")
     except Exception as e:
-        enviar_alerta_email(empresa_nome, "Token expirado ou revogado.")
-        return {"status": "erro", "message": "Token inválido, alerta enviado."}
+        print(f"Erro ao enviar e-mail: {e}")
 
-# --- LÓGICA DE AUTENTICAÇÃO COM AVISO NO SUPABASE ---
+# --- LÓGICA DE AUTENTICAÇÃO E CALLBACK ---
+
+@app.get("/api/callback")
+async def callback(code: str = None):
+    """Rota para receber o código da Conta Azul e gerar o token inicial."""
+    if not code:
+        raise HTTPException(status_code=400, detail="Código não fornecido.")
+
+    redirect_uri = "https://jrm-dashboard.vercel.app/api/callback"
+    auth_b64 = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    
+    payload = {
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+        "code": code
+    }
+    
+    headers = {
+        "Authorization": f"Basic {auth_b64}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post("https://auth.contaazul.com/oauth2/token", headers=headers, data=payload)
+        
+        if r.status_code != 200:
+            return {"status": "erro", "detalhe": r.json()}
+        
+        dados = r.json()
+        access = dados.get("access_token")
+        refresh = dados.get("refresh_token")
+
+        # Busca o nome da empresa para salvar corretamente no Supabase
+        info = await client.get("https://api-v2.contaazul.com/v1/info", 
+                               headers={"Authorization": f"Bearer {access}"})
+        
+        nome_empresa = info.json().get("name", "NOVA_EMPRESA").upper() if info.status_code == 200 else "NOVA_EMPRESA"
+
+        supabase.table("tokens").upsert({
+            "empresa": nome_empresa,
+            "access_token": access,
+            "refresh_token": refresh,
+            "status": "ATIVO",
+            "mensagem_erro": None,
+            "updated_at": datetime.now().isoformat()
+        }).execute()
+
+        return {"status": "sucesso", "empresa": nome_empresa, "msg": "Token configurado com sucesso!"}
 
 async def renovar_e_obter_novo_token(empresa_nome: str):
     try:
@@ -120,7 +166,6 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             novo_access = dados.get("access_token")
             novo_refresh = dados.get("refresh_token")
 
-            # SUCESSO: Atualiza tokens e limpa qualquer erro anterior
             supabase.table("tokens").update({
                 "access_token": novo_access,
                 "refresh_token": novo_refresh,
@@ -131,7 +176,6 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             
             return novo_access
         else:
-            # ERRO DE AUTENTICAÇÃO: Registra no Supabase e envia E-mail
             erro_detalhe = f"Erro {r.status_code} na API Conta Azul: {r.text}"
             supabase.table("tokens").update({
                 "status": "ERRO",
@@ -143,7 +187,6 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             return None
 
     except Exception as e:
-        # ERRO DE CONEXÃO/SISTEMA: Registra a falha crítica e envia E-mail
         erro_msg = str(e)
         supabase.table("tokens").update({
             "status": "ERRO",
@@ -152,13 +195,11 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
         }).eq("empresa", empresa_nome).execute()
         
         enviar_alerta_email(empresa_nome, f"Exceção de Sistema: {erro_msg}")
-        print(f"Erro na renovação de token ({empresa_nome}): {e}")
         return None
 
 async def obter_token_atual(empresa_nome: str):
     try:
         res = supabase.table("tokens").select("access_token, status").eq("empresa", empresa_nome).execute()
-        # Se já estiver com erro marcado, tenta renovar uma última vez
         if res.data and res.data[0].get("status") == "ERRO":
              return await renovar_e_obter_novo_token(empresa_nome)
              
@@ -263,8 +304,6 @@ async def buscar_saldos_async(token: str, empresa_nome: str):
         print(f"Erro ao buscar saldos ({empresa_nome}): {e}")
         
     return lista_bancos
-
-# --- LOGICA DE PROCESSAMENTO ---
 
 async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
     token = await obter_token_atual(emp_nome)
