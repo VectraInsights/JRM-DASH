@@ -6,10 +6,15 @@ import base64
 import pandas as pd
 import os
 import unicodedata
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
 from typing import List, Dict, Any
+
+print(f"DEBUG: Enviando alertas para -> {os.getenv('EMAIL_RECEIVER')}")
 
 # --- VARIÁVEIS GLOBAIS ---
 http_client: httpx.AsyncClient = None
@@ -39,6 +44,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 CLIENT_ID = os.environ.get("CONTA_AZUL_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CONTA_AZUL_CLIENT_SECRET")
 
+# Variáveis para o Alerta de E-mail
+EMAIL_USER = os.environ.get("EMAIL_USER")
+EMAIL_PASS = os.environ.get("EMAIL_PASS")
+EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
+
 if not all([SUPABASE_URL, SUPABASE_KEY, CLIENT_ID, CLIENT_SECRET]):
     print("⚠️ AVISO: Variáveis de ambiente incompletas no Vercel/Env")
 
@@ -49,6 +59,38 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def remover_acentos(texto: str) -> str:
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+
+def enviar_alerta_email(empresa_nome: str, mensagem_erro: str):
+    """Envia um alerta por e-mail quando a renovação do token falha."""
+    if not all([EMAIL_USER, EMAIL_PASS, EMAIL_RECEIVER]):
+        print(f"⚠️ Alerta não enviado: Variáveis de e-mail não configuradas. Erro: {mensagem_erro}")
+        return
+
+    msg = MIMEMultipart()
+    msg['From'] = EMAIL_USER
+    msg['To'] = EMAIL_RECEIVER
+    msg['Subject'] = f"⚠️ FALHA DE TOKEN: {empresa_nome} - JRM-DASH"
+
+    corpo = f"""
+    O sistema JRM-DASH detectou uma falha na renovação automática do token.
+    
+    Empresa: {empresa_nome}
+    Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+    Detalhe do Erro: {mensagem_erro}
+    
+    Ação Necessária: Acesse o sistema e realize a reautenticação manual via OAuth2.
+    """
+    msg.attach(MIMEText(corpo, 'plain'))
+
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+            print(f"✅ E-mail de alerta enviado para {empresa_nome}")
+    except Exception as e:
+        enviar_alerta_email(empresa_nome, "Token expirado ou revogado.")
+        return {"status": "erro", "message": "Token inválido, alerta enviado."}
 
 # --- LÓGICA DE AUTENTICAÇÃO COM AVISO NO SUPABASE ---
 
@@ -89,22 +131,27 @@ async def renovar_e_obter_novo_token(empresa_nome: str):
             
             return novo_access
         else:
-            # ERRO DE AUTENTICAÇÃO: Registra o aviso no Supabase
-            erro_detalhe = f"Erro {r.status_code} ao renovar: {r.text}"
+            # ERRO DE AUTENTICAÇÃO: Registra no Supabase e envia E-mail
+            erro_detalhe = f"Erro {r.status_code} na API Conta Azul: {r.text}"
             supabase.table("tokens").update({
                 "status": "ERRO",
                 "mensagem_erro": f"Token expirado ou revogado. Reautentique manualmente.",
                 "updated_at": datetime.now().isoformat()
             }).eq("empresa", empresa_nome).execute()
+            
+            enviar_alerta_email(empresa_nome, erro_detalhe)
             return None
 
     except Exception as e:
-        # ERRO DE CONEXÃO/SISTEMA: Registra a falha crítica
+        # ERRO DE CONEXÃO/SISTEMA: Registra a falha crítica e envia E-mail
+        erro_msg = str(e)
         supabase.table("tokens").update({
             "status": "ERRO",
-            "mensagem_erro": f"Falha crítica no sistema: {str(e)}",
+            "mensagem_erro": f"Falha crítica no sistema: {erro_msg}",
             "updated_at": datetime.now().isoformat()
         }).eq("empresa", empresa_nome).execute()
+        
+        enviar_alerta_email(empresa_nome, f"Exceção de Sistema: {erro_msg}")
         print(f"Erro na renovação de token ({empresa_nome}): {e}")
         return None
 
@@ -237,7 +284,6 @@ async def processar_empresa(emp_nome: str, data_inicio: str, data_fim: str):
 @app.get("/api/empresas")
 async def listar_empresas():
     try:
-        # Agora retorna também o status e a mensagem de erro para o frontend
         res = supabase.table("tokens").select("empresa, status, mensagem_erro").order("empresa").execute()
         return [
             {
