@@ -90,7 +90,7 @@ def enviar_alerta_email(empresa_nome: str, mensagem_erro: str):
             print(f"✅ E-mail de alerta enviado para {empresa_nome}")
     except Exception as e:
         enviar_alerta_email(empresa_nome, "Token expirado ou revogado.")
-return {"status": "erro", "message": "Token inválido, alerta enviado."}
+        return {"status": "erro", "message": "Token inválido, alerta enviado."}
 
 # --- LÓGICA DE AUTENTICAÇÃO COM AVISO NO SUPABASE ---
 
