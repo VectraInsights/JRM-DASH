@@ -14,6 +14,8 @@ from contextlib import asynccontextmanager
 from supabase import create_client, Client
 from typing import List, Dict, Any
 
+print(f"DEBUG: Enviando alertas para -> {os.getenv('EMAIL_RECEIVER')}")
+
 # --- VARIÁVEIS GLOBAIS ---
 http_client: httpx.AsyncClient = None
 
