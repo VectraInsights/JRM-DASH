@@ -480,7 +480,7 @@
                 maintainAspectRatio: false,
                 plugins: { 
                     legend: { labels: { color: textColor, font: { weight: 'bold' } }, position: 'bottom' },
-                    tooltip: { mode: 'index', intersect: false }
+                    tooltip: { mode: 'index', intersect: false, callbacks: { label: function (context) { let label = context.dataset.label || ''; if (label) { label += ': '; } const valor = Number(context.raw || 0); label += valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }); return label; } } }
                 },
                 scales: {
                     x: { 
