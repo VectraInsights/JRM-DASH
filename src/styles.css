@@ -144,7 +144,7 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
   --background: oklch(0.16 0.025 265);
-  --card: oklch(0.21 0.03 265);
+  --card: oklch(0.12 0 0);
   --sidebar: oklch(0.19 0.028 265);
   --success: oklch(0.78 0.18 162);
   --warning: oklch(0.82 0.17 75);
