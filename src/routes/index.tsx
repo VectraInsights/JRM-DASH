@@ -267,34 +267,7 @@ function Dashboard() {
           <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           {isFetching ? "Sincronizando..." : "Recarregar"}
         </button>
-
-        <SectionLabel className="mt-8">Estado do Sync</SectionLabel>
-        <div className="space-y-1.5">
-          {empresas.length === 0 ? (
-            <div className="text-xs text-muted-foreground text-center py-2">Carregando...</div>
-          ) : (
-            empresas.map((e) => (
-              <div
-                key={e.nome}
-                className="flex items-center justify-between rounded-lg border border-border/50 bg-card/40 px-3 py-2 text-xs"
-                title={e.erro || ""}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={`h-2 w-2 rounded-full shrink-0 ${
-                      e.status === "ERRO" ? "bg-destructive" : "bg-success"
-                    }`}
-                  />
-                  <span className="truncate font-medium">{e.nome}</span>
-                </div>
-                <span className="text-muted-foreground tabular-nums shrink-0 ml-2">
-                  {e.updated_at ? tempoRelativo(e.updated_at) : "—"}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
-
+        
         <SectionLabel className="mt-8">Bancos</SectionLabel>
         <div className="space-y-2">
           {bancosFiltrados.length === 0 ? (
