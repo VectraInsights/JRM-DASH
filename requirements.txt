@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-httpx
-pandas
-supabase
-python-multipart
-reportlab
