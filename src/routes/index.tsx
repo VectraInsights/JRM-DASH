@@ -371,19 +371,7 @@ function Dashboard() {
               </button>
             </div>
           </div>
-
-          {/* Estado do sync (banner) */}
-          <div className="mb-6 flex items-center gap-3 text-xs text-muted-foreground">
-            <span className={`inline-flex h-2 w-2 rounded-full ${isError ? "bg-destructive" : isFetching ? "bg-brand animate-pulse" : "bg-success"}`} />
-            <span>
-              {isError
-                ? `Erro: ${String((error as any)?.message || error).slice(0, 120)}`
-                : isFetching
-                ? "Sincronizando com a Conta Azul..."
-                : `Última sincronização: ${dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("pt-BR") : "—"}`}
-            </span>
-          </div>
-
+         
           {/* KPI cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
             <KpiCard
