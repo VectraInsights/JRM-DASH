@@ -259,15 +259,6 @@ function Dashboard() {
           </>
         )}
 
-        <button
-          onClick={recarregarTudo}
-          disabled={isFetching}
-          className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-brand-2 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand/30 hover:shadow-brand/50 transition-shadow disabled:opacity-60"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          {isFetching ? "Sincronizando..." : "Recarregar"}
-        </button>
-        
         <SectionLabel className="mt-8">Bancos</SectionLabel>
         <div className="space-y-2">
           {bancosFiltrados.length === 0 ? (
@@ -371,7 +362,19 @@ function Dashboard() {
               </button>
             </div>
           </div>
-         
+
+          {/* Estado do sync (banner) */}
+          <div className="mb-6 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className={`inline-flex h-2 w-2 rounded-full ${isError ? "bg-destructive" : isFetching ? "bg-brand animate-pulse" : "bg-success"}`} />
+            <span>
+              {isError
+                ? `Erro: ${String((error as any)?.message || error).slice(0, 120)}`
+                : isFetching
+                ? "Sincronizando com a Conta Azul..."
+                : `Última sincronização: ${dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("pt-BR") : "—"}`}
+            </span>
+          </div>
+
           {/* KPI cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
             <KpiCard

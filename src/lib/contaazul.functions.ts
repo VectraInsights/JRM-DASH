@@ -54,6 +54,7 @@ export type DashboardData = {
   receitas: number[];
   despesas: number[];
   receitas_boleto: number[];
+  receitas_boleto_por_banco: { [banco: string]: number[] };
   saldo: number[];
   saldos_por_banco: { nome: string; saldo: number }[];
   resumo: {
@@ -61,6 +62,7 @@ export type DashboardData = {
     total_rec: number;
     total_desp: number;
     total_rec_boleto: number;
+    total_rec_boleto_por_banco: { [banco: string]: number };
     saldo_final: number;
   };
 };
@@ -120,16 +122,22 @@ export const getDashboard = createServerFn({ method: "GET" })
     );
 
     const mapaBancos = new Map<string, { nome: string; saldo: number }>();
+    const mapaContaBanco = new Map<string, string>(); // conta_id -> banco_nome
     for (const r of resultados) {
       for (const b of r.bancos) {
         const chave = removerAcentos(b.nome).toUpperCase();
+        const nomeFormatado = chave.charAt(0) + chave.slice(1).toLowerCase();
         const ex = mapaBancos.get(chave);
         if (ex) ex.saldo += b.saldo;
         else
           mapaBancos.set(chave, {
-            nome: chave.charAt(0) + chave.slice(1).toLowerCase(),
+            nome: nomeFormatado,
             saldo: b.saldo,
           });
+        // Mapear conta ID para nome do banco
+        if (b.id) {
+          mapaContaBanco.set(String(b.id), nomeFormatado);
+        }
       }
     }
     const saldos_por_banco = Array.from(mapaBancos.values()).map((v) => ({
@@ -141,13 +149,32 @@ export const getDashboard = createServerFn({ method: "GET" })
     const datas = dateRange(data.data_inicio, data.data_fim);
     const recPorDia: Record<string, number> = {};
     const recBoletoPorDia: Record<string, number> = {};
+    const recBoletoPorDiaPerBanco: Record<string, Record<string, number>> = {}; // dia -> banco -> valor
     const despPorDia: Record<string, number> = {};
+    
+    // Inicializar estrutura de bancos
+    for (const banco of saldos_por_banco) {
+      recBoletoPorDiaPerBanco[banco.nome] = {};
+      for (const d of datas) {
+        recBoletoPorDiaPerBanco[banco.nome][d] = 0;
+      }
+    }
+
     for (const r of resultados) {
       for (const i of r.rec) {
         recPorDia[i.data] = (recPorDia[i.data] || 0) + i.valor;
         const metodo = (i.metodo || "").toUpperCase();
         if (metodo.includes("BOLETO")) {
           recBoletoPorDia[i.data] = (recBoletoPorDia[i.data] || 0) + i.valor;
+          
+          // Agregar por banco se houver info de conta
+          if (i.conta_id) {
+            const nomeBanco = mapaContaBanco.get(i.conta_id);
+            if (nomeBanco && recBoletoPorDiaPerBanco[nomeBanco]) {
+              recBoletoPorDiaPerBanco[nomeBanco][i.data] = 
+                (recBoletoPorDiaPerBanco[nomeBanco][i.data] || 0) + i.valor;
+            }
+          }
         }
       }
       for (const i of r.desp) despPorDia[i.data] = (despPorDia[i.data] || 0) + i.valor;
@@ -155,6 +182,13 @@ export const getDashboard = createServerFn({ method: "GET" })
 
     const receitas: number[] = [];
     const receitas_boleto: number[] = [];
+    const receitas_boleto_por_banco: { [banco: string]: number[] } = {};
+    
+    // Inicializar arrays por banco
+    for (const banco of saldos_por_banco) {
+      receitas_boleto_por_banco[banco.nome] = [];
+    }
+
     const despesas: number[] = [];
     const saldo: number[] = [];
     let acumulado = totalBanco;
@@ -165,6 +199,13 @@ export const getDashboard = createServerFn({ method: "GET" })
       const p = despPorDia[d] || 0;
       receitas.push(r);
       receitas_boleto.push(Math.round(rb * 100) / 100);
+      
+      // Agregar boleto por banco para cada dia
+      for (const banco of saldos_por_banco) {
+        const valor = recBoletoPorDiaPerBanco[banco.nome]?.[d] || 0;
+        receitas_boleto_por_banco[banco.nome].push(Math.round(valor * 100) / 100);
+      }
+      
       despesas.push(p);
       acumulado += r - p;
       saldo.push(Math.round(acumulado * 100) / 100);
@@ -175,12 +216,19 @@ export const getDashboard = createServerFn({ method: "GET" })
     const total_rec = receitas.reduce((a, b) => a + b, 0);
     const total_rec_boleto = receitas_boleto.reduce((a, b) => a + b, 0);
     const total_desp = despesas.reduce((a, b) => a + b, 0);
+    
+    const total_rec_boleto_por_banco: { [banco: string]: number } = {};
+    for (const banco of saldos_por_banco) {
+      total_rec_boleto_por_banco[banco.nome] = 
+        (receitas_boleto_por_banco[banco.nome] || []).reduce((a, b) => a + b, 0);
+    }
 
     return {
       labels,
       receitas,
       despesas,
       receitas_boleto,
+      receitas_boleto_por_banco,
       saldo,
       saldos_por_banco,
       resumo: {
@@ -188,6 +236,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         total_rec: Math.round(total_rec * 100) / 100,
         total_desp: Math.round(total_desp * 100) / 100,
         total_rec_boleto: Math.round(total_rec_boleto * 100) / 100,
+        total_rec_boleto_por_banco,
         saldo_final: saldo.length ? saldo[saldo.length - 1] : Math.round(totalBanco * 100) / 100,
       },
     };

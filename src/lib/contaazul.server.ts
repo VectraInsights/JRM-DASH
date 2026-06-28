@@ -220,31 +220,120 @@ export async function buscarSaldos(empresa: string, tokenInicial: string) {
 }
 
 function extrairMetodo(j: any): string | null {
-  const candidatos: any[] = [
-    j.forma_pagamento,
+  if (!j) return null;
+
+  // CONFORME DOCUMENTAÇÃO CONTA AZUL: verificar itens.forma_pagamento
+  // Valor para boleto: BOLETO_BANCARIO
+  
+  // 1. Campo forma_pagamento direto (string)
+  if (typeof j.forma_pagamento === "string" && j.forma_pagamento?.trim()) {
+    return j.forma_pagamento.trim();
+  }
+  
+  // 2. Se forma_pagamento é objeto, extrai tipo/nome
+  if (j.forma_pagamento && typeof j.forma_pagamento === "object") {
+    const tipo = j.forma_pagamento.tipo || j.forma_pagamento.nome;
+    if (typeof tipo === "string" && tipo?.trim()) {
+      return tipo.trim();
+    }
+  }
+
+  // 3. Campos alternativos (compatibilidade com outras estruturas)
+  const campos = [
     j.metodo_pagamento,
     j.tipo_pagamento,
     j.meio_pagamento,
-    j.forma_pagamento?.tipo,
-    j.forma_pagamento?.nome,
-    j.metodo_pagamento?.tipo,
-    j.metodo_pagamento?.nome,
-    j.parcelas?.[0]?.forma_pagamento,
-    j.parcelas?.[0]?.forma_pagamento?.tipo,
-    j.parcelas?.[0]?.forma_pagamento?.nome,
-    j.parcelas?.[0]?.metodo_pagamento,
-    j.parcelas?.[0]?.metodo_pagamento?.tipo,
-    j.parcelas?.[0]?.metodo_pagamento?.nome,
-    j.baixas?.[0]?.forma_pagamento,
-    j.baixas?.[0]?.metodo_pagamento,
+    j.payment_method,
   ];
-  for (const c of candidatos) {
-    if (typeof c === "string" && c) return c;
-    if (c && typeof c === "object") {
-      const s = c.tipo || c.nome;
-      if (typeof s === "string" && s) return s;
+  
+  for (const campo of campos) {
+    if (typeof campo === "string" && campo?.trim()) {
+      return campo.trim();
+    }
+    if (campo && typeof campo === "object") {
+      const s = campo.tipo || campo.nome || campo.type;
+      if (typeof s === "string" && s?.trim()) {
+        return s.trim();
+      }
     }
   }
+
+  // 4. Busca em estruturas aninhadas (cobranca, parcelas, baixas)
+  const estruturas = [
+    j.cobranca,
+    j.parcelas?.[0],
+    j.baixas?.[0],
+    j.cobrancas?.[0],
+  ];
+  
+  for (const est of estruturas) {
+    if (est && typeof est === "object") {
+      if (typeof est.forma_pagamento === "string" && est.forma_pagamento?.trim()) {
+        return est.forma_pagamento.trim();
+      }
+      // Se for objeto, extrai tipo/nome
+      if (est.forma_pagamento && typeof est.forma_pagamento === "object") {
+        const s = est.forma_pagamento.tipo || est.forma_pagamento.nome;
+        if (typeof s === "string" && s?.trim()) {
+          return s.trim();
+        }
+      }
+    }
+  }
+
+  // 5. Busca recursiva profunda por forma_pagamento
+  function buscaRecursiva(obj: any, prof = 0): string | null {
+    if (prof > 8 || !obj || typeof obj !== "object") return null;
+    
+    // Verifica campo forma_pagamento neste nível
+    if (typeof obj.forma_pagamento === "string" && obj.forma_pagamento?.trim()) {
+      return obj.forma_pagamento.trim();
+    }
+    
+    // Busca recursivamente em valores
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (v && typeof v === "object") {
+        // Em arrays, only primeiro elemento
+        if (Array.isArray(v) && v.length > 0) {
+          const res = buscaRecursiva(v[0], prof + 1);
+          if (res) return res;
+        } else if (!Array.isArray(v)) {
+          const res = buscaRecursiva(v, prof + 1);
+          if (res) return res;
+        }
+      }
+    }
+    return null;
+  }
+  
+  const metodo = buscaRecursiva(j);
+  if (metodo) return metodo;
+
+  // 6. Fallback final: detecta BOLETO se houver em qualquer string
+  function detectaBoleto(obj: any, prof = 0): boolean {
+    if (prof > 8 || !obj || typeof obj !== "object") return false;
+    
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (typeof v === "string" && v && v.toUpperCase().includes("BOLETO")) {
+        return true;
+      }
+      if (v && typeof v === "object") {
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            if (detectaBoleto(item, prof + 1)) return true;
+          }
+        } else {
+          if (detectaBoleto(v, prof + 1)) return true;
+        }
+      }
+    }
+    return false;
+  }
+  
+  if (detectaBoleto(j)) return "BOLETO_BANCARIO";
+
   return null;
 }
 
@@ -258,22 +347,162 @@ async function buscarDetalheFormaPagamento(
   const cached = detalheCache.get(cacheKey);
   if (cached && cached.exp > Date.now()) return cached.metodo;
 
-  const detalheUrl = `https://api-v2.contaazul.com${endpoint.replace(/\/buscar$/, "")}/${id}`;
-  let res = await fetchComRetry(detalheUrl, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
-  if (res.status === 401) {
-    const novo = await renovarToken(empresa);
-    if (!novo) return null;
-    tokenRef.token = novo;
-    res = await fetchComRetry(detalheUrl, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+  let metodo: string | null = null;
+  metodo = await buscarParcelaDetalhesPorId(empresa, id, tokenRef);
+
+  if (!metodo && endpoint.includes("contas-a-receber")) {
+    log("info", `detalhe ${empresa} id=${id} sem método, tentando via cobrancas...`);
+    metodo = await buscarViaCobrancas(empresa, id, tokenRef);
   }
-  if (!res.ok) {
-    log("warn", `detalhe ${empresa} id=${id} status=${res.status}`);
-    return null;
+
+  if (metodo) {
+    log("info", `detalhe ${empresa} id=${id} metodo=${metodo}`);
+  } else {
+    log("warn", `detalhe ${empresa} id=${id} - metodo NOT FOUND`);
   }
-  const j: any = await res.json();
-  const metodo = extrairMetodo(j);
+  
   detalheCache.set(cacheKey, { metodo, exp: Date.now() + DETALHE_TTL_MS });
   return metodo;
+}
+
+// Tenta buscar metodo via endpoint de cobrancas (para recebimentos)
+async function buscarViaCobrancas(
+  empresa: string,
+  recebimentoId: string,
+  tokenRef: { token: string },
+): Promise<string | null> {
+  try {
+    // Tenta buscar cobrancas associadas ao recebimento
+    const url = `https://api-v2.contaazul.com/v1/cobranca/buscar?recebimento_id=${recebimentoId}`;
+    let res = await fetchComRetry(url, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+    
+    if (res.status === 401) {
+      const novo = await renovarToken(empresa);
+      if (!novo) return null;
+      tokenRef.token = novo;
+      res = await fetchComRetry(url, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+    }
+    
+    if (res.ok) {
+      const j: any = await res.json();
+      const itens: any[] = j.itens || [];
+      if (itens.length > 0) {
+        const metodo = extrairMetodo(itens[0]);
+        if (metodo) return metodo;
+      }
+    }
+  } catch (e) {
+    log("warn", `buscarViaCobrancas erro: ${String(e).slice(0, 100)}`);
+  }
+  return null;
+}
+
+async function buscarParcelaDetalhesPorId(
+  empresa: string,
+  id: string,
+  tokenRef: { token: string },
+): Promise<string | null> {
+  const urls = [
+    `https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/parcelas/${id}`,
+    `https://api-v2.contaazul.com/v1/financeiro/eventos-financeiros/${id}/parcelas`,
+  ];
+
+  for (const url of urls) {
+    let tentativasReauth = 0;
+    try {
+      let res = await fetchComRetry(url, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+      if (res.status === 401 && tentativasReauth < 1) {
+        const novo = await renovarToken(empresa);
+        if (!novo) return null;
+        tokenRef.token = novo;
+        tentativasReauth++;
+        res = await fetchComRetry(url, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          continue;
+        }
+        log("warn", `buscarParcelaDetalhesPorId ${empresa} id=${id} url=${url} status=${res.status}`);
+        continue;
+      }
+
+      const j: any = await res.json();
+      const itens: any[] = Array.isArray(j) ? j : [j];
+      for (const item of itens) {
+        const metodo = extrairMetodo(item);
+        if (metodo) {
+          log("info", `buscarParcelaDetalhesPorId ${empresa} id=${id} url=${url} metodo=${metodo}`);
+          return metodo;
+        }
+      }
+      return null;
+    } catch (e) {
+      log("warn", `buscarParcelaDetalhesPorId erro ${empresa} id=${id} url=${url}: ${String(e).slice(0, 100)}`);
+    }
+  }
+
+  return null;
+}
+
+async function buscarMetodoPorListaReceber(
+  empresa: string,
+  dataInicio: string,
+  dataFim: string,
+  tokenRef: { token: string },
+): Promise<Map<string, string | null>> {
+  const mapa = new Map<string, string | null>();
+  let pagina = 1;
+  let tentativasReauth = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      data_vencimento_de: dataInicio,
+      data_vencimento_ate: dataFim,
+      status: "EM_ABERTO",
+      tamanho_pagina: "100",
+      pagina: String(pagina),
+    });
+    const url = `https://api-v2.contaazul.com/v1/financeiro/contas-a-receber?${params}`;
+    let res = await fetchComRetry(url, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+
+    if (res.status === 401 && tentativasReauth < 1) {
+      const novo = await renovarToken(empresa);
+      if (!novo) break;
+      tokenRef.token = novo;
+      tentativasReauth++;
+      res = await fetchComRetry(url, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
+    }
+    if (!res.ok) {
+      log("warn", `buscarMetodoPorListaReceber ${empresa} pg=${pagina} status=${res.status}`);
+      break;
+    }
+
+    const j: any = await res.json();
+    const itens: any[] = j.itens || [];
+    if (!itens.length) break;
+
+    for (const i of itens) {
+      if (!i.id) continue;
+      const metodo = extrairMetodo(i);
+      mapa.set(String(i.id), metodo || null);
+      if (metodo) {
+        log("info", `buscarMetodoPorListaReceber ${empresa} id=${String(i.id).slice(0, 8)} data=${i.data_vencimento} valor=${i.total} metodo=${metodo}`);
+      } else {
+        // Log itens sem método para debug
+        const temBoleto = JSON.stringify(i).toUpperCase().includes("BOLETO");
+        if (temBoleto) {
+          log("warn", `buscarMetodoPorListaReceber ${empresa} id=${String(i.id).slice(0, 8)} data=${i.data_vencimento} valor=${i.total} - TEM "BOLETO" mas extrairMetodo retornou null! Inspecionar payload.`);
+        }
+      }
+    }
+
+    if (itens.length < 100) break;
+    pagina++;
+    tentativasReauth = 0;
+  }
+
+  return mapa;
 }
 
 export async function buscarV2(
@@ -285,13 +514,14 @@ export async function buscarV2(
   const tokenInicial = await obterToken(empresa);
   if (!tokenInicial) {
     log("warn", `buscarV2 sem token: ${empresa}`);
-    return [] as { data: string; valor: number; metodo: string | null }[];
+    return [] as { data: string; valor: number; metodo: string | null; conta_id?: string }[];
   }
   const tokenRef = { token: tokenInicial };
 
-  const brutos: { id: string; data: string; valor: number }[] = [];
+  const brutos: { id: string; data: string; valor: number; conta_id?: string }[] = [];
   let pagina = 1;
   let tentativasReauth = 0;
+  const ehReceber = endpoint.includes("contas-a-receber");
 
   while (true) {
     const params = new URLSearchParams({
@@ -323,32 +553,65 @@ export async function buscarV2(
     for (const i of itens) {
       const dv = i.data_vencimento ? String(i.data_vencimento).slice(0, 10) : null;
       const aberto = (i.total || 0) - (i.pago || 0);
-      if (dv && aberto > 0 && i.id) brutos.push({ id: String(i.id), data: dv, valor: aberto });
+      if (dv && aberto > 0 && i.id) {
+        // Tenta extrair ID da conta de vários campos possíveis
+        const conta_id = i.conta_financeira_id || i.conta_id || i.account_id || i.banco_id || i.banco?.id;
+        
+        // Log para debug (removver depois)
+        if (pagina === 1 && !conta_id) {
+          log("info", `DEBUG: item ${String(i.id).slice(0, 8)} - campos disponiveis: ${Object.keys(i).filter(k => typeof i[k] === 'string' || i[k]?.id).join(', ')}`);
+        }
+        
+        brutos.push({ 
+          id: String(i.id), 
+          data: dv, 
+          valor: aberto,
+          conta_id: conta_id ? String(conta_id) : undefined
+        });
+      }
     }
     if (itens.length < 100) break;
     pagina++;
     tentativasReauth = 0;
   }
 
-  const ehReceber = endpoint.includes("contas-a-receber");
   if (!ehReceber) {
-    return brutos.map((b) => ({ data: b.data, valor: b.valor, metodo: null }));
+    return brutos.map((b) => ({ data: b.data, valor: b.valor, metodo: null, conta_id: b.conta_id }));
   }
 
+  // Para contas a receber, primeiro tenta buscar métodos via lista de contas-a-receber
+  let metodoPorId = await buscarMetodoPorListaReceber(empresa, dataInicio, dataFim, tokenRef);
+  log("info", `buscarV2 ${empresa} encontrou ${metodoPorId.size} itens com metodo via lista`);
+
+  // Depois, para items sem método, tenta buscar detalhes individuais
   const CONCORRENCIA = 8;
-  const resultado: { data: string; valor: number; metodo: string | null }[] = new Array(brutos.length);
+  const resultado: { data: string; valor: number; metodo: string | null; conta_id?: string }[] = new Array(brutos.length);
   let idx = 0;
   let boletos = 0;
   let comMetodo = 0;
+
   async function worker() {
     while (true) {
       const meu = idx++;
       if (meu >= brutos.length) return;
       const b = brutos[meu];
-      const metodo = await buscarDetalheFormaPagamento(empresa, endpoint, b.id, tokenRef);
+
+      let metodo = metodoPorId.get(String(b.id)) ?? null;
+
+      if (!metodo) {
+        metodo = await buscarDetalheFormaPagamento(empresa, endpoint, b.id, tokenRef);
+      } else {
+        log("info", `${empresa} item ${String(b.id).slice(0, 8)} data=${b.data} valor=${b.valor} classificado de lista como: ${metodo}`);
+      }
+
       if (metodo) comMetodo++;
-      if (metodo && metodo.toUpperCase().includes("BOLETO")) boletos++;
-      resultado[meu] = { data: b.data, valor: b.valor, metodo };
+      if (metodo && metodo.toUpperCase().includes("BOLETO")) {
+        boletos++;
+        log("info", `${empresa} BOLETO DETECTADO: item ${String(b.id).slice(0, 8)} data=${b.data} valor=${b.valor}`);
+      } else if (!metodo) {
+        log("warn", `${empresa} SEM MÉTODO: item ${String(b.id).slice(0, 8)} data=${b.data} valor=${b.valor}`);
+      }
+      resultado[meu] = { data: b.data, valor: b.valor, metodo, conta_id: b.conta_id };
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCORRENCIA, brutos.length) }, worker));
@@ -382,17 +645,13 @@ export async function inspecionarPrimeirosRecebimentos(
   if (!res.ok) return { erro: `lista ${res.status}` };
   const j: any = await res.json();
   const itens: any[] = (j.itens || []).slice(0, limite);
-  const detalhes = [] as any[];
-  for (const i of itens) {
-    const id = String(i.id);
-    const dUrl = `https://api-v2.contaazul.com${endpoint.replace(/\/buscar$/, "")}/${id}`;
-    const r = await fetchComRetry(dUrl, { headers: { Authorization: `Bearer ${tokenRef.token}` } });
-    if (!r.ok) {
-      detalhes.push({ id, erro: r.status });
-      continue;
-    }
-    const dj: any = await r.json();
-    detalhes.push({ id, metodo_extraido: extrairMetodo(dj), bruto: dj });
-  }
+  const detalhes = itens.map((i) => ({
+    id: String(i.id),
+    forma_pagamento: i.forma_pagamento ?? null,
+    parcelas: i.parcelas?.map((p: any) => p.forma_pagamento ?? null) ?? null,
+    baixas: i.baixas?.map((b: any) => b.forma_pagamento ?? null) ?? null,
+    metodo_extraido: extrairMetodo(i),
+    bruto: i,
+  }));
   return { lista_amostra: j.itens?.[0] || null, detalhes };
 }
